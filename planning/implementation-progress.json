@@ -142,7 +142,7 @@
         "PR #90 extends service-backed CI with durable collection and frozen-export PostgreSQL/process tests, 36 browser scenarios and real TypeScript-client export/hash interoperability; execution results are attached separately.",
         "Verified PR #90 runtime checkpoint 586bf6f6d2b796beb9aee95263fc97feef0e85fd (https://github.com/makafeli/arbitrage-research/actions/runs/34723924678) passed all four CI jobs: 225 Rust tests including all 52 real PostgreSQL tests with zero ignored/filtered; 36 Chromium scenarios; 25 Node tests; real TypeScript-client/Rust-API/PostgreSQL frozen-export and telemetry interoperability; independent Uniswap references; 21 importer regressions, 31 negative contract cases and all three Railway containers. docs/18-COLLECTION-AND-EXPORT-VERIFICATION.md records peer review, the corrected rejection fixture, six inspected screenshots and remaining acceptance."
       ],
-      "remaining_acceptance": "Rerun and accept all canonical Rust/PostgreSQL, reference-oracle, frontend/browser, specification and container jobs on the final corrected PR #89 head. ARB-004 deployment/retention/benchmark assumptions remain unaccepted; ARB-007 cannot close until that dependency and maintainer review are satisfied. Earlier c77af2e and partial 6f93309 results apply only to their recorded checkpoints."
+      "remaining_acceptance": "Canonical Rust/PostgreSQL, reference-oracle, frontend/browser, specification and container checks have passed at the recorded PR #89 and PR #90 runtime checkpoints. ARB-004 deployment/retention/benchmark assumptions remain unaccepted; ARB-007 cannot close until that dependency and maintainer review are satisfied. Historical results apply only to their recorded checkpoints."
     },
     {
       "id": "ARB-008",
