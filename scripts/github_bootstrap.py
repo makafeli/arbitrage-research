@@ -342,19 +342,25 @@ class Bootstrap:
             created += 1
             print(f"Issue {key}: {issue['html_url']}", flush=True)
         # Second pass resolves all dependency URLs. Comments, state, assignees and
-        # labels added by operators remain intact; only managed content is updated.
+        # labels added by operators remain intact; only open-issue managed content
+        # is updated. Closed bodies are accepted/historical records and are never
+        # regenerated from the original planned backlog, including their checkboxes.
         # Workflow status is initialized on creation only. Reapplying the original
         # planned backlog must not restore a status deliberately removed by triage.
         for item in self.items:
             old = self.issues[item["id"]]
-            desired = managed_body(item, self.issues, self.args.repo, self.branch)
-            body = merge_body(old.get("body") or "", desired)
+            preserve_body = old.get("state") == "closed"
+            body = old.get("body") if preserve_body else merge_body(
+                old.get("body") or "", managed_body(item, self.issues, self.args.repo, self.branch))
             labels = sorted({x["name"] for x in old.get("labels", [])} |
                             {label for label in item["labels"] if not label.startswith("status:")})
             milestone = self.milestones[item["milestone"]]["number"]
             if body != old.get("body") or issue_title(item) != old["title"] or set(labels) != {x["name"] for x in old.get("labels", [])} or (old.get("milestone") or {}).get("number") != milestone:
-                self.issues[item["id"]] = self.api(self.base + f"/issues/{old['number']}", "PATCH", {
-                    "title": issue_title(item), "body": body, "labels": labels, "milestone": milestone})
+                payload = {"title": issue_title(item), "labels": labels, "milestone": milestone}
+                # Omitting the field also protects closed-body edits made since the read.
+                if not preserve_body:
+                    payload["body"] = body
+                self.issues[item["id"]] = self.api(self.base + f"/issues/{old['number']}", "PATCH", payload)
         return {"total": len(self.items), "created": created}
 
     def relationships(self):

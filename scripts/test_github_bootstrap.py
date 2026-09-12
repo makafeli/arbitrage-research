@@ -21,6 +21,7 @@ class FakeBootstrap(setup.Bootstrap):
         self.stale_listing = False
         self.fail_issue_read = False
         self.individual_reads = 0
+        self.issue_patches = []
         self.remote_milestones = [{"title": key, "number": i + 1} for i, key in enumerate(setup.MILESTONES)]
 
     def api(self, endpoint, method="GET", payload=None, paginate=False):
@@ -46,6 +47,7 @@ class FakeBootstrap(setup.Bootstrap):
                 raise setup.SetupError("simulated unknown response")
             return deepcopy(value)
         if method == "PATCH" and "/issues/" in endpoint:
+            self.issue_patches.append(deepcopy(payload))
             number = int(endpoint.rsplit("/", 1)[1])
             old = next(x for x in self.remote if x["number"] == number)
             old.update(payload)
@@ -111,6 +113,47 @@ class ImportTests(unittest.TestCase):
             self.assertEqual({label["name"] for label in app.remote[0]["labels"]},
                              {"status:done", "reviewed", "test"})
             self.assertEqual(app.remote[0]["state"], "closed")
+
+    def test_closed_accepted_body_is_preserved_during_metadata_reconciliation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            item = self.item()
+            item["body"] = "**Status:** planned\n\n- [ ] Acceptance criterion"
+            app = FakeBootstrap(Path(tmp), [item])
+            app.issues_phase()
+            accepted = app.remote[0]["body"].replace("planned", "completed").replace("[ ]", "[x]")
+            accepted += "\n<!-- arb-foundation-acceptance:start -->\nAccepted with verified evidence.\n<!-- arb-foundation-acceptance:end -->\n"
+            accepted += "\nOperator note: retain every byte.\n"
+            app.remote[0].update(body=accepted, state="closed", state_reason="completed")
+            app.remote[0]["labels"] = [{"name": "status:done"}, {"name": "reviewed"}]
+            app.issue_patches.clear()
+            app.issues_phase()
+            self.assertEqual(app.remote[0]["body"], accepted)
+            self.assertEqual(app.remote[0]["state"], "closed")
+            self.assertEqual(app.remote[0]["state_reason"], "completed")
+            self.assertEqual({label["name"] for label in app.remote[0]["labels"]},
+                             {"status:done", "reviewed", "test"})
+            self.assertEqual(len(app.issue_patches), 1)
+            self.assertNotIn("body", app.issue_patches[0])
+            app.issues_phase()
+            self.assertEqual(app.remote[0]["body"], accepted)
+            self.assertEqual(len(app.issue_patches), 1)
+
+    def test_open_issue_managed_body_updates_and_preserves_outside_notes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            item = self.item()
+            app = FakeBootstrap(Path(tmp), [item])
+            app.issues_phase()
+            suffix = "\n<!-- arb-implementation-status:start -->\nOperator review in progress.\n<!-- arb-implementation-status:end -->\n"
+            app.remote[0]["body"] += suffix
+            item["body"] = "## Updated scope\n\n- [ ] Revised acceptance criterion"
+            app.issue_patches.clear()
+            app.issues_phase()
+            self.assertEqual(app.remote[0]["state"], "open")
+            self.assertIn("Revised acceptance criterion", app.remote[0]["body"])
+            self.assertNotIn("A meaningful task.", app.remote[0]["body"])
+            self.assertTrue(app.remote[0]["body"].endswith(suffix))
+            self.assertEqual(len(app.issue_patches), 1)
+            self.assertEqual(app.issue_patches[0]["body"], app.remote[0]["body"])
 
     def test_stale_collection_after_restart_does_not_create_duplicate(self):
         with tempfile.TemporaryDirectory() as tmp:
