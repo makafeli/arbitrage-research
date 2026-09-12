@@ -1,44 +1,67 @@
 # arb-domain
 
-Implemented: an immutable-mode research session, a pure lifecycle reducer, an
-unsigned 256-bit canonical decimal amount boundary, and a necessary evidence/mode
-check. The reducer returns a new value, so rejected operations leave the old value
-unchanged. Session fields are private; a session's mode cannot be changed in place.
+Deterministic types and invariants shared by research workers, control and paper
+accounting. This crate performs no I/O, signing or broadcasting.
 
-`request` models acceptance, leaving the observed state and local gate unchanged.
-`begin_fence` models the serialized worker-local fence, invalidates the calculation
-generation and enters `PAUSING` for ordinary states. `acknowledge` then marks the
-command `APPLIED`. Applied STOP is `DRAINING` while attempts remain unresolved and
-`STOPPED` only after resolution. STOP during `RECOVERING` or `FAULTED` acknowledges
-the local fence while preserving that blocking state. START and RESUME require an
-explicit readiness result; its actual dependency/freshness/limits checks remain
-future integration work. Feeds and read-only reconciliation are outside the reducer.
+## Exact financial values
 
-The reducer has **no durable command store, receipt history, API idempotency,
-process coordination, real transport fence, signer epoch revocation or transaction
-finality verification**. A future service must serialize it with its actual gates
-and persist transitions. `record_attempt` and `resolve_attempt` are generic
-in-memory accounting transitions; only evidence-backed callers may resolve a real
-attempt. A timeout alone cannot resolve it. A future durable service must mark a
-superseded receipt explicitly; this reducer retains only the current command.
+`AtomicAmount` is a canonical unsigned decimal string bounded to `2^256 - 1`.
+JSON numbers, exponent notation, signs, leading zeroes and overflow are rejected.
+Checked addition, subtraction, multiplication, rescaling and division report errors;
+`checked_mul_div` uses a 512-bit intermediate and requires explicit `Down`, `Up` or
+`Exact` rounding. These primitives do not implement a venue's swap formula.
+`SignedAmount` preserves losses with the same full unsigned magnitude on each side
+of zero. `Decimals` validates integer scales in 0..=255; a scale operation can still
+fail if its required integer intermediate exceeds the supported width.
 
-The LIVE enum exists for contract vocabulary, but research session construction
-rejects LIVE and every DISARM command. There is no signer/broadcast implementation.
-`validate_evidence_mode` prevents research output from using `REALIZED`; it does
-not establish simulation success or estimated-executable eligibility. The full
-evidence validator remains planned.
+## Identity and evidence
 
-`AtomicAmount` accepts canonical decimal base units from zero through `2^256 - 1`
-and preserves them as strings. It performs no protocol arithmetic. Venue math must
-implement its own checked widths, intermediates, rounding and fees; V3 calculations
-can require intermediates wider than 256 bits. Decimal token scaling and signed
-PnL are not implemented here. The future API serializer must emit this type as a
-JSON string, never a JSON number.
+Production `AssetId` and `PoolId` are network plus canonical address, serialized as
+`base-mainnet:0x...` or `solana-mainnet:<base58 address>`. EVM address keys normalize
+to lowercase; this is not an EIP-55 checksum or deployment verification. Solana keys
+must decode canonically to 32 nonzero bytes. Tickers and fixture IDs cannot enter
+these constructors. Native cost currency uses `base-mainnet:native` or
+`solana-mainnet:native` in opportunity cost records; it is separate from a wrapped
+token and cannot enter a trading `AssetId`. `FixtureId` is a separate type for explicitly synthetic data.
+`Route::new` validates the initial two-leg cycle, one network, continuity and distinct
+pools, including when deserializing a route.
+
+`OpportunityRecord` matches the existing opportunity JSON wire shape and is an
+**untrusted DTO until validated**. `validate_research` prohibits LIVE publication.
+`validate` checks research/REALIZED separation, declared complete atomic simulation
+and exact-plan evidence, additional estimated-executable gates, route and identity
+relationships, and exact output-minus-input-minus-explicit-cost arithmetic. The
+shared synthetic example round-trips without changing JSON values. The validator
+checks consistency of supplied evidence; it does not prove an actual RPC simulation
+occurred or that a ledger was reconciled. Future producers must supply that evidence.
+
+`CostEstimate::Missing` and `SubmissionOutcome::Unknown` retain unknown inputs and
+outcomes explicitly. Missing costs do not imply zero. Quote-included pool fees and
+impact are not represented as additional deductible costs.
+
+## Lifecycle and recovery
+
+Session mode is immutable. `request` records acceptance without changing the worker
+gate; `begin_fence` closes the gate; `acknowledge` records an applied command. STOP
+with outstanding work becomes DRAINING; it becomes STOPPED after positive resolution.
+STOP does not clear RECOVERING or FAULTED. LIVE and DISARM are unavailable.
+
+`SessionSnapshot` serializes private reducer state. `Session::restore_research`
+validates it before import. A coordinator may restore that reducer snapshot, but a
+worker process restart must call `restart_research`, which increments the generation,
+closes its gate, rejects pending admission commands and enters RECOVERING. Stored
+RUNNING state is never automatic permission to resume. Timeouts never resolve an
+outstanding attempt.
+
+The reducer has no process transport fence or durable store of its own. Integration
+must serialize gate transitions and persist receipts; the domain alone cannot prove
+a remote worker applied a command or prevent a stale process from broadcasting.
 
 ```sh
 cargo test -p arb-domain
 ```
 
-The test suite covers gate/ack separation, stopping with unresolved work, recovery,
-fault preservation, stale revisions, superseding stop, readiness, exact large
-amounts, unsupported LIVE/DISARM and invalid research evidence. All 19 domain tests passed in [the verified GitHub CI run](https://github.com/makafeli/arbitrage-research/actions/runs/34709107929). The [verification record](../../docs/11-PACKAGE-VALIDATION.md) distinguishes these in-memory invariants from future integration guarantees.
+Current coverage includes exact arithmetic boundary/exhaustive bounded properties,
+route mutation properties, shared JSON example round-trip, simulation/evidence gates,
+lifecycle controls, corrupt snapshots and restart fencing. The local and CI execution evidence is recorded separately from service integration
+guarantees.

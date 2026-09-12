@@ -7,6 +7,12 @@ publish.workspace = true
 
 [dependencies]
 arb-domain.workspace = true
+arb-config.workspace = true
+arb-adapter-api.workspace = true
+arb-capture.workspace = true
+arb-evm.workspace = true
+arb-solana.workspace = true
+serde_json = "1"
 
 [lints]
 workspace = true

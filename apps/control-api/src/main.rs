@@ -1,38 +1,36 @@
-//! Development liveness process only. The authenticated /v1 API is unimplemented.
-
-use axum::{Router, http::header, routing::get};
-use std::{error::Error, net::Ipv4Addr};
+//! Single-operator, research-only control service. Secrets are never logged.
+use control_api::{AppState, ServerConfig, router};
+use std::error::Error;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn Error>> {
-    let app = Router::new().route(
-        "/healthz",
-        get(|| async {
-            (
-                [(header::CONTENT_TYPE, "application/json")],
-                concat!(
-                    "{\"status\":\"OK\",\"service\":\"control-api-scaffold\",",
-                    "\"version\":\"",
-                    env!("CARGO_PKG_VERSION"),
-                    "\",",
-                    "\"trading_available\":false,\"persistence_available\":false}"
-                ),
-            )
-        }),
-    );
-    // Fixed loopback binding: this unauthenticated liveness harness must not
-    // become a public control surface through an environment override.
-    let listener = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 8080)).await?;
-    eprintln!("Development liveness only: http://127.0.0.1:8080/healthz");
-    eprintln!("No sessions, persistence, market feeds, signing or trading are implemented.");
-    axum::serve(listener, app)
+    let settings =
+        ServerConfig::from_env().map_err(|error| format!("API configuration: {error}"))?;
+    let database_url = std::env::var("ARB_DATABASE_URL")
+        .map_err(|_| "ARB_DATABASE_URL must be supplied through the process environment")?;
+    let store = arb_storage::Store::connect(&database_url)
+        .await
+        .map_err(|_| "Database unavailable; credentials and connection details redacted")?;
+    store
+        .migrate()
+        .await
+        .map_err(|_| "Database migration failed; details redacted")?;
+    settings
+        .register_configurations(&store)
+        .await
+        .map_err(|_| "Configuration registration failed; details redacted")?;
+    let address = settings.listen_address;
+    let state = AppState::new(store, settings);
+    let listener = tokio::net::TcpListener::bind(address).await?;
+    eprintln!("Research control API listening on {address}; live execution unavailable");
+    axum::serve(listener, router(state))
         .with_graceful_shutdown(shutdown())
         .await?;
     Ok(())
 }
 
 async fn shutdown() {
-    if let Err(error) = tokio::signal::ctrl_c().await {
-        eprintln!("Could not install Ctrl-C handler: {error}");
+    if tokio::signal::ctrl_c().await.is_err() {
+        eprintln!("Could not install shutdown handler");
     }
 }

@@ -3,8 +3,42 @@ use std::{error::Error, process::ExitCode};
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.len() == 4 && args[0] == "--verify-capture" && args[2] == "--manifest-digest" {
+        let now = match std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()
+            .and_then(|duration| u64::try_from(duration.as_millis()).ok())
+        {
+            Some(now) => now,
+            None => {
+                eprintln!("System clock unavailable");
+                return ExitCode::FAILURE;
+            }
+        };
+        return match replay::verify_capture(std::path::Path::new(&args[1]), &args[3], now) {
+            Ok(mut report) => {
+                match std::env::current_exe()
+                    .ok()
+                    .and_then(|path| arb_capture::file_digest(&path).ok())
+                {
+                    Some(digest) => report["replay_build_digest"] = serde_json::json!(digest),
+                    None => {
+                        eprintln!("Replay build identity unavailable");
+                        return ExitCode::FAILURE;
+                    }
+                }
+                println!("{report}");
+                ExitCode::SUCCESS
+            }
+            Err(error) => {
+                eprintln!("Capture verification failed: {error}");
+                ExitCode::FAILURE
+            }
+        };
+    }
     if args.len() != 1 || args[0] != "--lifecycle-demo" {
-        eprintln!("Recorded-market replay is not implemented.");
+        eprintln!("Usage: replay --verify-capture DIRECTORY --manifest-digest sha256:HASH");
+        eprintln!("Quote and paper-outcome replay are not implemented.");
         eprintln!("Use --lifecycle-demo for an offline synthetic control-state example.");
         return ExitCode::from(2);
     }

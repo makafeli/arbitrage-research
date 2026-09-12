@@ -1,6 +1,6 @@
 # Repository structure
 
-Status: v0.2 repository handoff. The repository now includes a Rust foundation, a React dashboard, planning metadata and Wiki source. The comprehensive tree below is the target structure, including future components. It is not a claim that every path or service exists. See [implementation status](12-IMPLEMENTATION-STATUS.md) for what the current scaffold contains.
+Status: parallel implementation on 12 September 2026. The repository includes Rust domain/configuration, storage/control, capture/adapters, scheduler/paper primitives, API/observation worker/replay applications, a connected React dashboard and Railway deployment definitions. The comprehensive tree below is the target structure, including future components. It is not a claim that every path or service exists. See [implementation status](12-IMPLEMENTATION-STATUS.md) for what the current scaffold contains.
 
 ## 1. Target monorepo
 

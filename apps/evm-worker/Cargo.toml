@@ -7,3 +7,11 @@ publish.workspace = true
 
 [lints]
 workspace = true
+
+[dependencies]
+arb-adapter-api = { path = "../../crates/arb-adapter-api" }
+arb-capture = { path = "../../crates/arb-capture" }
+arb-config = { path = "../../crates/arb-config" }
+arb-domain.workspace = true
+arb-evm = { path = "../../crates/arb-evm" }
+serde_json = "1"

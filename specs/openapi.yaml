@@ -1,12 +1,15 @@
 openapi: 3.1.0
 info:
   title: Arbitrage Research Control API
-  version: 0.1.0
-  description: PROPOSED DESIGN ONLY. Private authenticated control plane. Initial
-    deployment is OBSERVE/PAPER/REPLAY without signing or broadcast. LIVE is a reserved
-    capability-gated mode; no live arming endpoint is supplied. All integer quantities
-    and revisions crossing JSON use strings. A 202 command response acknowledges durable
-    acceptance only, not worker application.
+  version: 0.3.0
+  description: 'Implemented private research control boundary. Authentication, immutable configuration
+    references, durable session intent and command receipts are supported. Market capture, signing and
+    broadcast are unavailable. A 202 response proves durable command acceptance only; worker application
+    must be observed separately. All amounts and revisions use strings. The service has 16 KiB request
+    bodies, 10 login attempts per minute globally, at most 8 operator sessions, and 300 authenticated
+    requests per minute per session. A reverse proxy provides HTTPS outside explicit loopback development.
+    At most 64 handler requests run concurrently; each has a 15-second deadline. A timeout can leave mutation
+    completion uncertain: retry with the same idempotency key and payload.'
 servers:
 - url: https://arb.example.invalid
   description: Nonfunctional placeholder; no service is deployed.
@@ -18,7 +21,8 @@ paths:
       operationId: getHealth
       responses:
         '200':
-          description: Minimal service health
+          description: Authenticated database readiness. This does not assert worker, provider or execution
+            readiness. The separate unauthenticated /healthz is process liveness only.
           content:
             application/json:
               schema:
@@ -34,21 +38,57 @@ paths:
                 required:
                 - status
                 - version
-        '401': &id001
+          headers:
+            X-Request-ID:
+              description: Server-generated request correlation ID. Also present in error JSON.
+              schema:
+                type: string
+        '401': &id002
           description: Authentication required
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+          headers:
+            X-Request-ID:
+              description: Server-generated request correlation ID. Also present in error JSON.
+              schema:
+                type: string
+        '429': &id001
+          description: Request rejected; stable redacted error with correlation ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          headers:
+            X-Request-ID:
+              description: Server-generated request correlation ID. Also present in error JSON.
+              schema:
+                type: string
+        '503': *id001
+        '504':
+          description: Request deadline reached. Mutation completion may be uncertain; retry with the
+            same idempotency key and payload.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          headers:
+            X-Request-ID:
+              schema:
+                type: string
   /v1/sessions:
     post:
       operationId: createSession
-      description: Creates a STOPPED immutable-mode session after required recovery.
-        Does not start workers or arm execution. LIVE returns 403 in the first deployment.
-        Idempotency keys deduplicate identical requests.
+      description: Creates a RECOVERING immutable-mode research session. The worker reconciles state and
+        transitions it to STOPPED; creating a session never starts research or arms execution. Configuration
+        digest must match a server-registered validated configuration, including enabled network, mode
+        and strategy allowlist. Identical idempotent requests return the original session; a changed payload
+        returns 409. LIVE returns 403.
       parameters:
       - $ref: '#/components/parameters/IdempotencyKey'
       - $ref: '#/components/parameters/CsrfToken'
+      - $ref: '#/components/parameters/Origin'
       requestBody:
         required: true
         content:
@@ -62,31 +102,68 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Session'
-        '400': &id002
+          headers:
+            X-Request-ID:
+              description: Server-generated request correlation ID. Also present in error JSON.
+              schema:
+                type: string
+        '400': &id003
           description: Invalid input
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-        '401': *id001
-        '403': &id003
+          headers:
+            X-Request-ID:
+              description: Server-generated request correlation ID. Also present in error JSON.
+              schema:
+                type: string
+        '401': *id002
+        '403': &id004
           description: Capability or policy denied
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-        '409': &id004
+          headers:
+            X-Request-ID:
+              description: Server-generated request correlation ID. Also present in error JSON.
+              schema:
+                type: string
+        '409': &id005
           description: Revision conflict or incompatible lifecycle
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-        '503': &id005
+          headers:
+            X-Request-ID:
+              description: Server-generated request correlation ID. Also present in error JSON.
+              schema:
+                type: string
+        '503': &id006
           description: Required control dependency unavailable
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+          headers:
+            X-Request-ID:
+              description: Server-generated request correlation ID. Also present in error JSON.
+              schema:
+                type: string
+        '429': *id001
+        '504':
+          description: Request deadline reached. Mutation completion may be uncertain; retry with the
+            same idempotency key and payload.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          headers:
+            X-Request-ID:
+              schema:
+                type: string
     get:
       operationId: listSessions
       parameters:
@@ -121,11 +198,28 @@ paths:
                 required:
                 - items
                 - next_cursor
-        '400': *id002
-        '401': *id001
-        '403': *id003
-        '409': *id004
-        '503': *id005
+          headers:
+            X-Request-ID:
+              description: Server-generated request correlation ID. Also present in error JSON.
+              schema:
+                type: string
+        '400': *id003
+        '401': *id002
+        '403': *id004
+        '409': *id005
+        '503': *id006
+        '429': *id001
+        '504':
+          description: Request deadline reached. Mutation completion may be uncertain; retry with the
+            same idempotency key and payload.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          headers:
+            X-Request-ID:
+              schema:
+                type: string
   /v1/sessions/{session_id}:
     parameters:
     - $ref: '#/components/parameters/SessionId'
@@ -138,34 +232,55 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Session'
+          headers:
+            X-Request-ID:
+              description: Server-generated request correlation ID. Also present in error JSON.
+              schema:
+                type: string
         '404':
           description: Unknown session
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-        '400': *id002
-        '401': *id001
-        '403': *id003
-        '409': *id004
-        '503': *id005
+          headers:
+            X-Request-ID:
+              description: Server-generated request correlation ID. Also present in error JSON.
+              schema:
+                type: string
+        '400': *id003
+        '401': *id002
+        '403': *id004
+        '409': *id005
+        '503': *id006
+        '429': *id001
+        '504':
+          description: Request deadline reached. Mutation completion may be uncertain; retry with the
+            same idempotency key and payload.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          headers:
+            X-Request-ID:
+              schema:
+                type: string
   /v1/sessions/{session_id}/commands:
     parameters:
     - $ref: '#/components/parameters/SessionId'
     post:
       operationId: issueCommand
-      description: Durably accepts a revisioned command. Same idempotency key and
-        payload returns original receipt; different payload returns 409. PENDING is
-        not an effective stop. APPLIED STOP fences future local broadcasts; previously
-        emitted requests may execute and the state may remain DRAINING. DISARM is
-        idempotent and never recalls a transaction. APPLIED DISARM additionally requires
-        a durable signer revocation acknowledgement; an in-flight sign may return
-        bytes that must remain quarantined. DISARM is reserved for LIVE sessions and
-        returns 403 in the research-only deployment. All-worker controls fan out per-session
-        commands and retain individual acknowledgements.
+      description: Durably accepts a revisioned command. Same idempotency key and payload returns original
+        receipt; different payload returns 409. PENDING is not an effective stop. APPLIED STOP fences
+        future local broadcasts; previously emitted requests may execute and the state may remain DRAINING.
+        DISARM is idempotent and never recalls a transaction. APPLIED DISARM additionally requires a durable
+        signer revocation acknowledgement; an in-flight sign may return bytes that must remain quarantined.
+        DISARM is reserved for LIVE sessions and returns 403 in the research-only deployment. All-worker
+        controls fan out per-session commands and retain individual acknowledgements.
       parameters:
       - $ref: '#/components/parameters/IdempotencyKey'
       - $ref: '#/components/parameters/CsrfToken'
+      - $ref: '#/components/parameters/Origin'
       requestBody:
         required: true
         content:
@@ -179,11 +294,34 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CommandReceipt'
-        '400': *id002
-        '401': *id001
-        '403': *id003
-        '409': *id004
-        '503': *id005
+          headers:
+            X-Request-ID:
+              description: Server-generated request correlation ID. Also present in error JSON.
+              schema:
+                type: string
+        '400': *id003
+        '401': *id002
+        '403': *id004
+        '409': *id005
+        '503': *id006
+        '429': *id001
+        '504':
+          description: Request deadline reached. Mutation completion may be uncertain; retry with the
+            same idempotency key and payload.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          headers:
+            X-Request-ID:
+              schema:
+                type: string
+        '404':
+          description: Requested resource was not found in the operator scope.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /v1/commands/{command_id}:
     parameters:
     - name: command_id
@@ -200,23 +338,46 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CommandReceipt'
+          headers:
+            X-Request-ID:
+              description: Server-generated request correlation ID. Also present in error JSON.
+              schema:
+                type: string
         '404':
           description: Unknown command
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-        '400': *id002
-        '401': *id001
-        '403': *id003
-        '409': *id004
-        '503': *id005
+          headers:
+            X-Request-ID:
+              description: Server-generated request correlation ID. Also present in error JSON.
+              schema:
+                type: string
+        '400': *id003
+        '401': *id002
+        '403': *id004
+        '409': *id005
+        '503': *id006
+        '429': *id001
+        '504':
+          description: Request deadline reached. Mutation completion may be uncertain; retry with the
+            same idempotency key and payload.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          headers:
+            X-Request-ID:
+              schema:
+                type: string
   /v1/opportunities:
     get:
       operationId: listOpportunities
-      description: Evidence-labelled records. Schema includes financial fields; server
-        validates exact arithmetic, asset registry, route continuity, network identity
-        and evidence consistency.
+      description: Evidence-labelled records. This release has no capture provider and returns an empty
+        page. The capability endpoint explicitly reports opportunity_capture=false. No synthetic fixtures
+        are substituted into connected mode. Filters are validated; a supplied session_id must belong
+        to the operator.
       parameters:
       - name: session_id
         in: query
@@ -224,7 +385,7 @@ paths:
           type: string
       - name: network_id
         in: query
-        schema: &id006
+        schema: &id007
           type: string
           enum:
           - base-mainnet
@@ -269,19 +430,179 @@ paths:
                 required:
                 - items
                 - next_cursor
-        '400': *id002
+          headers:
+            X-Request-ID:
+              description: Server-generated request correlation ID. Also present in error JSON.
+              schema:
+                type: string
+        '400': *id003
+        '401': *id002
+        '403': *id004
+        '409': *id005
+        '503': *id006
+        '429': *id001
+        '504':
+          description: Request deadline reached. Mutation completion may be uncertain; retry with the
+            same idempotency key and payload.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          headers:
+            X-Request-ID:
+              schema:
+                type: string
+        '404':
+          description: Requested resource was not found in the operator scope.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /v1/auth/login:
+    post:
+      operationId: login
+      security: []
+      description: Exchange a process-provisioned operator secret for a new cookie and in-memory CSRF
+        token. Never save the supplied secret or CSRF token to browser storage. Global login rate limit
+        includes failed attempts.
+      parameters:
+      - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Authenticated; Set-Cookie establishes operator session.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSession'
+          headers:
+            X-Request-ID:
+              description: Server-generated request correlation ID. Also present in error JSON.
+              schema:
+                type: string
+        '400': *id001
         '401': *id001
-        '403': *id003
-        '409': *id004
-        '503': *id005
+        '403': *id001
+        '429': *id001
+        '503': *id001
+        '504':
+          description: Request deadline reached. Mutation completion may be uncertain; retry with the
+            same idempotency key and payload.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          headers:
+            X-Request-ID:
+              schema:
+                type: string
+  /v1/auth/session:
+    get:
+      operationId: getOperatorSession
+      description: Restore an existing cookie-authenticated browser session after a page reload. CSRF
+        token is retained only in browser memory.
+      responses:
+        '200':
+          description: Active operator session.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSession'
+          headers:
+            X-Request-ID:
+              description: Server-generated request correlation ID. Also present in error JSON.
+              schema:
+                type: string
+        '401': *id001
+        '429': *id001
+        '503': *id001
+        '504':
+          description: Request deadline reached. Mutation completion may be uncertain; retry with the
+            same idempotency key and payload.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          headers:
+            X-Request-ID:
+              schema:
+                type: string
+  /v1/auth/logout:
+    post:
+      operationId: logout
+      parameters:
+      - $ref: '#/components/parameters/Origin'
+      - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '204':
+          description: Server-side session revoked and cookie expired.
+          headers:
+            X-Request-ID:
+              description: Server-generated request correlation ID. Also present in error JSON.
+              schema:
+                type: string
+        '401': *id001
+        '403': *id001
+        '429': *id001
+        '503': *id001
+        '504':
+          description: Request deadline reached. Mutation completion may be uncertain; retry with the
+            same idempotency key and payload.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          headers:
+            X-Request-ID:
+              schema:
+                type: string
+  /v1/capabilities:
+    get:
+      operationId: getCapabilities
+      description: Reports implemented capabilities and safe server-registered configuration choices.
+        Contains no RPC endpoints, configuration snapshots or credentials. Enabled network configuration
+        is structural validation, not provider readiness.
+      responses:
+        '200':
+          description: Capabilities and permitted configuration choices.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Capabilities'
+          headers:
+            X-Request-ID:
+              description: Server-generated request correlation ID. Also present in error JSON.
+              schema:
+                type: string
+        '401': *id001
+        '429': *id001
+        '503': *id001
+        '504':
+          description: Request deadline reached. Mutation completion may be uncertain; retry with the
+            same idempotency key and payload.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          headers:
+            X-Request-ID:
+              schema:
+                type: string
 components:
   securitySchemes:
     operatorSession:
       type: apiKey
       in: cookie
       name: arb_session
-      description: Server-side operator session; Secure, HttpOnly, SameSite=Strict.
-        Validate CSRF token and origin on mutations.
+      description: Opaque random token in a bounded, expiring server-side operator session. Secure, HttpOnly,
+        SameSite=Strict, Path=/. Secure is omitted only under explicit HTTP loopback development configuration.
+        Authentication restart invalidates all browser sessions. Mutations require exact configured Origin
+        and X-CSRF-Token. No CORS origins are granted.
   parameters:
     SessionId:
       name: session_id
@@ -297,12 +618,20 @@ components:
         type: string
         minLength: 16
         maxLength: 128
+        pattern: ^[A-Za-z0-9_.:-]{16,128}$
     CsrfToken:
       name: X-CSRF-Token
       in: header
       required: true
       schema:
         type: string
+    Origin:
+      name: Origin
+      in: header
+      required: true
+      schema:
+        type: string
+      description: Must exactly match ARB_PUBLIC_ORIGIN; missing, duplicate and null origins are rejected.
   schemas:
     Error:
       type: object
@@ -324,8 +653,8 @@ components:
       properties:
         session_id:
           type: string
-        network_id: *id006
-        mode: &id008
+        network_id: *id007
+        mode: &id009
           type: string
           enum:
           - OBSERVE
@@ -348,10 +677,10 @@ components:
           - DEGRADED
           - UNREACHABLE
           - UNKNOWN
-        desired_revision: &id007
+        desired_revision: &id008
           type: string
           pattern: ^(0|[1-9][0-9]*)$
-        applied_revision: *id007
+        applied_revision: *id008
         outstanding_attempts:
           type: integer
           minimum: 0
@@ -387,7 +716,7 @@ components:
           - RESUME
           - STOP
           - DISARM
-        expected_revision: *id007
+        expected_revision: *id008
         reason:
           type: string
           maxLength: 500
@@ -402,7 +731,7 @@ components:
           type: string
         session_id:
           type: string
-        revision: *id007
+        revision: *id008
         status:
           enum:
           - PENDING
@@ -446,29 +775,117 @@ components:
       - outstanding_attempts
       - fence_effective
       - signer_revocation_status
-      description: APPLIED STOP/PAUSE means worker fence effective. APPLIED DISARM
-        also requires durable signer epoch revocation acknowledgement; unreachable
-        signer retains PENDING command status.
+      description: APPLIED STOP/PAUSE means worker fence effective. APPLIED DISARM also requires durable
+        signer epoch revocation acknowledgement; unreachable signer retains PENDING command status.
     Opportunity:
       $ref: ./opportunity.schema.json
     CreateSession:
       type: object
       additionalProperties: false
       properties:
-        network_id: *id006
-        mode: *id008
+        network_id: *id007
+        mode: *id009
         configuration_digest:
           type: string
+          pattern: ^sha256:[0-9a-f]{64}$
         experiment_id:
           type: string
+          minLength: 1
+          maxLength: 128
         strategy_ids:
           type: array
           minItems: 1
           items:
             type: string
+          maxItems: 16
       required:
       - network_id
       - mode
       - configuration_digest
       - experiment_id
       - strategy_ids
+    AuthSession:
+      type: object
+      additionalProperties: false
+      properties:
+        operator_id:
+          const: operator
+        csrf_token:
+          type: string
+          pattern: ^[0-9a-f]{64}$
+        expires_at:
+          type: string
+          pattern: ^[0-9]+$
+          description: Unix epoch seconds, encoded as a decimal string.
+      required:
+      - operator_id
+      - csrf_token
+      - expires_at
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        operator_secret:
+          type: string
+          minLength: 32
+          maxLength: 1024
+          writeOnly: true
+      required:
+      - operator_secret
+    RegisteredConfiguration:
+      type: object
+      additionalProperties: false
+      properties:
+        configuration_digest:
+          type: string
+          pattern: ^sha256:[0-9a-f]{64}$
+        mode:
+          enum:
+          - OBSERVE
+          - PAPER
+          - REPLAY
+        enabled_networks:
+          type: array
+          items:
+            enum:
+            - base-mainnet
+            - solana-mainnet
+        strategy_ids:
+          type: array
+          items:
+            type: string
+      required:
+      - configuration_digest
+      - mode
+      - enabled_networks
+      - strategy_ids
+    Capabilities:
+      type: object
+      additionalProperties: false
+      properties:
+        modes:
+          type: array
+          items:
+            enum:
+            - OBSERVE
+            - PAPER
+            - REPLAY
+        live_execution:
+          const: false
+        market_data:
+          const: false
+        opportunity_capture:
+          const: false
+        command_application:
+          const: WORKER_ACK_REQUIRED
+        registered_configurations:
+          type: array
+          items:
+            $ref: '#/components/schemas/RegisteredConfiguration'
+      required:
+      - modes
+      - live_execution
+      - market_data
+      - opportunity_capture
+      - command_application
+      - registered_configurations

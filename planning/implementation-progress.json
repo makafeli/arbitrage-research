@@ -1,0 +1,949 @@
+{
+  "schema_version": 1,
+  "goal": "Implement a reproducible Rust research and paper platform on Base and Solana, using the approved dashboard, with evidence-backed ticket delivery.",
+  "updated_on": "2026-09-12",
+  "branch": "feat/research-foundations",
+  "autonomous_background_runner": false,
+  "completion_rule": "A source implementation is not completion. Original ticket acceptance and dependency gates must have reviewable evidence before closing its GitHub issue.",
+  "tickets": [
+    {
+      "id": "ARB-001",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/14",
+      "state": "planned",
+      "owner_role": "Product Owner",
+      "dependencies": [],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-002",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/15",
+      "state": "planned",
+      "owner_role": "Operations engineer",
+      "dependencies": [
+        "ARB-001"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure.",
+      "external_prerequisite": "Provider account, endpoint availability and spending envelope not supplied."
+    },
+    {
+      "id": "ARB-003",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/16",
+      "state": "planned",
+      "owner_role": "Chain engineers",
+      "dependencies": [
+        "ARB-001",
+        "ARB-002"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure.",
+      "external_prerequisite": "Actual pool/asset registry requires source verification and provider-backed qualification."
+    },
+    {
+      "id": "ARB-004",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/17",
+      "state": "planned",
+      "owner_role": "Technical Lead / Operations",
+      "dependencies": [
+        "ARB-001",
+        "ARB-002"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure.",
+      "external_prerequisite": "Railway selected; actual project/environment, service budget, retention capacity and measured host benchmark remain unqualified."
+    },
+    {
+      "id": "ARB-005",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/18",
+      "state": "planned",
+      "owner_role": "Security reviewer / Technical Lead",
+      "dependencies": [
+        "ARB-001"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-006",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/19",
+      "state": "planned",
+      "owner_role": "Technical Lead / Product Owner",
+      "dependencies": [
+        "ARB-001",
+        "ARB-005"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-007",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/20",
+      "state": "implemented_pending_acceptance",
+      "owner_role": "integration",
+      "dependencies": [
+        "ARB-004",
+        "ARB-005",
+        "ARB-006"
+      ],
+      "evidence": [
+        "Source implementation on feat/research-foundations; final acceptance awaits recorded CI and full original criteria."
+      ],
+      "remaining_acceptance": "Original dependency gates and complete integration acceptance remain mandatory; see docs/12-IMPLEMENTATION-STATUS.md."
+    },
+    {
+      "id": "ARB-008",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/22",
+      "state": "implemented_pending_acceptance",
+      "owner_role": "domain-config",
+      "dependencies": [
+        "ARB-007"
+      ],
+      "evidence": [
+        "Source implementation on feat/research-foundations; final acceptance awaits recorded CI and full original criteria."
+      ],
+      "remaining_acceptance": "Original dependency gates and complete integration acceptance remain mandatory; see docs/12-IMPLEMENTATION-STATUS.md."
+    },
+    {
+      "id": "ARB-009",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/23",
+      "state": "implemented_pending_acceptance",
+      "owner_role": "domain-config",
+      "dependencies": [
+        "ARB-003",
+        "ARB-008"
+      ],
+      "evidence": [
+        "Source implementation on feat/research-foundations; final acceptance awaits recorded CI and full original criteria."
+      ],
+      "remaining_acceptance": "Original dependency gates and complete integration acceptance remain mandatory; see docs/12-IMPLEMENTATION-STATUS.md."
+    },
+    {
+      "id": "ARB-010",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/24",
+      "state": "implemented_pending_acceptance",
+      "owner_role": "storage-control",
+      "dependencies": [
+        "ARB-008",
+        "ARB-009"
+      ],
+      "evidence": [
+        "Source implementation on feat/research-foundations; final acceptance awaits recorded CI and full original criteria."
+      ],
+      "remaining_acceptance": "Original dependency gates and complete integration acceptance remain mandatory; see docs/12-IMPLEMENTATION-STATUS.md."
+    },
+    {
+      "id": "ARB-011",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/25",
+      "state": "implemented_pending_acceptance",
+      "owner_role": "storage-control",
+      "dependencies": [
+        "ARB-010"
+      ],
+      "evidence": [
+        "Source implementation on feat/research-foundations; final acceptance awaits recorded CI and full original criteria."
+      ],
+      "remaining_acceptance": "Original dependency gates and complete integration acceptance remain mandatory; see docs/12-IMPLEMENTATION-STATUS.md."
+    },
+    {
+      "id": "ARB-012",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/26",
+      "state": "implemented_pending_acceptance",
+      "owner_role": "control-api",
+      "dependencies": [
+        "ARB-008",
+        "ARB-010",
+        "ARB-011"
+      ],
+      "evidence": [
+        "Source implementation on feat/research-foundations; final acceptance awaits recorded CI and full original criteria."
+      ],
+      "remaining_acceptance": "Original dependency gates and complete integration acceptance remain mandatory; see docs/12-IMPLEMENTATION-STATUS.md."
+    },
+    {
+      "id": "ARB-013",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/27",
+      "state": "implemented_pending_acceptance",
+      "owner_role": "integration",
+      "dependencies": [
+        "ARB-007",
+        "ARB-008",
+        "ARB-011"
+      ],
+      "evidence": [
+        "Source implementation on feat/research-foundations; final acceptance awaits recorded CI and full original criteria."
+      ],
+      "remaining_acceptance": "Original dependency gates and complete integration acceptance remain mandatory; see docs/12-IMPLEMENTATION-STATUS.md."
+    },
+    {
+      "id": "ARB-014",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/28",
+      "state": "implemented_pending_acceptance",
+      "owner_role": "acquisition",
+      "dependencies": [
+        "ARB-008",
+        "ARB-009",
+        "ARB-010"
+      ],
+      "evidence": [
+        "Source implementation on feat/research-foundations; final acceptance awaits recorded CI and full original criteria."
+      ],
+      "remaining_acceptance": "Original dependency gates and complete integration acceptance remain mandatory; see docs/12-IMPLEMENTATION-STATUS.md."
+    },
+    {
+      "id": "ARB-015",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/29",
+      "state": "planned",
+      "owner_role": "Technical Lead / QA",
+      "dependencies": [
+        "ARB-012",
+        "ARB-013",
+        "ARB-014",
+        "ARB-016",
+        "ARB-018",
+        "ARB-022",
+        "ARB-023"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-016",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/30",
+      "state": "implemented_pending_acceptance",
+      "owner_role": "acquisition",
+      "dependencies": [
+        "ARB-002",
+        "ARB-003",
+        "ARB-008",
+        "ARB-009",
+        "ARB-014"
+      ],
+      "evidence": [
+        "Source implementation on feat/research-foundations; final acceptance awaits recorded CI and full original criteria."
+      ],
+      "remaining_acceptance": "Original dependency gates and complete integration acceptance remain mandatory; see docs/12-IMPLEMENTATION-STATUS.md."
+    },
+    {
+      "id": "ARB-017",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/31",
+      "state": "implemented_pending_acceptance",
+      "owner_role": "acquisition",
+      "dependencies": [
+        "ARB-002",
+        "ARB-003",
+        "ARB-008",
+        "ARB-009",
+        "ARB-014"
+      ],
+      "evidence": [
+        "Source implementation on feat/research-foundations; final acceptance awaits recorded CI and full original criteria."
+      ],
+      "remaining_acceptance": "Original dependency gates and complete integration acceptance remain mandatory; see docs/12-IMPLEMENTATION-STATUS.md."
+    },
+    {
+      "id": "ARB-018",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/32",
+      "state": "implemented_pending_acceptance",
+      "owner_role": "acquisition",
+      "dependencies": [
+        "ARB-016",
+        "ARB-017"
+      ],
+      "evidence": [
+        "Source implementation on feat/research-foundations; final acceptance awaits recorded CI and full original criteria."
+      ],
+      "remaining_acceptance": "Original dependency gates and complete integration acceptance remain mandatory; see docs/12-IMPLEMENTATION-STATUS.md."
+    },
+    {
+      "id": "ARB-019",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/33",
+      "state": "planned",
+      "owner_role": "EVM engineer",
+      "dependencies": [
+        "ARB-008",
+        "ARB-016",
+        "ARB-018"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-020",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/34",
+      "state": "implemented_pending_acceptance",
+      "owner_role": "Solana engineer",
+      "dependencies": [
+        "ARB-008",
+        "ARB-017",
+        "ARB-018"
+      ],
+      "evidence": [
+        "Restricted Orca static-fee exact-input and two-leg fixture math; third-party license/provenance pinned."
+      ],
+      "remaining_acceptance": "Current-program differential qualification, complete captured-state integration and unsupported behavior gates."
+    },
+    {
+      "id": "ARB-021",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/35",
+      "state": "planned",
+      "owner_role": "Technical Lead / Chain engineers",
+      "dependencies": [
+        "ARB-003",
+        "ARB-009",
+        "ARB-019",
+        "ARB-020"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-022",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/36",
+      "state": "planned",
+      "owner_role": "Engine engineer",
+      "dependencies": [
+        "ARB-008",
+        "ARB-009",
+        "ARB-019",
+        "ARB-020",
+        "ARB-021"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-023",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/37",
+      "state": "planned",
+      "owner_role": "Engine engineer / Data engineer",
+      "dependencies": [
+        "ARB-010",
+        "ARB-014",
+        "ARB-018",
+        "ARB-022"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-024",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/38",
+      "state": "planned",
+      "owner_role": "QA / Chain engineers",
+      "dependencies": [
+        "ARB-013",
+        "ARB-015",
+        "ARB-019",
+        "ARB-020",
+        "ARB-021",
+        "ARB-023"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-025",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/39",
+      "state": "implemented_pending_acceptance",
+      "owner_role": "Engine engineer",
+      "dependencies": [
+        "ARB-008",
+        "ARB-023"
+      ],
+      "evidence": [
+        "Source implementation on feat/research-foundations; final acceptance awaits recorded CI and full original criteria."
+      ],
+      "remaining_acceptance": "Original dependency gates and complete integration acceptance remain mandatory; see docs/12-IMPLEMENTATION-STATUS.md."
+    },
+    {
+      "id": "ARB-026",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/40",
+      "state": "implemented_pending_acceptance",
+      "owner_role": "Engine engineer",
+      "dependencies": [
+        "ARB-010",
+        "ARB-025"
+      ],
+      "evidence": [
+        "Source implementation on feat/research-foundations; final acceptance awaits recorded CI and full original criteria."
+      ],
+      "remaining_acceptance": "Original dependency gates and complete integration acceptance remain mandatory; see docs/12-IMPLEMENTATION-STATUS.md."
+    },
+    {
+      "id": "ARB-027",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/41",
+      "state": "implemented_pending_acceptance",
+      "owner_role": "Engine engineer",
+      "dependencies": [
+        "ARB-014",
+        "ARB-019",
+        "ARB-020",
+        "ARB-023"
+      ],
+      "evidence": [
+        "Source implementation on feat/research-foundations; final acceptance awaits recorded CI and full original criteria."
+      ],
+      "remaining_acceptance": "Original dependency gates and complete integration acceptance remain mandatory; see docs/12-IMPLEMENTATION-STATUS.md."
+    },
+    {
+      "id": "ARB-028",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/42",
+      "state": "planned",
+      "owner_role": "EVM engineer",
+      "dependencies": [
+        "ARB-019",
+        "ARB-021",
+        "ARB-025"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-029",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/43",
+      "state": "planned",
+      "owner_role": "Solana engineer",
+      "dependencies": [
+        "ARB-020",
+        "ARB-021",
+        "ARB-025"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-030",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/44",
+      "state": "planned",
+      "owner_role": "EVM engineer",
+      "dependencies": [
+        "ARB-018",
+        "ARB-027",
+        "ARB-028"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-031",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/45",
+      "state": "planned",
+      "owner_role": "Solana engineer",
+      "dependencies": [
+        "ARB-018",
+        "ARB-027",
+        "ARB-029"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-032",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/46",
+      "state": "planned",
+      "owner_role": "Research engineer",
+      "dependencies": [
+        "ARB-025",
+        "ARB-026",
+        "ARB-027",
+        "ARB-030",
+        "ARB-031"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-033",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/47",
+      "state": "planned",
+      "owner_role": "Engine engineer / QA",
+      "dependencies": [
+        "ARB-024",
+        "ARB-025",
+        "ARB-026",
+        "ARB-030",
+        "ARB-031",
+        "ARB-032"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-034",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/48",
+      "state": "planned",
+      "owner_role": "Research engineer / Product Owner",
+      "dependencies": [
+        "ARB-023",
+        "ARB-025",
+        "ARB-026",
+        "ARB-032",
+        "ARB-033"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-035",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/49",
+      "state": "planned",
+      "owner_role": "QA / Technical Lead",
+      "dependencies": [
+        "ARB-024",
+        "ARB-026",
+        "ARB-027",
+        "ARB-030",
+        "ARB-031",
+        "ARB-033",
+        "ARB-034"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-036",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/50",
+      "state": "planned",
+      "owner_role": "Frontend engineer / UI Designer",
+      "dependencies": [
+        "ARB-006",
+        "ARB-008"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-037",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/51",
+      "state": "implemented_pending_acceptance",
+      "owner_role": "dashboard",
+      "dependencies": [
+        "ARB-012",
+        "ARB-023",
+        "ARB-036"
+      ],
+      "evidence": [
+        "Source implementation on feat/research-foundations; final acceptance awaits recorded CI and full original criteria."
+      ],
+      "remaining_acceptance": "Original dependency gates and complete integration acceptance remain mandatory; see docs/12-IMPLEMENTATION-STATUS.md."
+    },
+    {
+      "id": "ARB-038",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/52",
+      "state": "implemented_pending_acceptance",
+      "owner_role": "dashboard",
+      "dependencies": [
+        "ARB-009",
+        "ARB-012",
+        "ARB-021",
+        "ARB-036"
+      ],
+      "evidence": [
+        "Source implementation on feat/research-foundations; final acceptance awaits recorded CI and full original criteria."
+      ],
+      "remaining_acceptance": "Original dependency gates and complete integration acceptance remain mandatory; see docs/12-IMPLEMENTATION-STATUS.md."
+    },
+    {
+      "id": "ARB-039",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/53",
+      "state": "implemented_pending_acceptance",
+      "owner_role": "dashboard",
+      "dependencies": [
+        "ARB-011",
+        "ARB-012",
+        "ARB-036",
+        "ARB-037"
+      ],
+      "evidence": [
+        "Source implementation on feat/research-foundations; final acceptance awaits recorded CI and full original criteria."
+      ],
+      "remaining_acceptance": "Original dependency gates and complete integration acceptance remain mandatory; see docs/12-IMPLEMENTATION-STATUS.md."
+    },
+    {
+      "id": "ARB-040",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/54",
+      "state": "planned",
+      "owner_role": "Frontend engineer / Research engineer",
+      "dependencies": [
+        "ARB-026",
+        "ARB-034",
+        "ARB-037",
+        "ARB-038"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-041",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/55",
+      "state": "planned",
+      "owner_role": "Data engineer / Frontend engineer",
+      "dependencies": [
+        "ARB-023",
+        "ARB-027",
+        "ARB-034",
+        "ARB-040"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-042",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/56",
+      "state": "planned",
+      "owner_role": "Operations engineer / Frontend engineer",
+      "dependencies": [
+        "ARB-013",
+        "ARB-024",
+        "ARB-037"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-043",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/57",
+      "state": "planned",
+      "owner_role": "UI/UX Designer / QA",
+      "dependencies": [
+        "ARB-037",
+        "ARB-038",
+        "ARB-039",
+        "ARB-040",
+        "ARB-041",
+        "ARB-042"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-044",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/58",
+      "state": "in_progress",
+      "owner_role": "Operations engineer / QA",
+      "dependencies": [
+        "ARB-035",
+        "ARB-039",
+        "ARB-041",
+        "ARB-042",
+        "ARB-043"
+      ],
+      "evidence": [
+        "Source implementation on feat/research-foundations; final acceptance awaits recorded CI and full original criteria."
+      ],
+      "remaining_acceptance": "Prepared Railway containers/IaC only; authenticated deployment, volumes, operational recovery and backup restore remain."
+    },
+    {
+      "id": "ARB-045",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/59",
+      "state": "planned",
+      "owner_role": "Product Owner / Research engineer",
+      "dependencies": [
+        "ARB-034",
+        "ARB-044"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure.",
+      "external_prerequisite": "Requires completed paper platform and registered comparison protocol."
+    },
+    {
+      "id": "ARB-046",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/60",
+      "state": "planned",
+      "owner_role": "Operations engineer",
+      "dependencies": [
+        "ARB-045"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure.",
+      "external_prerequisite": "Requires actual elapsed observation under the registered protocol."
+    },
+    {
+      "id": "ARB-047",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/61",
+      "state": "planned",
+      "owner_role": "QA / Research engineer",
+      "dependencies": [
+        "ARB-046"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure.",
+      "external_prerequisite": "Requires captured campaign and independent accounting review."
+    },
+    {
+      "id": "ARB-048",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/62",
+      "state": "planned",
+      "owner_role": "Research engineer / Product Owner",
+      "dependencies": [
+        "ARB-046",
+        "ARB-047"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure.",
+      "external_prerequisite": "Requires actual comparable campaign evidence."
+    },
+    {
+      "id": "ARB-049",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/63",
+      "state": "planned",
+      "owner_role": "Technical Lead / Security reviewer",
+      "dependencies": [
+        "ARB-044",
+        "ARB-047"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure.",
+      "external_prerequisite": "Requires deployed recovery evidence and operational/security review."
+    },
+    {
+      "id": "ARB-050",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/64",
+      "state": "planned",
+      "owner_role": "Operator / Product Owner",
+      "dependencies": [
+        "ARB-048",
+        "ARB-049"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure.",
+      "external_prerequisite": "Requires research report and operator go/revise/stop decision."
+    },
+    {
+      "id": "ARB-051",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/65",
+      "state": "planned",
+      "owner_role": "Architect / Operator",
+      "dependencies": [
+        "ARB-050"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure.",
+      "external_prerequisite": "Requires explicit concrete live design and risk limits after research decision."
+    },
+    {
+      "id": "ARB-052",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/66",
+      "state": "planned",
+      "owner_role": "Security engineer",
+      "dependencies": [
+        "ARB-051"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-053",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/67",
+      "state": "planned",
+      "owner_role": "Chain engineer / Security reviewer",
+      "dependencies": [
+        "ARB-028",
+        "ARB-029",
+        "ARB-051"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-054",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/68",
+      "state": "planned",
+      "owner_role": "Engine engineer",
+      "dependencies": [
+        "ARB-026",
+        "ARB-051"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-055",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/69",
+      "state": "planned",
+      "owner_role": "Backend engineer",
+      "dependencies": [
+        "ARB-010",
+        "ARB-052",
+        "ARB-054"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-056",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/70",
+      "state": "planned",
+      "owner_role": "Chain engineer",
+      "dependencies": [
+        "ARB-053",
+        "ARB-055"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-057",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/71",
+      "state": "planned",
+      "owner_role": "Chain engineer / Backend engineer",
+      "dependencies": [
+        "ARB-055",
+        "ARB-056"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-058",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/72",
+      "state": "planned",
+      "owner_role": "Systems engineer / QA",
+      "dependencies": [
+        "ARB-011",
+        "ARB-052",
+        "ARB-055",
+        "ARB-057"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-059",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/73",
+      "state": "planned",
+      "owner_role": "Frontend engineer / Security engineer",
+      "dependencies": [
+        "ARB-039",
+        "ARB-051",
+        "ARB-052",
+        "ARB-054",
+        "ARB-057",
+        "ARB-058"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-060",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/74",
+      "state": "planned",
+      "owner_role": "Independent reviewer / Implementers",
+      "dependencies": [
+        "ARB-052",
+        "ARB-053",
+        "ARB-054",
+        "ARB-055",
+        "ARB-056",
+        "ARB-057",
+        "ARB-058",
+        "ARB-059"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure.",
+      "external_prerequisite": "Independent review cannot be substituted with author self-review."
+    },
+    {
+      "id": "ARB-061",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/75",
+      "state": "planned",
+      "owner_role": "Technical Lead / Operator",
+      "dependencies": [
+        "ARB-050",
+        "ARB-060"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure.",
+      "external_prerequisite": "Requires independently reviewed pilot release packet."
+    },
+    {
+      "id": "ARB-062",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/76",
+      "state": "planned",
+      "owner_role": "Operator / Operations engineer",
+      "dependencies": [
+        "ARB-061"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure.",
+      "external_prerequisite": "Requires approved funded pilot and real observation."
+    },
+    {
+      "id": "ARB-063",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/77",
+      "state": "planned",
+      "owner_role": "Product Owner / Operator",
+      "dependencies": [
+        "ARB-062"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure.",
+      "external_prerequisite": "Requires actual pilot results."
+    },
+    {
+      "id": "ARB-064",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/78",
+      "state": "planned",
+      "owner_role": "Chain engineers",
+      "dependencies": [
+        "ARB-035",
+        "ARB-048",
+        "ARB-050"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-065",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/79",
+      "state": "planned",
+      "owner_role": "Engine engineer / Chain engineers",
+      "dependencies": [
+        "ARB-064"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-066",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/80",
+      "state": "planned",
+      "owner_role": "Architect / Chain engineer",
+      "dependencies": [
+        "ARB-048",
+        "ARB-050",
+        "ARB-064"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-067",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/81",
+      "state": "planned",
+      "owner_role": "EVM or Solana engineer / Security reviewer",
+      "dependencies": [
+        "ARB-051",
+        "ARB-053",
+        "ARB-060",
+        "ARB-063"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-068",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/82",
+      "state": "planned",
+      "owner_role": "Technical Lead / Operations / Operator",
+      "dependencies": [
+        "ARB-044",
+        "ARB-050"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    }
+  ],
+  "deployment_platform": "Railway (user confirmed 2026-09-12)"
+}

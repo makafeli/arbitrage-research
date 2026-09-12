@@ -57,6 +57,26 @@ def main() -> None:
     for ticket_id in by_id:
         visit(ticket_id)
 
+    progress = json.loads((ROOT / 'planning/implementation-progress.json').read_text())
+    rows = progress['tickets']
+    task_ids = {entry['id'] for entry in backlog['tickets']}
+    assert len(rows) == len(task_ids), 'Progress must contain every task exactly once'
+    status_by_id = {entry['id']: entry for entry in rows}
+    assert set(status_by_id) == task_ids, 'Progress contains missing or unknown task IDs'
+    states = {'planned', 'in_progress', 'implemented_pending_acceptance', 'blocked', 'completed'}
+    for row in rows:
+        assert row['state'] in states, f"{row['id']}: invalid progress state"
+        assert row['dependencies'] == by_id[row['id']].get('dependencies', []), \
+            f"{row['id']}: progress dependencies drifted from acceptance contract"
+        if row['state'] == 'completed':
+            assert row['evidence'] and row.get('acceptance_review'), \
+                f"{row['id']}: completion requires evidence and acceptance review"
+            assert not row.get('external_prerequisite') and not row.get('remaining_acceptance'), \
+                f"{row['id']}: completed task retains unresolved acceptance"
+            for dep in row['dependencies']:
+                assert status_by_id[dep]['state'] == 'completed', \
+                    f"{row['id']}: dependency {dep} is not accepted"
+
     missing = []
     github_prefix = 'https://github.com/makafeli/arbitrage-research/blob/main/'
     for path in files('.md'):
@@ -88,6 +108,7 @@ def main() -> None:
         'document_links': 'resolved',
         'json_toml_python': 'parsed',
         'workspace_members': len(workspace['members']),
+        'implementation_progress': 'all task IDs and acceptance gates validated',
         'scope': 'Structural verification; no runtime or security certification',
     }, indent=2))
 

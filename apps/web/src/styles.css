@@ -190,3 +190,22 @@ button {touch-action:manipulation;}
 .detailcosts th {text-align:left;font-size:13px;color:var(--muted);font-weight:500}
 
 @media(max-width:540px){.filter{display:block}.filter label{margin-bottom:6px}.scope-note{margin-top:6px}.nav button{min-height:44px}.dialoghead{align-items:flex-start}.detailcosts th,.detailcosts td{padding:10px 5px}}
+
+/* Connected workflows preserve the approved dashboard design tokens. */
+.connected-banner {border-left-color:var(--blue)}
+.connected-banner strong {color:var(--blue)}
+.connected-form {display:grid;gap:12px;max-width:760px;margin-top:20px}
+.connected-form fieldset {border:0;padding:0;margin:0;display:grid;gap:12px;min-width:0}
+.connected-form label {font-size:13px;color:var(--muted)}
+.connected-form input:not([type=checkbox]) {width:100%;min-height:44px;font:inherit;padding:10px 12px;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:8px}
+.connected-form select {width:100%;min-width:0}
+.connected-form input:focus-visible {outline:3px solid var(--blue);outline-offset:3px}
+.connected-form .checkbox-label {display:flex;gap:10px;align-items:flex-start;padding:10px 0}
+.connected-form input[type=checkbox] {width:20px;height:20px;flex-shrink:0;margin-top:2px}
+.connected-form button {justify-self:start}
+.error-notice {border-left:3px solid var(--amber);margin-bottom:20px}
+.error-notice strong {color:var(--amber)}
+.mono {font-family:ui-monospace,SFMono-Regular,Consolas,monospace;overflow-wrap:anywhere}
+.login-panel {margin-bottom:23px}
+.topactions {flex-wrap:wrap}
+@media(max-width:540px){.connected-form button{width:100%}.topbar{align-items:flex-start}.topactions{justify-content:flex-end}.topactions button{font-size:12px;padding:8px}.topbar>div:first-child{min-width:85px}}
