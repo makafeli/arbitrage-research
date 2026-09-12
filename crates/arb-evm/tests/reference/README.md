@@ -1,7 +1,7 @@
 # Independent Uniswap reference oracle
 
 This directory supplies synthetic arithmetic fixtures produced by the published
-MIT-licensed `@uniswap/v3-sdk@3.11.0`. The corresponding inspected source commit
+MIT-licensed `@uniswap/v3-sdk@3.11.0`. The Rust adaptation's inspected source commit
 is [4e16fe8e56c8c26541545f138c89133794c7ce72](https://github.com/Uniswap/v3-sdk/tree/4e16fe8e56c8c26541545f138c89133794c7ce72).
 These inputs are manually constructed test scenarios. They are not captured
 market data, venue qualification evidence, transaction simulations or profit.
@@ -57,6 +57,9 @@ are treated as release evidence.
 
 The inspected source SHA-256 values for the arithmetic path are recorded in
 `source-provenance.json`. npm package integrity is independently recorded in
-the generated, reviewed lockfile. A source commit reference and a package
-integrity hash serve different purposes; neither is a market-data provenance
-claim.
+the generated, reviewed lockfile. `package-provenance.json` preserves the npm
+registry's actual `gitHead` and distribution integrity. The generator checks that
+integrity against the lock and copies the package identity into `golden.json`.
+The inspected source commit is not asserted to equal the published package's
+build commit. A source reference and package integrity serve different purposes;
+neither is a market-data provenance claim.

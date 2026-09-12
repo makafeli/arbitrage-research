@@ -7,7 +7,18 @@ const crypto = require('node:crypto');
 const JSBI = require('jsbi');
 const { Pool, TickMath, SqrtPriceMath, SwapMath, TickListDataProvider } = require('@uniswap/v3-sdk');
 
+// Source reference for the Rust adaptation. The published oracle artifact has
+// its own independently recorded registry gitHead and npm integrity below.
 const SOURCE_COMMIT = '4e16fe8e56c8c26541545f138c89133794c7ce72';
+const packageProvenance = JSON.parse(fs.readFileSync(path.join(__dirname, 'package-provenance.json'), 'utf8'));
+const npmLock = JSON.parse(fs.readFileSync(path.join(__dirname, 'package-lock.json'), 'utf8'));
+assert.equal(packageProvenance.name, '@uniswap/v3-sdk');
+assert.equal(packageProvenance.version, '3.11.0');
+assert.equal(typeof packageProvenance.dist?.integrity, 'string');
+assert.equal(packageProvenance.dist.integrity, npmLock.packages['node_modules/@uniswap/v3-sdk'].integrity);
+assert(packageProvenance.gitHead === undefined || /^[a-f0-9]{40}$/.test(packageProvenance.gitHead));
+const oraclePackage = { name: packageProvenance.name, version: packageProvenance.version,
+  git_head: packageProvenance.gitHead ?? null, integrity: packageProvenance.dist.integrity };
 const sdkVersion = require('@uniswap/v3-sdk/package.json').version;
 assert.equal(sdkVersion, '3.11.0', 'oracle version changed');
 assert.equal(require('jsbi/package.json').version, '3.2.5', 'integer dependency changed');
@@ -52,7 +63,7 @@ function makeCase(name, options = {}) {
   const maxUsable = Math.trunc(887272 / spacing) * spacing;
   const maxGross = ((1n << 128n) - 1n) / BigInt((maxUsable - minUsable) / spacing + 1);
   for (const t of ticks) {
-    assert.equal(t.index % spacing, 0, 'unusable tick');
+    assert(t.index % spacing === 0, 'unusable tick');
     assert(BigInt(t.liquidity_gross) <= maxGross, 'per-tick maximum liquidity exceeded');
     netSum += BigInt(t.liquidity_net);
     if (t.index <= tick) active += BigInt(t.liquidity_net);
@@ -173,7 +184,8 @@ async function generate() {
     primitive('token0_zero_amount_identity', Q96, L, 0n, true),
     primitive('token1_round_down', Q96, L, 1234567n, false)
   ];
-  return { schema_version: 1, source_commit: SOURCE_COMMIT, fixture_origin: 'synthetic', cases, primitives };
+  return { schema_version: 1, source_commit: SOURCE_COMMIT, oracle_package: oraclePackage,
+    fixture_origin: 'synthetic', cases, primitives };
 }
 
 async function main() {

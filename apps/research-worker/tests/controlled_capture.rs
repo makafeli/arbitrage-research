@@ -62,6 +62,13 @@ async fn wait_until(mut check: impl AsyncFnMut() -> bool, seconds: u64) {
 
 #[tokio::test]
 async fn stop_acknowledges_while_rpc_is_blocked_and_late_capture_stays_unadmitted() {
+    controlled_process("OBSERVE").await;
+}
+#[tokio::test]
+async fn paper_worker_recovers_and_fences_read_only_research_without_settlement() {
+    controlled_process("PAPER").await;
+}
+async fn controlled_process(mode: &str) {
     let database = std::env::var("TEST_DATABASE_URL")
         .expect("TEST_DATABASE_URL required; process integration must not silently skip");
     let store = Store::connect(&database).await.unwrap();
@@ -71,7 +78,8 @@ async fn stop_acknowledges_while_rpc_is_blocked_and_late_capture_stays_unadmitte
     let capture_root = root.join("captures");
     fs::create_dir(&capture_root).unwrap();
     let registry = include_bytes!("../../../crates/arb-evm/tests/fixtures/registry.json");
-    let config = test_config(capture_root.to_str().unwrap(), registry);
+    let config = test_config(capture_root.to_str().unwrap(), registry)
+        .replace("mode = \"OBSERVE\"", &format!("mode = \"{mode}\""));
     let validated = ValidatedConfig::from_toml(&config).unwrap();
     let config_path = root.join("config.toml");
     let registry_path = root.join("registry.json");
@@ -92,7 +100,7 @@ async fn stop_acknowledges_while_rpc_is_blocked_and_late_capture_stays_unadmitte
             "session",
             NewSession {
                 network_id: "base-mainnet".into(),
-                mode: "OBSERVE".into(),
+                mode: mode.into(),
                 configuration_digest: validated.digest().into(),
                 experiment_id: "synthetic-loopback-control".into(),
                 strategy_ids: validated.strategy_ids().to_vec(),

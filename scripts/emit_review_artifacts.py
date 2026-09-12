@@ -16,6 +16,7 @@ FIXED = [
     "rust-format.patch",
     "crates/arb-evm/tests/reference/package-lock.json",
     "crates/arb-evm/tests/reference/golden.json",
+    "crates/arb-evm/tests/reference/package-provenance.json",
 ]
 MAX_FILE = 2 * 1024 * 1024
 MAX_TOTAL = 16 * 1024 * 1024

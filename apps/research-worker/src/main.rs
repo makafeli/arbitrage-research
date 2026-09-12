@@ -1,4 +1,4 @@
-//! OBSERVE-only PostgreSQL-controlled read-only capture runtime.
+//! PostgreSQL-controlled OBSERVE/PAPER read-only capture and research runtime.
 //! Captures feed bounded research-only route evaluation. Gross quotes never imply fills or executable profit.
 use arb_adapter_api::{Chain, HttpReadRpc, ReadRpc, RpcRecord, StateContext};
 use arb_capture::{CaptureManifest, MAX_BUNDLE_BYTES, Origin, file_digest, write_bundle};
@@ -312,8 +312,8 @@ async fn run() -> Result<(), AnyError> {
     let config = ValidatedConfig::from_toml(&String::from_utf8(read_small(&required_env(
         "ARB_WORKER_CONFIG",
     )?)?)?)?;
-    if config.mode() != Mode::Observe {
-        return Err("research-worker supports OBSERVE sessions only".into());
+    if !matches!(config.mode(), Mode::Observe | Mode::Paper) {
+        return Err("research-worker supports OBSERVE and PAPER research sessions only".into());
     }
     let operator = required_env("ARB_OPERATOR_ID")?;
     let session_id = required_env("ARB_SESSION_ID")?;
@@ -323,7 +323,12 @@ async fn run() -> Result<(), AnyError> {
     .await?;
     store.migrate().await?;
     let session = store.get_session(&operator, &session_id).await?;
-    if session.mode != "OBSERVE" || session.configuration_digest != config.digest() {
+    let expected_mode = match config.mode() {
+        Mode::Observe => "OBSERVE",
+        Mode::Paper => "PAPER",
+        _ => return Err("unsupported research mode".into()),
+    };
+    if session.mode != expected_mode || session.configuration_digest != config.digest() {
         return Err("worker configuration or mode differs from immutable session".into());
     }
     let network: NetworkId = session.network_id.parse()?;
@@ -377,7 +382,7 @@ async fn run() -> Result<(), AnyError> {
     worker.complete_recovery().await?;
     println!(
         "{}",
-        json!({"event":"worker-ready","session_id":session_id,"mode":"OBSERVE","state":"STOPPED","capability":"raw-read-only-capture","quote_ready":false})
+        json!({"event":"worker-ready","session_id":session_id,"mode":expected_mode,"state":"STOPPED","capability":"capture-and-candidate-research","quote_ready":false})
     );
     // This process owns one network and one capture/evaluation at a time.
     // Host-wide resource isolation across Railway services is a deployment concern.

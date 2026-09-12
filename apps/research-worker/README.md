@@ -1,10 +1,10 @@
 # research-worker
 
-An OBSERVE-only worker process with PostgreSQL session controls and real read-only Base/Uniswap V3 or Solana/Orca capture. After durable capture admission it evaluates bounded two-pool, same-network routes with the research engine and stores immutable decisions. Arithmetic results are gross CANDIDATE evidence; external costs, transaction simulation, paper fills, signing, broadcasting and live execution remain unavailable.
+An OBSERVE/PAPER worker process with PostgreSQL session controls and real read-only Base/Uniswap V3 or Solana/Orca capture. After durable capture admission it evaluates bounded two-pool, same-network routes with the research engine and stores immutable decisions. Arithmetic results are gross CANDIDATE evidence; external costs, transaction simulation, paper fills, signing, broadcasting and live execution remain unavailable.
 
 ## Prerequisites and startup
 
-Create an OBSERVE session through the control API using a validated, enabled configuration and the exact configuration digest. The API and worker must use the same configuration. The supplied disabled example deliberately cannot start market capture: qualify the actual pool/program/code identities and complete its allowlists first. Do not substitute fixture qualification data for a real deployment review.
+Create an OBSERVE or PAPER session through the control API using a validated, enabled configuration with the same mode and the exact configuration digest. The API and worker must use the same configuration. The supplied disabled example deliberately cannot start market capture: qualify the actual pool/program/code identities and complete its allowlists first. Do not substitute fixture qualification data for a real deployment review.
 
 Set references to existing files and the session:
 
@@ -47,3 +47,5 @@ The process integration test uses manually constructed fixtures served over loop
 Each raw bundle keeps four objects. A pool-set capture uses `arb_evm-pool-set-v1` or `arb_solana-pool-set-v1`; old decoder-only replay remains compatible. The immutable `decision_traces` table binds decisions to admitted capture manifests, generation, session and frozen configuration. Grouping summarizes repeated observations without replacing or deleting them. The API exposes raw history separately from groups.
 
 This conservative process owns one network and performs one blocking capture/evaluation at a time. Its scheduler capacity stays below configuration ceilings. It does not prove host-wide CPU isolation across separate Railway services or production arbitrage latency. Multi-pool snapshots with different chain contexts are rejected by research evaluation; capture success alone does not make them atomic.
+
+PAPER sessions use the same recovery and generation fences. Once recovery has reached STOPPED, the API can create an immutable virtual-capital run for that PAPER session. Running the worker collects inputs and CANDIDATE decisions only; it does not convert quotes into settlements. Initial balance creation and paper history remain separate from execution qualification.

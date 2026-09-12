@@ -25,6 +25,7 @@ jobs:
         run: |
           npm install --package-lock-only --ignore-scripts --no-audit --no-fund --prefix crates/arb-evm/tests/reference
           npm ci --ignore-scripts --no-audit --no-fund --prefix crates/arb-evm/tests/reference
+          npm view @uniswap/v3-sdk@3.11.0 --json > crates/arb-evm/tests/reference/package-provenance.json
           node crates/arb-evm/tests/reference/generate.cjs --write
           node crates/arb-evm/tests/reference/generate.cjs --check
       - name: Resolve workspace changes while preserving compatible locked versions
@@ -48,5 +49,6 @@ jobs:
             rust-format.patch
             crates/arb-evm/tests/reference/package-lock.json
             crates/arb-evm/tests/reference/golden.json
+            crates/arb-evm/tests/reference/package-provenance.json
           if-no-files-found: warn
           retention-days: 7
