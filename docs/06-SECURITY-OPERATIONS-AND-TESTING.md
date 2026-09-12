@@ -1,6 +1,6 @@
 # Security, operations and testing
 
-Status: v0.2 security and operations requirements. The current Rust/UI scaffold is not an audited system and does not implement the complete controls below. Scope: a privately operated, self-hosted Rust platform researching Solana and Base, starting with paper trading. Live execution is a later release gate. See [implementation status](12-IMPLEMENTATION-STATUS.md) before running or exposing any service.
+Status: v0.3 TARGET security and operations requirements. Implemented research controls include authenticated operator access, bounded read-only capture, immutable configuration, PostgreSQL generation/lease fencing and virtual-account journaling. Complete execution/signing controls below remain future work; no independent audit or production deployment is implied. Railway is the selected host. See [implementation status](12-IMPLEMENTATION-STATUS.md) and [integration verification](17-RESEARCH-INTEGRATION-VERIFICATION.md) for current scope and pending CI.
 
 ## 1. Security objectives and trust boundaries
 
@@ -33,7 +33,7 @@ A signer accepts a fully specified transaction plus an immutable intent referenc
 
 Resolve Solana address lookup tables before validating the complete instruction/account list. Decode EVM calldata through trusted adapters, including nested routes; validating only the outer router address is insufficient. Narrow supported transaction formats rather than accepting unknown extensions. The submitter repeats the run-state and epoch checks because a signed transaction can outlive its worker.
 
-Keep secrets out of source, images, command arguments, telemetry and dashboard responses. Mount credentials only into the services that need them; use restricted files or an appropriate secret manager. Compose secret mounts are an injection mechanism, not a guarantee of encrypted host storage. Encrypt and restrict the underlying storage separately. [Docker Compose secret guidance](https://docs.docker.com/compose/how-tos/use-secrets/)
+Keep secrets out of source, images, command arguments, telemetry and dashboard responses. The prepared Railway definition uses service-scoped secret/environment references; the browser receives neither database nor RPC credentials. Local development can use restricted files or environment injection. A reference or mount is not proof of encrypted storage, rotation or recovery testing; configure and verify those operational controls separately.
 
 ## 3. Execution policy and dependency changes
 
@@ -96,7 +96,7 @@ Store canonical block hashes or slots and finality status. A reorg removes provi
 
 ## 8. Deployment, capacity and retention
 
-Run the MVP on one Linux host with Docker Compose: API, separate chain workers, PostgreSQL and observability. Live deployment adds the isolated signer and explicitly enabled submission capability inside each chain worker; the signer itself never broadcasts. A dedicated VM on Proxmox is suitable for initial private operation; measure network behavior before choosing a region or dedicated host for live trading. One host is a deliberate single point of failure, not high availability.
+Railway is the selected research host. The prepared web service exposes HTTPS and proxies to one private API replica; PostgreSQL remains private. Add one independently supervised worker per qualified research session, each with a dedicated persistent capture volume and no public listener. Browser sessions are process-local to the API, so restart requires reauthentication; research records remain in PostgreSQL. Do not share writable capture volumes or assume horizontal worker scaling preserves ownership. Region latency, volume permissions, quotas, backups and restore remain deployment checks. See [the Railway runbook](../deploy/RAILWAY.md); prepared definitions do not imply an applied deployment. Any future live signer topology requires its own reviewed deployment design.
 
 Use non-root containers, read-only application filesystems where practical, dropped capabilities, bounded resources and no Docker socket mounts. Separate database, captures and logs onto quota-controlled storage. Keep CPU-heavy replay jobs from starving live data ingestion.
 

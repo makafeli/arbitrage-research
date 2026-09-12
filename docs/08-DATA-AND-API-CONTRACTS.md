@@ -1,10 +1,10 @@
 # Data and API contracts
 
-Status: v0.2 target contract baseline, 12 September 2026. The accompanying OpenAPI document covers the proposed initial control surface; the JSON Schema covers an opportunity record. The current foundation implements only the scope explicitly recorded in [implementation status](12-IMPLEMENTATION-STATUS.md), and the dashboard demo is not an API-conformance result. The contract version changes only when its wire format changes, independently of this document version.
+Status: v0.3 contract map, 12 September 2026. OpenAPI now describes the implemented research control, decision/coverage and virtual-account surface; opportunity schemas retain explicit version boundaries. The broader execution records below remain TARGET contracts. [Implementation status](12-IMPLEMENTATION-STATUS.md) and [integration verification](17-RESEARCH-INTEGRATION-VERIFICATION.md) distinguish source from pending conformance/CI evidence. Wire versions change only with their own formats, independently of this document version.
 
 ## Contract ownership
 
-The Rust domain types are the authority for financial calculations. The versioned HTTP/event schemas are the authority at process boundaries. TypeScript clients are generated from the API schema and may format amounts, but must never independently decide trade eligibility. CI must check generated bindings and schema compatibility. Chain adapters own decoding and protocol mathematics; they must implement the domain invariants below.
+The Rust domain types are the authority for financial calculations. The versioned HTTP/event schemas are the authority at process boundaries. The current TypeScript API clients validate received shapes and preserve exact amount strings; they do not independently decide trade eligibility. Fully generated client bindings remain a target. CI must check the implemented client against OpenAPI and versioned schemas, and later check generated-binding drift. Chain adapters own decoding and protocol mathematics; they must implement the domain invariants below.
 
 Use internal network identifiers `base-mainnet` and `solana-mainnet`. These are application registry keys, not CAIP identifiers. The registry must separately record the EVM chain ID or Solana network/genesis identity, provider identity, native fee asset, and finality policy. Verify the connected network before accepting any state or signing request. Initial experiments default to USDC-start cycles on each chain, with separate native fee reserves; WETH/wSOL-start experiments use a new immutable configuration and session. A token is identified by network plus contract/mint address; a ticker is a display property and never an identity.
 
@@ -17,6 +17,8 @@ Store both UTC timestamps for investigation and monotonic elapsed durations for 
 Registry examples containing `fixture:` identifiers are synthetic test data and are rejected by all production registry loaders. The example opportunity intentionally contains no real pool, router, program or wallet address.
 
 ## Core records
+
+This table is the target record vocabulary. Execution intents, signed attempts and chain settlement are not part of the current research-only HTTP surface. Current decision and virtual-account records are described under API boundary below.
 
 | Record | Identity and required contents | Invariant |
 | --- | --- | --- |
@@ -68,11 +70,15 @@ For concurrent operators or multiple browser tabs, requests carry `expected_revi
 
 ## API boundary
 
-The initial OpenAPI surface includes health/status, session creation, session inspection, lifecycle commands, command receipts and opportunity queries. Routes are authenticated. The health response discloses minimal status. A private network is the initial deployment boundary; authenticated sessions, origin/CSRF defenses for mutations, and secret redaction remain required.
+The implemented OpenAPI surface includes authentication, health/status, configuration/session controls, command receipts, opportunity queries, raw decisions, decision groups, coverage and virtual-account creation/history. Resource routes enforce operator scope; health discloses minimal status. The prepared Railway layout exposes the web origin and keeps the API/database private. Mutations retain authentication, exact-origin/CSRF protection, rate limits and idempotency. Event streaming is not yet implemented.
 
-The sample API intentionally exposes no private-key upload, wallet withdrawal, arbitrary transaction signing, or live arming endpoint. Later live arming must be designed around an independently enforced, expiring permit bound to network, wallet, strategies, targets, fee/notional limits, session and policy revision. It is a separate reviewable implementation milestone.
+The API exposes no private-key upload, wallet withdrawal, arbitrary transaction signing, live arming, arbitrary paper settlement or virtual-balance reset endpoint. Later live arming must be designed around an independently enforced, expiring permit bound to network, wallet, strategies, targets, fee/notional limits, session and policy revision. It is a separate reviewable implementation milestone.
 
 Pagination uses stable cursors and an upper page limit. Opportunity queries return mode and evidence label on each row. Event streaming is a later transport for the same models; first implementation may poll status with a declared update interval. When streaming is added, sequence cursors and snapshot resynchronization must handle gaps. Frontend disconnection has no authority to resume or change a worker.
+
+Current decision traces preserve exact capture references, configuration, generation, original observation time and explicit origin. Grouping does not delete raw observations. Coverage uses `collection_completeness: "UNKNOWN"`; unavailable execution denominators are `null`. A CANDIDATE projection with unknown external costs also has a `null` net amount. A stopped PAPER session with no pending command can create a new immutable initial-balance run. Retrying the same request/key returns that run; changing the payload under that key conflicts. A separate creation key can create another run without resetting prior history. Ledger history remains `HYPOTHETICAL`.
+
+Browser JSON exports contain selected received pages/records, receipt/export timestamps and limitation notices. They are bounded to 2 MiB and do not claim a full-history export, an atomic snapshot across resources, or retained raw replay objects. Historical replay uses actual time only for retention checks and labels its supplied elapsed-age scenario explicitly.
 
 ## Retention and storage
 

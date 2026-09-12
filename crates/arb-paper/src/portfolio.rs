@@ -76,10 +76,27 @@ pub enum PaperCommand {
 pub struct JournalEvent {
     run_id: String,
     network: NetworkId,
+    #[serde(with = "sequence_wire")]
     sequence: u64,
     command_id: String,
     command: PaperCommand,
     postings: Vec<Posting>,
+}
+mod sequence_wire {
+    use serde::{Deserialize, Deserializer, Serializer, de};
+    pub fn serialize<S: Serializer>(value: &u64, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&value.to_string())
+    }
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<u64, D::Error> {
+        let value = String::deserialize(deserializer)?;
+        if value.is_empty()
+            || (value.len() > 1 && value.starts_with('0'))
+            || !value.bytes().all(|b| b.is_ascii_digit())
+        {
+            return Err(de::Error::custom("canonical sequence string required"));
+        }
+        value.parse().map_err(de::Error::custom)
+    }
 }
 impl JournalEvent {
     pub fn run_id(&self) -> &str {
@@ -91,18 +108,25 @@ impl JournalEvent {
     pub fn command_id(&self) -> &str {
         &self.command_id
     }
+    pub fn command(&self) -> &PaperCommand {
+        &self.command
+    }
+    pub fn network(&self) -> NetworkId {
+        self.network
+    }
     pub fn postings(&self) -> &[Posting] {
         &self.postings
     }
 }
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Balance {
     pub free: AtomicAmount,
     pub reserved: AtomicAmount,
     pub total: AtomicAmount,
 }
-#[derive(Clone, Debug, Eq, PartialEq)]
-enum ReservationState {
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ReservationState {
     Reserved,
     Unknown,
     Resolved,
@@ -111,6 +135,22 @@ enum ReservationState {
 struct Reservation {
     request: ReservationRequest,
     state: ReservationState,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct PortfolioBalance {
+    pub asset: AccountingAsset,
+    pub free: AtomicAmount,
+    pub reserved: AtomicAmount,
+    pub total: AtomicAmount,
+}
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct PortfolioReservation {
+    pub attempt_id: String,
+    pub principal_asset: AssetId,
+    pub principal: AtomicAmount,
+    pub native_fee_budget: AtomicAmount,
+    pub state: ReservationState,
 }
 
 /// Single-writer deterministic portfolio reducer. `&mut self` serializes local
@@ -186,6 +226,52 @@ impl PaperRun {
             total,
         })
     }
+    pub fn balances(&self) -> Result<Vec<PortfolioBalance>, PaperError> {
+        let mut assets: Vec<AccountingAsset> = self
+            .free
+            .keys()
+            .chain(self.reserved.keys())
+            .cloned()
+            .collect();
+        assets.sort_by_key(|asset| match asset {
+            AccountingAsset::Token(id) => format!("TOKEN:{id}"),
+            AccountingAsset::Native(network) => format!("NATIVE:{network}"),
+        });
+        assets.dedup();
+        assets
+            .into_iter()
+            .map(|asset| {
+                let balance = self.balance(&asset)?;
+                Ok(PortfolioBalance {
+                    asset,
+                    free: balance.free,
+                    reserved: balance.reserved,
+                    total: balance.total,
+                })
+            })
+            .collect()
+    }
+    pub fn outstanding_reservations(&self) -> usize {
+        self.attempts
+            .values()
+            .filter(|reservation| reservation.state != ReservationState::Resolved)
+            .count()
+    }
+    pub fn reservations(&self) -> Vec<PortfolioReservation> {
+        let mut result: Vec<_> = self
+            .attempts
+            .values()
+            .map(|r| PortfolioReservation {
+                attempt_id: r.request.attempt_id.clone(),
+                principal_asset: r.request.principal_asset.clone(),
+                principal: r.request.principal.clone(),
+                native_fee_budget: r.request.native_fee_budget.clone(),
+                state: r.state.clone(),
+            })
+            .collect();
+        result.sort_by(|a, b| a.attempt_id.cmp(&b.attempt_id));
+        result
+    }
     /// Identical idempotency key+command returns its original event; changed body
     /// conflicts. A failed command cannot partially mutate balances or history.
     pub fn apply(
@@ -211,10 +297,22 @@ impl PaperRun {
             };
         }
         let mut next = self.clone();
+        let event = next.apply_new_in_place(command_id, command)?;
+        *self = next;
+        Ok(event)
+    }
+    /// Apply a new command to disposable owned state. Callers validate the command
+    /// identity and discard this entire state if any transition fails. Public
+    /// apply uses a clone; replay owns a fresh run and never clones its history.
+    fn apply_new_in_place(
+        &mut self,
+        command_id: &str,
+        command: PaperCommand,
+    ) -> Result<JournalEvent, PaperError> {
         let mut postings = Vec::new();
         match &command {
             PaperCommand::Initialize { balances } => {
-                if !next.events.is_empty() {
+                if !self.events.is_empty() {
                     return Err(paper_error(
                         "balances",
                         "reset requires a new paper run; initial balances are immutable",
@@ -227,15 +325,15 @@ impl PaperRun {
                     ));
                 }
                 for balance in balances {
-                    if balance.asset.network() != next.network
-                        || next.free.contains_key(&balance.asset)
+                    if balance.asset.network() != self.network
+                        || self.free.contains_key(&balance.asset)
                     {
                         return Err(paper_error(
                             "balances",
                             "initial assets must be unique and belong to the run network",
                         ));
                     }
-                    next.free
+                    self.free
                         .insert(balance.asset.clone(), balance.amount.clone());
                     transfer(
                         &mut postings,
@@ -248,7 +346,7 @@ impl PaperRun {
             }
             PaperCommand::Reserve { request } => {
                 if !valid_id(&request.attempt_id)
-                    || request.principal_asset.network() != next.network
+                    || request.principal_asset.network() != self.network
                     || request.principal.is_zero()
                 {
                     return Err(paper_error(
@@ -256,17 +354,17 @@ impl PaperRun {
                         "positive same-network principal and valid attempt ID are required",
                     ));
                 }
-                if next.attempts.contains_key(&request.attempt_id) {
+                if self.attempts.contains_key(&request.attempt_id) {
                     return Err(paper_error(
                         "attempt_id",
                         "an attempt already exists; reuse the original command ID for an idempotent retry",
                     ));
                 }
                 let principal = AccountingAsset::Token(request.principal_asset.clone());
-                let fee = AccountingAsset::Native(next.network);
-                next.move_available_to_reserved(&principal, &request.principal, &mut postings)?;
-                next.move_available_to_reserved(&fee, &request.native_fee_budget, &mut postings)?;
-                next.attempts.insert(
+                let fee = AccountingAsset::Native(self.network);
+                self.move_available_to_reserved(&principal, &request.principal, &mut postings)?;
+                self.move_available_to_reserved(&fee, &request.native_fee_budget, &mut postings)?;
+                self.attempts.insert(
                     request.attempt_id.clone(),
                     Reservation {
                         request: request.clone(),
@@ -278,7 +376,7 @@ impl PaperRun {
                 if reason.trim().is_empty() {
                     return Err(paper_error("reason", "unknown outcome requires a reason"));
                 }
-                let reservation = next
+                let reservation = self
                     .attempts
                     .get_mut(attempt_id)
                     .ok_or_else(|| paper_error("attempt_id", "reservation does not exist"))?;
@@ -295,7 +393,7 @@ impl PaperRun {
                 attempt_id,
                 outcome,
             } => {
-                let reservation = next
+                let reservation = self
                     .attempts
                     .get(attempt_id)
                     .cloned()
@@ -308,7 +406,7 @@ impl PaperRun {
                 }
                 let request = &reservation.request;
                 let principal = AccountingAsset::Token(request.principal_asset.clone());
-                let fee = AccountingAsset::Native(next.network);
+                let fee = AccountingAsset::Native(self.network);
                 let actual_fee = match outcome {
                     PaperOutcome::Succeeded {
                         actual_native_fee, ..
@@ -332,7 +430,7 @@ impl PaperRun {
                         "actual fee exceeds reservation; scenario cannot be settled within this budget",
                     ));
                 }
-                next.decrease_reserved(&principal, &request.principal)?;
+                self.decrease_reserved(&principal, &request.principal)?;
                 match outcome {
                     PaperOutcome::Succeeded { amount_out, .. } => {
                         transfer(
@@ -342,7 +440,7 @@ impl PaperRun {
                             LedgerAccount::Market,
                             &request.principal,
                         );
-                        next.increase_free(&principal, amount_out)?;
+                        self.increase_free(&principal, amount_out)?;
                         transfer(
                             &mut postings,
                             &principal,
@@ -352,7 +450,7 @@ impl PaperRun {
                         );
                     }
                     PaperOutcome::FailedIncluded { .. } | PaperOutcome::NotIncluded { .. } => {
-                        next.increase_free(&principal, &request.principal)?;
+                        self.increase_free(&principal, &request.principal)?;
                         transfer(
                             &mut postings,
                             &principal,
@@ -362,12 +460,12 @@ impl PaperRun {
                         );
                     }
                 }
-                next.decrease_reserved(&fee, &request.native_fee_budget)?;
+                self.decrease_reserved(&fee, &request.native_fee_budget)?;
                 let released_fee = request
                     .native_fee_budget
                     .checked_sub(&actual_fee)
                     .map_err(|_| paper_error("fees", "invalid fee reservation"))?;
-                next.increase_free(&fee, &released_fee)?;
+                self.increase_free(&fee, &released_fee)?;
                 transfer(
                     &mut postings,
                     &fee,
@@ -382,32 +480,31 @@ impl PaperRun {
                     LedgerAccount::Fees,
                     &actual_fee,
                 );
-                next.attempts
+                self.attempts
                     .get_mut(attempt_id)
                     .expect("existing reservation")
                     .state = ReservationState::Resolved;
             }
         }
-        if next.events.is_empty() && !matches!(command, PaperCommand::Initialize { .. }) {
+        if self.events.is_empty() && !matches!(command, PaperCommand::Initialize { .. }) {
             return Err(paper_error("run", "initialization event required first"));
         }
-        for asset in next.free.keys().chain(next.reserved.keys()) {
-            next.balance(asset)?;
+        for asset in self.free.keys().chain(self.reserved.keys()) {
+            self.balance(asset)?;
         }
-        let sequence = u64::try_from(next.events.len())
+        let sequence = u64::try_from(self.events.len())
             .map_err(|_| paper_error("journal", "sequence overflow"))?;
         let event = JournalEvent {
-            run_id: next.run_id.clone(),
-            network: next.network,
+            run_id: self.run_id.clone(),
+            network: self.network,
             sequence,
             command_id: command_id.into(),
             command,
             postings,
         };
-        next.idempotency
-            .insert(command_id.into(), next.events.len());
-        next.events.push(event.clone());
-        *self = next;
+        self.idempotency
+            .insert(command_id.into(), self.events.len());
+        self.events.push(event.clone());
         Ok(event)
     }
     fn move_available_to_reserved(
@@ -477,7 +574,10 @@ impl PaperRun {
     }
     /// Import only a complete ordered journal. Recompute every posting from the
     /// command and compare; gaps, changed postings, run mixing and duplicate events
-    /// fail. Persisted prefix replay models recovery, not actual disk durability.
+    /// fail. Replay mutates only a fresh owned run, so history copying is linear
+    /// in journal size; any failure discards that run. Public command application
+    /// retains its separate atomic clone-and-commit behavior. Persisted prefix
+    /// replay models recovery, not actual disk durability.
     pub fn replay(events: &[JournalEvent]) -> Result<Self, PaperError> {
         let first = events
             .first()
@@ -496,7 +596,17 @@ impl PaperRun {
                     "journal run/network/sequence mismatch",
                 ));
             }
-            let actual = run.apply(&expected.command_id, expected.command.clone())?;
+            if !valid_id(&expected.command_id) || run.idempotency.contains_key(&expected.command_id)
+            {
+                return Err(paper_error(
+                    "journal",
+                    "journal command identity is invalid or duplicated",
+                ));
+            }
+            // A failed transition or comparison discards this fresh owned run.
+            // Replaying N entries copies each entry a constant number of times,
+            // rather than cloning all prior history for every transition.
+            let actual = run.apply_new_in_place(&expected.command_id, expected.command.clone())?;
             if actual != *expected {
                 return Err(paper_error(
                     "journal",
@@ -759,6 +869,103 @@ mod tests {
             rebuilt.balance(&fee_asset()).unwrap(),
             restored.balance(&fee_asset()).unwrap()
         );
+    }
+    #[test]
+    fn large_journal_replay_retains_unknown_funds_and_rejects_late_corruption() {
+        // Build a three-command cycle using the public atomic reducer, then
+        // independently repeat its known postings with unique journal identities.
+        // Fixture construction therefore does not replay the new private path.
+        let mut template = run();
+        template.apply("reserve", reserve("attempt", 1, 1)).unwrap();
+        template
+            .apply(
+                "unknown",
+                PaperCommand::MarkUnknown {
+                    attempt_id: "attempt".into(),
+                    reason: "synthetic unknown inclusion".into(),
+                },
+            )
+            .unwrap();
+        template
+            .apply(
+                "release",
+                PaperCommand::Resolve {
+                    attempt_id: "attempt".into(),
+                    outcome: PaperOutcome::NotIncluded {
+                        reason: "synthetic terminal no-inclusion evidence".into(),
+                    },
+                },
+            )
+            .unwrap();
+        let mut events = vec![template.journal()[0].clone()];
+        for cycle in 0..1666 {
+            for original in &template.journal()[1..] {
+                let mut event = original.clone();
+                event.sequence = events.len() as u64;
+                event.command_id = format!("{}-{cycle}", original.command_id);
+                let id = format!("attempt-{cycle}");
+                match &mut event.command {
+                    PaperCommand::Reserve { request } => request.attempt_id = id,
+                    PaperCommand::MarkUnknown { attempt_id, .. }
+                    | PaperCommand::Resolve { attempt_id, .. } => *attempt_id = id,
+                    PaperCommand::Initialize { .. } => panic!("cycle cannot initialize"),
+                }
+                events.push(event);
+            }
+        }
+        let terminal = events.pop().unwrap();
+        assert_eq!(events.len(), 4998);
+        let mut restored = PaperRun::replay(&events).unwrap();
+        assert_eq!(restored.journal(), events);
+        assert_eq!(restored.outstanding_reservations(), 1);
+        assert_eq!(
+            restored.balance(&principal_asset()).unwrap().free,
+            99.into()
+        );
+        assert_eq!(
+            restored.balance(&principal_asset()).unwrap().reserved,
+            1.into()
+        );
+        assert_eq!(restored.balance(&fee_asset()).unwrap().free, 9.into());
+        assert_eq!(restored.balance(&fee_asset()).unwrap().reserved, 1.into());
+        assert_eq!(
+            restored
+                .reservations()
+                .iter()
+                .find(|r| r.attempt_id == "attempt-1665")
+                .unwrap()
+                .state,
+            ReservationState::Unknown
+        );
+        // Old idempotency receipts survive the complete replay unchanged.
+        let retry = &events[2500];
+        assert_eq!(
+            restored
+                .apply(&retry.command_id, retry.command.clone())
+                .unwrap(),
+            *retry
+        );
+        assert_eq!(restored.journal().len(), 4998);
+        assert_eq!(
+            restored
+                .apply(&terminal.command_id, terminal.command.clone())
+                .unwrap(),
+            terminal
+        );
+        assert_eq!(restored.outstanding_reservations(), 0);
+        assert_eq!(
+            restored.balance(&principal_asset()).unwrap().free,
+            100.into()
+        );
+        assert_eq!(restored.balance(&fee_asset()).unwrap().free, 10.into());
+        assert_pairwise_conservation(restored.journal());
+        // Corruption near the journal end must still discard the entire replay.
+        let mut corrupted = restored.journal().to_vec();
+        corrupted.last_mut().unwrap().postings[0].amount = 2.into();
+        assert!(PaperRun::replay(&corrupted).is_err());
+        let mut duplicated = restored.journal().to_vec();
+        duplicated.last_mut().unwrap().command_id = duplicated[1].command_id.clone();
+        assert!(PaperRun::replay(&duplicated).is_err());
     }
     #[test]
     fn replay_rejects_tampering_gaps_and_cross_run_history() {

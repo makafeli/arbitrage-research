@@ -7,6 +7,7 @@ publish.workspace = true
 
 [dependencies]
 arb-domain.workspace = true
+arb-paper.workspace = true
 arb-storage = { path = "../arb-storage" }
 tokio = { workspace = true, features = ["sync", "time"] }
 

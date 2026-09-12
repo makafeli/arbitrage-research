@@ -1,0 +1,1068 @@
+{
+  "schema_version": 1,
+  "source_commit": "4e16fe8e56c8c26541545f138c89133794c7ce72",
+  "oracle_package": {
+    "name": "@uniswap/v3-sdk",
+    "version": "3.11.0",
+    "git_head": null,
+    "integrity": "sha512-gz6Q6SlN34AXvxhyz181F90D4OuIkxLnzBAucEzB9Fv3Z+3orHZY/SpGaD02nP1VsNQVu/DQvOsdkPUDGn1Y9Q=="
+  },
+  "fixture_origin": "synthetic",
+  "cases": [
+    {
+      "name": "constant_liquidity_token0_to_token1",
+      "tick": 0,
+      "sqrt_price": "79228162514264337593543950336",
+      "liquidity": "1000000000000",
+      "tick_spacing": 60,
+      "fee_pips": 3000,
+      "words": [
+        {
+          "index": -1,
+          "bitmap": "91343852333181432387730302044767688728495783936"
+        },
+        {
+          "index": 0,
+          "bitmap": "1267650600228229401496703205376"
+        }
+      ],
+      "ticks": [
+        {
+          "index": -6000,
+          "liquidity_gross": "1000000000000",
+          "liquidity_net": "1000000000000"
+        },
+        {
+          "index": 6000,
+          "liquidity_gross": "1000000000000",
+          "liquidity_net": "-1000000000000"
+        }
+      ],
+      "amount_in": "1000000",
+      "zero_for_one": true,
+      "expected": {
+        "amount_in": "1000000",
+        "amount_out": "996999",
+        "fee": "3000",
+        "ending_sqrt_price": "79228083523865064300074843162",
+        "ending_tick": -1,
+        "liquidity": "1000000000000",
+        "initialized_ticks_crossed": 0
+      },
+      "oracle_trace": {
+        "steps": 2,
+        "visited_words": [
+          0,
+          -1
+        ],
+        "initialized_ticks": []
+      }
+    },
+    {
+      "name": "constant_liquidity_token1_to_token0",
+      "tick": 0,
+      "sqrt_price": "79228162514264337593543950336",
+      "liquidity": "1000000000000",
+      "tick_spacing": 60,
+      "fee_pips": 3000,
+      "words": [
+        {
+          "index": -1,
+          "bitmap": "91343852333181432387730302044767688728495783936"
+        },
+        {
+          "index": 0,
+          "bitmap": "1267650600228229401496703205376"
+        }
+      ],
+      "ticks": [
+        {
+          "index": -6000,
+          "liquidity_gross": "1000000000000",
+          "liquidity_net": "1000000000000"
+        },
+        {
+          "index": 6000,
+          "liquidity_gross": "1000000000000",
+          "liquidity_net": "-1000000000000"
+        }
+      ],
+      "amount_in": "1000000",
+      "zero_for_one": false,
+      "expected": {
+        "amount_in": "1000000",
+        "amount_out": "996999",
+        "fee": "3000",
+        "ending_sqrt_price": "79228241504742364315088531099",
+        "ending_tick": 0,
+        "liquidity": "1000000000000",
+        "initialized_ticks_crossed": 0
+      },
+      "oracle_trace": {
+        "steps": 1,
+        "visited_words": [
+          0
+        ],
+        "initialized_ticks": []
+      }
+    },
+    {
+      "name": "one_unit_input_is_consumed_as_rounded_fee",
+      "tick": 0,
+      "sqrt_price": "79228162514264337593543950336",
+      "liquidity": "1000000000000",
+      "tick_spacing": 60,
+      "fee_pips": 3000,
+      "words": [
+        {
+          "index": -1,
+          "bitmap": "91343852333181432387730302044767688728495783936"
+        },
+        {
+          "index": 0,
+          "bitmap": "1267650600228229401496703205376"
+        }
+      ],
+      "ticks": [
+        {
+          "index": -6000,
+          "liquidity_gross": "1000000000000",
+          "liquidity_net": "1000000000000"
+        },
+        {
+          "index": 6000,
+          "liquidity_gross": "1000000000000",
+          "liquidity_net": "-1000000000000"
+        }
+      ],
+      "amount_in": "1",
+      "zero_for_one": true,
+      "expected_rejection": "zero-output",
+      "expected": {
+        "amount_in": "1",
+        "amount_out": "0",
+        "fee": "1",
+        "ending_sqrt_price": "79228162514264337593543950336",
+        "ending_tick": -1,
+        "liquidity": "1000000000000",
+        "initialized_ticks_crossed": 0
+      },
+      "oracle_trace": {
+        "steps": 2,
+        "visited_words": [
+          0,
+          -1
+        ],
+        "initialized_ticks": []
+      }
+    },
+    {
+      "name": "fee_rounding_low_fee",
+      "tick": 0,
+      "sqrt_price": "79228162514264337593543950336",
+      "liquidity": "1000000000000",
+      "tick_spacing": 10,
+      "fee_pips": 500,
+      "words": [
+        {
+          "index": -3,
+          "bitmap": "374144419156711147060143317175368453031918731001856"
+        },
+        {
+          "index": -2,
+          "bitmap": "0"
+        },
+        {
+          "index": -1,
+          "bitmap": "0"
+        },
+        {
+          "index": 0,
+          "bitmap": "0"
+        },
+        {
+          "index": 1,
+          "bitmap": "0"
+        },
+        {
+          "index": 2,
+          "bitmap": "309485009821345068724781056"
+        }
+      ],
+      "ticks": [
+        {
+          "index": -6000,
+          "liquidity_gross": "1000000000000",
+          "liquidity_net": "1000000000000"
+        },
+        {
+          "index": 6000,
+          "liquidity_gross": "1000000000000",
+          "liquidity_net": "-1000000000000"
+        }
+      ],
+      "amount_in": "2001",
+      "zero_for_one": true,
+      "expected": {
+        "amount_in": "2001",
+        "amount_out": "1998",
+        "fee": "2",
+        "ending_sqrt_price": "79228162355887241044125355489",
+        "ending_tick": -1,
+        "liquidity": "1000000000000",
+        "initialized_ticks_crossed": 0
+      },
+      "oracle_trace": {
+        "steps": 2,
+        "visited_words": [
+          0,
+          -1
+        ],
+        "initialized_ticks": []
+      }
+    },
+    {
+      "name": "fee_rounding_high_fee",
+      "tick": 0,
+      "sqrt_price": "79228162514264337593543950336",
+      "liquidity": "1000000000000",
+      "tick_spacing": 200,
+      "fee_pips": 10000,
+      "words": [
+        {
+          "index": -1,
+          "bitmap": "107839786668602559178668060348078522694548577690162289924414440996864"
+        },
+        {
+          "index": 0,
+          "bitmap": "1073741824"
+        }
+      ],
+      "ticks": [
+        {
+          "index": -6000,
+          "liquidity_gross": "1000000000000",
+          "liquidity_net": "1000000000000"
+        },
+        {
+          "index": 6000,
+          "liquidity_gross": "1000000000000",
+          "liquidity_net": "-1000000000000"
+        }
+      ],
+      "amount_in": "101",
+      "zero_for_one": false,
+      "expected": {
+        "amount_in": "101",
+        "amount_out": "98",
+        "fee": "2",
+        "ending_sqrt_price": "79228162522107925682456119757",
+        "ending_tick": 0,
+        "liquidity": "1000000000000",
+        "initialized_ticks_crossed": 0
+      },
+      "oracle_trace": {
+        "steps": 1,
+        "visited_words": [
+          0
+        ],
+        "initialized_ticks": []
+      }
+    },
+    {
+      "name": "multiple_initialized_ticks_down",
+      "tick": 0,
+      "sqrt_price": "79228162514264337593543950336",
+      "liquidity": "1500000000000",
+      "tick_spacing": 60,
+      "fee_pips": 3000,
+      "words": [
+        {
+          "index": -1,
+          "bitmap": "101318078082651670995624611882693263223944418014823223836570153695652484218880"
+        },
+        {
+          "index": 0,
+          "bitmap": "1267650600228229401496703205390"
+        }
+      ],
+      "ticks": [
+        {
+          "index": -6000,
+          "liquidity_gross": "1000000000000",
+          "liquidity_net": "1000000000000"
+        },
+        {
+          "index": -180,
+          "liquidity_gross": "250000000000",
+          "liquidity_net": "250000000000"
+        },
+        {
+          "index": -120,
+          "liquidity_gross": "250000000000",
+          "liquidity_net": "-250000000000"
+        },
+        {
+          "index": -60,
+          "liquidity_gross": "500000000000",
+          "liquidity_net": "500000000000"
+        },
+        {
+          "index": 60,
+          "liquidity_gross": "500000000000",
+          "liquidity_net": "-500000000000"
+        },
+        {
+          "index": 120,
+          "liquidity_gross": "250000000000",
+          "liquidity_net": "-250000000000"
+        },
+        {
+          "index": 180,
+          "liquidity_gross": "250000000000",
+          "liquidity_net": "250000000000"
+        },
+        {
+          "index": 6000,
+          "liquidity_gross": "1000000000000",
+          "liquidity_net": "-1000000000000"
+        }
+      ],
+      "amount_in": "20000000000",
+      "zero_for_one": true,
+      "expected": {
+        "amount_in": "20000000000",
+        "amount_out": "19617023217",
+        "fee": "60000003",
+        "ending_sqrt_price": "77851574271288316564836084116",
+        "ending_tick": -351,
+        "liquidity": "1000000000000",
+        "initialized_ticks_crossed": 3
+      },
+      "oracle_trace": {
+        "steps": 5,
+        "visited_words": [
+          0,
+          -1,
+          -1,
+          -1,
+          -1
+        ],
+        "initialized_ticks": [
+          -60,
+          -120,
+          -180
+        ]
+      }
+    },
+    {
+      "name": "multiple_initialized_ticks_up",
+      "tick": 0,
+      "sqrt_price": "79228162514264337593543950336",
+      "liquidity": "1500000000000",
+      "tick_spacing": 60,
+      "fee_pips": 3000,
+      "words": [
+        {
+          "index": -1,
+          "bitmap": "101318078082651670995624611882693263223944418014823223836570153695652484218880"
+        },
+        {
+          "index": 0,
+          "bitmap": "1267650600228229401496703205390"
+        }
+      ],
+      "ticks": [
+        {
+          "index": -6000,
+          "liquidity_gross": "1000000000000",
+          "liquidity_net": "1000000000000"
+        },
+        {
+          "index": -180,
+          "liquidity_gross": "250000000000",
+          "liquidity_net": "250000000000"
+        },
+        {
+          "index": -120,
+          "liquidity_gross": "250000000000",
+          "liquidity_net": "-250000000000"
+        },
+        {
+          "index": -60,
+          "liquidity_gross": "500000000000",
+          "liquidity_net": "500000000000"
+        },
+        {
+          "index": 60,
+          "liquidity_gross": "500000000000",
+          "liquidity_net": "-500000000000"
+        },
+        {
+          "index": 120,
+          "liquidity_gross": "250000000000",
+          "liquidity_net": "-250000000000"
+        },
+        {
+          "index": 180,
+          "liquidity_gross": "250000000000",
+          "liquidity_net": "250000000000"
+        },
+        {
+          "index": 6000,
+          "liquidity_gross": "1000000000000",
+          "liquidity_net": "-1000000000000"
+        }
+      ],
+      "amount_in": "20000000000",
+      "zero_for_one": false,
+      "expected": {
+        "amount_in": "20000000000",
+        "amount_out": "19585299090",
+        "fee": "60000003",
+        "ending_sqrt_price": "80748822810880711141787977253",
+        "ending_tick": 380,
+        "liquidity": "1000000000000",
+        "initialized_ticks_crossed": 3
+      },
+      "oracle_trace": {
+        "steps": 4,
+        "visited_words": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "initialized_ticks": [
+          60,
+          120,
+          180
+        ]
+      }
+    },
+    {
+      "name": "zero_liquidity_gap_down",
+      "tick": 0,
+      "sqrt_price": "79228162514264337593543950336",
+      "liquidity": "1000000000000",
+      "tick_spacing": 60,
+      "fee_pips": 3000,
+      "words": [
+        {
+          "index": -1,
+          "bitmap": "86844066927987146567678238756607274742285669931618153331637955694663343013888"
+        },
+        {
+          "index": 0,
+          "bitmap": "1267650600228229401496703205382"
+        }
+      ],
+      "ticks": [
+        {
+          "index": -6000,
+          "liquidity_gross": "1000000000000",
+          "liquidity_net": "1000000000000"
+        },
+        {
+          "index": -120,
+          "liquidity_gross": "1000000000000",
+          "liquidity_net": "-1000000000000"
+        },
+        {
+          "index": -60,
+          "liquidity_gross": "1000000000000",
+          "liquidity_net": "1000000000000"
+        },
+        {
+          "index": 60,
+          "liquidity_gross": "1000000000000",
+          "liquidity_net": "-1000000000000"
+        },
+        {
+          "index": 120,
+          "liquidity_gross": "1000000000000",
+          "liquidity_net": "1000000000000"
+        },
+        {
+          "index": 6000,
+          "liquidity_gross": "1000000000000",
+          "liquidity_net": "-1000000000000"
+        }
+      ],
+      "amount_in": "10000000000",
+      "zero_for_one": true,
+      "expected": {
+        "amount_in": "10000000000",
+        "amount_out": "9830589771",
+        "fee": "30000001",
+        "ending_sqrt_price": "78212697328010412598988185946",
+        "ending_tick": -259,
+        "liquidity": "1000000000000",
+        "initialized_ticks_crossed": 2
+      },
+      "oracle_trace": {
+        "steps": 4,
+        "visited_words": [
+          0,
+          -1,
+          -1,
+          -1
+        ],
+        "initialized_ticks": [
+          -60,
+          -120
+        ]
+      }
+    },
+    {
+      "name": "zero_liquidity_gap_up",
+      "tick": 0,
+      "sqrt_price": "79228162514264337593543950336",
+      "liquidity": "1000000000000",
+      "tick_spacing": 60,
+      "fee_pips": 3000,
+      "words": [
+        {
+          "index": -1,
+          "bitmap": "86844066927987146567678238756607274742285669931618153331637955694663343013888"
+        },
+        {
+          "index": 0,
+          "bitmap": "1267650600228229401496703205382"
+        }
+      ],
+      "ticks": [
+        {
+          "index": -6000,
+          "liquidity_gross": "1000000000000",
+          "liquidity_net": "1000000000000"
+        },
+        {
+          "index": -120,
+          "liquidity_gross": "1000000000000",
+          "liquidity_net": "-1000000000000"
+        },
+        {
+          "index": -60,
+          "liquidity_gross": "1000000000000",
+          "liquidity_net": "1000000000000"
+        },
+        {
+          "index": 60,
+          "liquidity_gross": "1000000000000",
+          "liquidity_net": "-1000000000000"
+        },
+        {
+          "index": 120,
+          "liquidity_gross": "1000000000000",
+          "liquidity_net": "1000000000000"
+        },
+        {
+          "index": 6000,
+          "liquidity_gross": "1000000000000",
+          "liquidity_net": "-1000000000000"
+        }
+      ],
+      "amount_in": "10000000000",
+      "zero_for_one": false,
+      "expected": {
+        "amount_in": "10000000000",
+        "amount_out": "9830589771",
+        "fee": "30000001",
+        "ending_sqrt_price": "80256811871116153789091389683",
+        "ending_tick": 258,
+        "liquidity": "1000000000000",
+        "initialized_ticks_crossed": 2
+      },
+      "oracle_trace": {
+        "steps": 3,
+        "visited_words": [
+          0,
+          0,
+          0
+        ],
+        "initialized_ticks": [
+          60,
+          120
+        ]
+      }
+    },
+    {
+      "name": "empty_bitmap_words_down",
+      "tick": 0,
+      "sqrt_price": "79228162514264337593543950336",
+      "liquidity": "1000000000000",
+      "tick_spacing": 1,
+      "fee_pips": 100,
+      "words": [
+        {
+          "index": -8,
+          "bitmap": "281474976710656"
+        },
+        {
+          "index": -7,
+          "bitmap": "0"
+        },
+        {
+          "index": -6,
+          "bitmap": "0"
+        },
+        {
+          "index": -5,
+          "bitmap": "0"
+        },
+        {
+          "index": -4,
+          "bitmap": "0"
+        },
+        {
+          "index": -3,
+          "bitmap": "0"
+        },
+        {
+          "index": -2,
+          "bitmap": "0"
+        },
+        {
+          "index": -1,
+          "bitmap": "0"
+        },
+        {
+          "index": 0,
+          "bitmap": "0"
+        },
+        {
+          "index": 1,
+          "bitmap": "0"
+        },
+        {
+          "index": 2,
+          "bitmap": "0"
+        },
+        {
+          "index": 3,
+          "bitmap": "0"
+        },
+        {
+          "index": 4,
+          "bitmap": "0"
+        },
+        {
+          "index": 5,
+          "bitmap": "0"
+        },
+        {
+          "index": 6,
+          "bitmap": "0"
+        },
+        {
+          "index": 7,
+          "bitmap": "411376139330301510538742295639337626245683966408394965837152256"
+        }
+      ],
+      "ticks": [
+        {
+          "index": -2000,
+          "liquidity_gross": "1000000000000",
+          "liquidity_net": "1000000000000"
+        },
+        {
+          "index": 2000,
+          "liquidity_gross": "1000000000000",
+          "liquidity_net": "-1000000000000"
+        }
+      ],
+      "amount_in": "25000000000",
+      "zero_for_one": true,
+      "expected": {
+        "amount_in": "25000000000",
+        "amount_out": "24387864358",
+        "fee": "2500001",
+        "ending_sqrt_price": "77295956833440141587598662122",
+        "ending_tick": -494,
+        "liquidity": "1000000000000",
+        "initialized_ticks_crossed": 0
+      },
+      "oracle_trace": {
+        "steps": 3,
+        "visited_words": [
+          0,
+          -1,
+          -2
+        ],
+        "initialized_ticks": []
+      }
+    },
+    {
+      "name": "empty_bitmap_words_up",
+      "tick": 0,
+      "sqrt_price": "79228162514264337593543950336",
+      "liquidity": "1000000000000",
+      "tick_spacing": 1,
+      "fee_pips": 100,
+      "words": [
+        {
+          "index": -8,
+          "bitmap": "281474976710656"
+        },
+        {
+          "index": -7,
+          "bitmap": "0"
+        },
+        {
+          "index": -6,
+          "bitmap": "0"
+        },
+        {
+          "index": -5,
+          "bitmap": "0"
+        },
+        {
+          "index": -4,
+          "bitmap": "0"
+        },
+        {
+          "index": -3,
+          "bitmap": "0"
+        },
+        {
+          "index": -2,
+          "bitmap": "0"
+        },
+        {
+          "index": -1,
+          "bitmap": "0"
+        },
+        {
+          "index": 0,
+          "bitmap": "0"
+        },
+        {
+          "index": 1,
+          "bitmap": "0"
+        },
+        {
+          "index": 2,
+          "bitmap": "0"
+        },
+        {
+          "index": 3,
+          "bitmap": "0"
+        },
+        {
+          "index": 4,
+          "bitmap": "0"
+        },
+        {
+          "index": 5,
+          "bitmap": "0"
+        },
+        {
+          "index": 6,
+          "bitmap": "0"
+        },
+        {
+          "index": 7,
+          "bitmap": "411376139330301510538742295639337626245683966408394965837152256"
+        }
+      ],
+      "ticks": [
+        {
+          "index": -2000,
+          "liquidity_gross": "1000000000000",
+          "liquidity_net": "1000000000000"
+        },
+        {
+          "index": 2000,
+          "liquidity_gross": "1000000000000",
+          "liquidity_net": "-1000000000000"
+        }
+      ],
+      "amount_in": "25000000000",
+      "zero_for_one": false,
+      "expected": {
+        "amount_in": "25000000000",
+        "amount_out": "24387864358",
+        "fee": "2500001",
+        "ending_sqrt_price": "81208668506581431156469551399",
+        "ending_tick": 493,
+        "liquidity": "1000000000000",
+        "initialized_ticks_crossed": 0
+      },
+      "oracle_trace": {
+        "steps": 2,
+        "visited_words": [
+          0,
+          1
+        ],
+        "initialized_ticks": []
+      }
+    },
+    {
+      "name": "negative_word_floor_division_down",
+      "tick": -257,
+      "sqrt_price": "78216644124655454786675147356",
+      "liquidity": "1000000000000",
+      "tick_spacing": 1,
+      "fee_pips": 100,
+      "words": [
+        {
+          "index": -8,
+          "bitmap": "281474976710656"
+        },
+        {
+          "index": -7,
+          "bitmap": "0"
+        },
+        {
+          "index": -6,
+          "bitmap": "0"
+        },
+        {
+          "index": -5,
+          "bitmap": "0"
+        },
+        {
+          "index": -4,
+          "bitmap": "0"
+        },
+        {
+          "index": -3,
+          "bitmap": "0"
+        },
+        {
+          "index": -2,
+          "bitmap": "0"
+        },
+        {
+          "index": -1,
+          "bitmap": "0"
+        },
+        {
+          "index": 0,
+          "bitmap": "0"
+        },
+        {
+          "index": 1,
+          "bitmap": "0"
+        },
+        {
+          "index": 2,
+          "bitmap": "0"
+        },
+        {
+          "index": 3,
+          "bitmap": "0"
+        },
+        {
+          "index": 4,
+          "bitmap": "0"
+        },
+        {
+          "index": 5,
+          "bitmap": "0"
+        },
+        {
+          "index": 6,
+          "bitmap": "0"
+        },
+        {
+          "index": 7,
+          "bitmap": "411376139330301510538742295639337626245683966408394965837152256"
+        }
+      ],
+      "ticks": [
+        {
+          "index": -2000,
+          "liquidity_gross": "1000000000000",
+          "liquidity_net": "1000000000000"
+        },
+        {
+          "index": 2000,
+          "liquidity_gross": "1000000000000",
+          "liquidity_net": "-1000000000000"
+        }
+      ],
+      "amount_in": "25000000000",
+      "zero_for_one": true,
+      "expected": {
+        "amount_in": "25000000000",
+        "amount_out": "23776515345",
+        "fee": "2500001",
+        "ending_sqrt_price": "76332874502847293404134813430",
+        "ending_tick": -745,
+        "liquidity": "1000000000000",
+        "initialized_ticks_crossed": 0
+      },
+      "oracle_trace": {
+        "steps": 2,
+        "visited_words": [
+          -2,
+          -3
+        ],
+        "initialized_ticks": []
+      }
+    },
+    {
+      "name": "negative_non_aligned_tick_up",
+      "tick": -61,
+      "sqrt_price": "78986896798918269864234038184",
+      "liquidity": "1000000000000",
+      "tick_spacing": 60,
+      "fee_pips": 3000,
+      "words": [
+        {
+          "index": -1,
+          "bitmap": "101318078082651670995624611882693263223944418014823223836570153695652484218880"
+        },
+        {
+          "index": 0,
+          "bitmap": "1267650600228229401496703205390"
+        }
+      ],
+      "ticks": [
+        {
+          "index": -6000,
+          "liquidity_gross": "1000000000000",
+          "liquidity_net": "1000000000000"
+        },
+        {
+          "index": -180,
+          "liquidity_gross": "250000000000",
+          "liquidity_net": "250000000000"
+        },
+        {
+          "index": -120,
+          "liquidity_gross": "250000000000",
+          "liquidity_net": "-250000000000"
+        },
+        {
+          "index": -60,
+          "liquidity_gross": "500000000000",
+          "liquidity_net": "500000000000"
+        },
+        {
+          "index": 60,
+          "liquidity_gross": "500000000000",
+          "liquidity_net": "-500000000000"
+        },
+        {
+          "index": 120,
+          "liquidity_gross": "250000000000",
+          "liquidity_net": "-250000000000"
+        },
+        {
+          "index": 180,
+          "liquidity_gross": "250000000000",
+          "liquidity_net": "250000000000"
+        },
+        {
+          "index": 6000,
+          "liquidity_gross": "1000000000000",
+          "liquidity_net": "-1000000000000"
+        }
+      ],
+      "amount_in": "10000000000",
+      "zero_for_one": false,
+      "expected": {
+        "amount_in": "10000000000",
+        "amount_out": "9963956616",
+        "fee": "30000002",
+        "ending_sqrt_price": "79539128618425175901624671355",
+        "ending_tick": 78,
+        "liquidity": "1000000000000",
+        "initialized_ticks_crossed": 2
+      },
+      "oracle_trace": {
+        "steps": 3,
+        "visited_words": [
+          -1,
+          0,
+          0
+        ],
+        "initialized_ticks": [
+          -60,
+          60
+        ]
+      }
+    },
+    {
+      "name": "large_exact_integer_amount",
+      "tick": 0,
+      "sqrt_price": "79228162514264337593543950336",
+      "liquidity": "100000000000000000000000000000",
+      "tick_spacing": 60,
+      "fee_pips": 3000,
+      "words": [
+        {
+          "index": -1,
+          "bitmap": "91343852333181432387730302044767688728495783936"
+        },
+        {
+          "index": 0,
+          "bitmap": "1267650600228229401496703205376"
+        }
+      ],
+      "ticks": [
+        {
+          "index": -6000,
+          "liquidity_gross": "100000000000000000000000000000",
+          "liquidity_net": "100000000000000000000000000000"
+        },
+        {
+          "index": 6000,
+          "liquidity_gross": "100000000000000000000000000000",
+          "liquidity_net": "-100000000000000000000000000000"
+        }
+      ],
+      "amount_in": "1000000000000000000000000",
+      "zero_for_one": true,
+      "expected": {
+        "amount_in": "1000000000000000000000000",
+        "amount_out": "996990060009101709255958",
+        "fee": "3000000000000000000000",
+        "ending_sqrt_price": "79227372617359342520899016973",
+        "ending_tick": -1,
+        "liquidity": "100000000000000000000000000000",
+        "initialized_ticks_crossed": 0
+      },
+      "oracle_trace": {
+        "steps": 2,
+        "visited_words": [
+          0,
+          -1
+        ],
+        "initialized_ticks": []
+      }
+    }
+  ],
+  "primitives": [
+    {
+      "name": "token0_product_overflow_fallback",
+      "operation": "next_sqrt_from_input",
+      "sqrt_price": "1461446703485210103287273052203988822378723970341",
+      "liquidity": "340282366920938463463374607431768211455",
+      "amount_in": "1267650600228229401496703205376",
+      "zero_for_one": true,
+      "expected_sqrt_price": "21267647932249157323512508964686548046"
+    },
+    {
+      "name": "token0_zero_amount_identity",
+      "operation": "next_sqrt_from_input",
+      "sqrt_price": "79228162514264337593543950336",
+      "liquidity": "1000000000000",
+      "amount_in": "0",
+      "zero_for_one": true,
+      "expected_sqrt_price": "79228162514264337593543950336"
+    },
+    {
+      "name": "token1_round_down",
+      "operation": "next_sqrt_from_input",
+      "sqrt_price": "79228162514264337593543950336",
+      "liquidity": "1000000000000",
+      "amount_in": "1234567",
+      "zero_for_one": false,
+      "expected_sqrt_price": "79228260326739248341324420184"
+    }
+  ]
+}

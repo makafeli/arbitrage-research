@@ -28,6 +28,9 @@ use std::{
 use subtle::ConstantTimeEq;
 use tokio::sync::Semaphore;
 
+mod research;
+use research::{PaperAssetChoice, ResearchStore};
+
 const MAX_INFLIGHT_REQUESTS: usize = 64;
 const REQUEST_TIMEOUT_SECONDS: u64 = 15;
 const SESSION_TTL_SECONDS: u64 = 8 * 60 * 60;
@@ -41,6 +44,7 @@ pub struct RegisteredConfiguration {
     pub mode: String,
     pub enabled_networks: Vec<String>,
     pub strategy_ids: Vec<String>,
+    pub paper_assets: Vec<PaperAssetChoice>,
     #[serde(skip)]
     snapshot: serde_json::Value,
 }
@@ -121,6 +125,7 @@ impl ServerConfig {
                 mode,
                 enabled_networks,
                 strategy_ids: config.strategy_ids().to_vec(),
+                paper_assets: paper_asset_choices(&config),
                 snapshot: serde_json::from_str(config.effective_json())
                     .map_err(|_| "Configuration snapshot invalid")?,
             });
@@ -133,6 +138,30 @@ impl ServerConfig {
             configurations,
         })
     }
+}
+
+fn paper_asset_choices(config: &arb_config::ValidatedConfig) -> Vec<PaperAssetChoice> {
+    [
+        arb_domain::NetworkId::BaseMainnet,
+        arb_domain::NetworkId::SolanaMainnet,
+    ]
+    .into_iter()
+    .filter(|network| config.network_enabled(*network))
+    .flat_map(|network| {
+        std::iter::once(arb_paper::AccountingAsset::Native(network))
+            .chain(
+                config
+                    .verified_assets(network)
+                    .iter()
+                    .cloned()
+                    .map(arb_paper::AccountingAsset::Token),
+            )
+            .map(move |asset| PaperAssetChoice {
+                network_id: network.to_string(),
+                asset,
+            })
+    })
+    .collect()
 }
 
 fn validate_listener(
@@ -187,7 +216,7 @@ fn validate_origin(origin: &str, insecure: bool) -> Result<(), String> {
 }
 
 #[async_trait]
-trait ControlStore: Send + Sync {
+trait ControlStore: ResearchStore + Send + Sync {
     async fn replay_session_creation(
         &self,
         operator: &str,
@@ -334,6 +363,14 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/sessions/{session_id}/commands", post(issue_command))
         .route("/v1/commands/{command_id}", get(get_command))
         .route("/v1/opportunities", get(list_opportunities))
+        .route("/v1/decisions", get(research::list_decisions))
+        .route("/v1/decisions/{observation_id}", get(research::get_decision))
+        .route("/v1/decision-groups", get(research::decision_groups))
+        .route("/v1/decision-coverage", get(research::decision_coverage))
+        .route("/v1/sessions/{session_id}/paper-runs", get(research::list_paper_runs).post(research::create_paper_run))
+        .route("/v1/paper-runs/{run_id}", get(research::get_paper_run))
+        .route("/v1/paper-runs/{run_id}/journal", get(research::paper_journal))
+        .route("/v1/paper-runs/{run_id}/reservations", get(research::paper_reservations))
         .fallback(fallback)
         .method_not_allowed_fallback(method_not_allowed)
         .layer(DefaultBodyLimit::max(16 * 1024))
@@ -704,7 +741,7 @@ async fn health(
 }
 async fn capabilities(State(state): State<AppState>) -> Json<serde_json::Value> {
     Json(
-        serde_json::json!({"modes":["OBSERVE","PAPER","REPLAY"], "live_execution":false, "market_data":false, "opportunity_capture":false, "command_application":"WORKER_ACK_REQUIRED", "registered_configurations":state.0.config.configurations}),
+        serde_json::json!({"modes":["OBSERVE","PAPER","REPLAY"], "live_execution":false, "market_data":false, "opportunity_capture":false, "decision_history":true, "paper_ledger":true, "paper_run_creation":true, "command_application":"WORKER_ACK_REQUIRED", "registered_configurations":state.0.config.configurations}),
     )
 }
 fn idempotency(headers: &HeaderMap, id: &RequestId) -> Result<String, ApiError> {
@@ -875,8 +912,9 @@ async fn get_command(
 #[serde(deny_unknown_fields)]
 struct OpportunityQuery {
     session_id: Option<String>,
-    network_id: Option<String>,
-    evidence_label: Option<String>,
+    network_id: Option<arb_domain::NetworkId>,
+    evidence_label: Option<arb_domain::Evidence>,
+    source_kind: Option<arb_domain::SourceKind>,
     cursor: Option<String>,
     limit: Option<u32>,
 }
@@ -884,39 +922,39 @@ async fn list_opportunities(
     State(state): State<AppState>,
     Extension(id): Extension<RequestId>,
     query: Result<Query<OpportunityQuery>, QueryRejection>,
-) -> Result<Json<serde_json::Value>, ApiError> {
+) -> Result<Json<arb_storage::OpportunityPage>, ApiError> {
     let Query(query) = query.map_err(|_| ApiError::invalid(&id))?;
-    validate_page(
+    let limit = validate_page(
         &Pagination {
-            cursor: query.cursor,
+            cursor: query.cursor.clone(),
             limit: query.limit,
         },
         &id,
     )?;
     if query
-        .network_id
-        .as_deref()
-        .is_some_and(|network| !matches!(network, "base-mainnet" | "solana-mainnet"))
-        || query.evidence_label.as_deref().is_some_and(|label| {
-            !matches!(
-                label,
-                "CANDIDATE" | "SIMULATED" | "ESTIMATED_EXECUTABLE" | "REALIZED"
-            )
-        })
+        .session_id
+        .as_ref()
+        .is_some_and(|id| id.is_empty() || id.len() > 128)
     {
         return Err(ApiError::invalid(&id));
     }
-    if let Some(session) = query.session_id {
-        state
-            .0
-            .store
-            .get_session("operator", &session)
-            .await
-            .map_err(|error| ApiError::store(error, &id))?;
-    }
-    // No capture provider exists yet. An empty page is the truthful result;
-    // /capabilities explicitly reports opportunity_capture:false.
-    Ok(Json(serde_json::json!({"items":[],"next_cursor":null})))
+    state
+        .0
+        .store
+        .opportunities(
+            "operator",
+            arb_storage::OpportunityFilter {
+                session_id: query.session_id,
+                network_id: query.network_id,
+                evidence_label: query.evidence_label,
+                source_kind: query.source_kind,
+            },
+            query.cursor.as_deref(),
+            limit,
+        )
+        .await
+        .map(Json)
+        .map_err(|error| ApiError::store(error, &id))
 }
 async fn method_not_allowed(Extension(id): Extension<RequestId>) -> ApiError {
     ApiError::new(

@@ -54,6 +54,7 @@ name = "arb-control"
 version = "0.2.0"
 dependencies = [
  "arb-domain",
+ "arb-paper",
  "arb-storage",
  "serde_json",
  "sqlx",
@@ -66,7 +67,23 @@ name = "arb-domain"
 version = "0.2.0"
 dependencies = [
  "bs58",
+ "chrono",
  "primitive-types",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+]
+
+[[package]]
+name = "arb-engine"
+version = "0.2.0"
+dependencies = [
+ "arb-adapter-api",
+ "arb-config",
+ "arb-domain",
+ "arb-evm",
+ "arb-solana",
+ "bs58",
  "serde",
  "serde_json",
 ]
@@ -76,7 +93,9 @@ name = "arb-evm"
 version = "0.2.0"
 dependencies = [
  "arb-adapter-api",
+ "arb-domain",
  "hex",
+ "primitive-types",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -87,6 +106,19 @@ name = "arb-paper"
 version = "0.2.0"
 dependencies = [
  "arb-domain",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "arb-registry"
+version = "0.2.0"
+dependencies = [
+ "arb-capture",
+ "arb-config",
+ "arb-domain",
+ "arb-evm",
+ "arb-solana",
  "serde",
  "serde_json",
 ]
@@ -117,6 +149,7 @@ name = "arb-storage"
 version = "0.2.0"
 dependencies = [
  "arb-domain",
+ "arb-paper",
  "chrono",
  "serde",
  "serde_json",
@@ -384,6 +417,7 @@ dependencies = [
  "arb-config",
  "arb-control",
  "arb-domain",
+ "arb-paper",
  "arb-storage",
  "async-trait",
  "axum",
@@ -1640,8 +1674,11 @@ dependencies = [
  "arb-capture",
  "arb-config",
  "arb-domain",
+ "arb-engine",
  "arb-evm",
+ "arb-registry",
  "arb-solana",
+ "serde",
  "serde_json",
 ]
 
@@ -1694,7 +1731,10 @@ dependencies = [
  "arb-config",
  "arb-control",
  "arb-domain",
+ "arb-engine",
  "arb-evm",
+ "arb-registry",
+ "arb-scheduler",
  "arb-solana",
  "arb-storage",
  "serde_json",

@@ -1,0 +1,17 @@
+{
+  "repository": "Uniswap/v3-sdk",
+  "version": "3.11.0",
+  "source_commit": "4e16fe8e56c8c26541545f138c89133794c7ce72",
+  "arithmetic_source_sha256": {
+    "src/entities/pool.ts": "e932eb9feebb83c4a90108ef868fa78c0cec4ff5a611b38caf5a3730805e9f10",
+    "src/utils/tickMath.ts": "4d9e1271c3beffedabc63a77b351d20fc0ca35af49eb0a37b340002d9cacc252",
+    "src/utils/sqrtPriceMath.ts": "7187258e86f44b914e642c1571bf595bcc32d42021bf72e9a24f615c885ca9b9",
+    "src/utils/swapMath.ts": "b634629fd450dd19a4e58fdb706f4e15660dc77071fc58690e9ec0d6fc4e0b33",
+    "src/utils/fullMath.ts": "f92929e9e7a340a739f69d648502a0b2c55f57ea76a725afcb56924be26acb02",
+    "src/utils/mostSignificantBit.ts": "5bbdb88bef1970125f00a82eccf3ed66e95975906b7ecf3ad4ab47a19afb0561",
+    "src/utils/tickList.ts": "323c11fbd92168e611272d20858e93d31dde73e22184f1e1e46f928354ee811c",
+    "src/entities/tickListDataProvider.ts": "fadf8aec48cd50898b9819d31fe36ff1ba514edd6ba7960d3651ad824889b99e",
+    "LICENSE": "e89988c656bb1a9cb6fd13d95afa571350497cbc868d5adf8ebc5447003b74cd"
+  },
+  "verification_note": "Hashes were computed from the exact pinned raw GitHub source bytes before workspace disconnection. The runner executes the published npm package; package-lock.json records package tarball integrity independently."
+}

@@ -2,7 +2,7 @@
 
 A Rust-first research platform for comparing same-chain arbitrage opportunities on Base and Solana, with a React and TypeScript dashboard. The first release targets observation, reproducible replay and paper experiments. Live execution is a separately gated future milestone.
 
-**Current implementation: research foundations and controlled observation.** The Rust workspace now includes validated domain/configuration types, PostgreSQL control state, an authenticated API, bounded read-only capture adapters, offline acquisition verification, a scheduler and exact virtual-accounting primitives. The dashboard has explicit Demo and Connected modes. Full protocol qualification, complete atomic transaction simulation, durable paper integration and live execution remain unfinished; no profitability or security-audit claim is made.
+**Current implementation: captured research decisions and durable virtual accounts.** The Rust workspace connects bounded same-chain route calculations to immutable input captures, PostgreSQL decision history and authenticated dashboard queries. Paper accounts retain exact balances and journals across restarts. The dashboard has explicit Demo and Connected modes. Current protocol/provider qualification, complete atomic transaction simulation, automatic paper execution and live execution remain unfinished. See the [integration verification record](docs/17-RESEARCH-INTEGRATION-VERIFICATION.md) for the exact tested checkpoint and remaining gates.
 
 ## Start here
 
@@ -18,7 +18,7 @@ A Rust-first research platform for comparing same-chain arbitrage opportunities 
 
 ## Dashboard preview
 
-Captured from the verified synthetic dashboard. [Mobile preview](design/dashboard-mobile.png).
+Captured from the verified synthetic dashboard. [Mobile preview](design/dashboard-mobile.png). The current connected paper-account view is also available at [desktop](docs/review/research-paper-1440.png) and [mobile](docs/review/research-paper-390.png) widths, using explicitly synthetic API test fixtures.
 
 ![Arbitrage Research dashboard with synthetic Base and Solana examples](design/dashboard-desktop.png)
 
@@ -36,18 +36,20 @@ Open the local URL printed by Vite. Demo mode is explicitly synthetic. Switch to
 
 For the API, start a PostgreSQL development database using [the local setup](deploy/README.md), then follow the [API environment and startup instructions](apps/control-api/README.md). The service requires a provisioned operator secret and database connection; the repository contains no working credential.
 
-The shipped research configuration keeps both networks disabled. Register qualified enabled configurations before creating an OBSERVE session and starting the [controlled research worker](apps/research-worker/README.md). A worker boot recovers into STOPPED and waits for an explicit START. Base and Solana capture CLIs also exist as independent one-shot tools; dashboard controls do not stop those separate processes.
+The shipped research configuration keeps both networks disabled. Register qualified enabled configurations before creating an OBSERVE or PAPER session and starting the [controlled research worker](apps/research-worker/README.md). A worker boot recovers into STOPPED and waits for an explicit START. A stopped PAPER session can receive an immutable virtual-capital run; worker calculations do not automatically settle that account. Base and Solana capture CLIs also exist as independent one-shot tools; dashboard controls do not stop those separate processes.
 
 ```sh
 cargo run --locked -p replay -- --lifecycle-demo
+cargo build --locked -p control-api
+export ARB_TEST_CONTROL_API_BIN="$(pwd)/target/debug/control-api"
 cargo test --workspace --locked
 ```
 
-The full test command requires a disposable PostgreSQL database in `TEST_DATABASE_URL`. CI provisions it and also checks the real UI API client, browser scenarios and deployment containers. [Replay](apps/replay/README.md) can verify and re-decode captured transcripts offline; it does not yet replay complete economic outcomes.
+The full test command requires a disposable PostgreSQL database in `TEST_DATABASE_URL` and the built API executable in `ARB_TEST_CONTROL_API_BIN` (use its actual absolute path if your Cargo target directory differs). CI provisions it and also checks the real UI API client, browser scenarios and deployment containers. [Replay](apps/replay/README.md) verifies captured transcripts and evaluates routes offline under an explicitly modeled historical timing scenario. It does not replay complete transaction or paper outcomes.
 
 ## Research scope
 
-Initial experiments compare USDC-start, two-leg cycles through distinct pools on each chain: USDC → WETH → USDC on Base and USDC → wSOL → USDC on Solana. Uniswap V3 and Orca Whirlpools are the initial adapter qualification targets. Enabled pools and assets require verified identities and supported behavior; example configuration starts with both networks disabled.
+Initial experiment examples compare USDC-start, two-leg cycles through distinct pools: USDC → WETH → USDC on Base and USDC → wSOL → USDC on Solana. The engine uses the frozen configuration's explicit starting asset and sizes, so other allowlisted token pairs can be researched without treating symbols as identities. Uniswap V3 and Orca Whirlpools are the initial adapter qualification targets. Enabled pools and assets require verified identities and supported behavior; example configuration starts with both networks disabled.
 
 Paper outcomes remain hypothetical. CANDIDATE, SIMULATED, ESTIMATED_EXECUTABLE and REALIZED have different evidence requirements. Paper sessions never report REALIZED returns. Missing costs, stale state and incomplete simulation block stronger claims.
 

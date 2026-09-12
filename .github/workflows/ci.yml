@@ -50,20 +50,24 @@ jobs:
           persist-credentials: false
       - name: Install pinned Rust toolchain and lint components
         run: rustup show
-      - name: Resolve dependencies if this initial scaffold has no lockfile
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: '24'
+      - name: Reproduce the committed independent Uniswap oracle fixtures
         run: |
-          if [ ! -f Cargo.lock ]; then
-            cargo generate-lockfile
-          fi
+          test -f Cargo.lock
+          npm ci --ignore-scripts --no-audit --no-fund --prefix crates/arb-evm/tests/reference
+          node crates/arb-evm/tests/reference/generate.cjs --check
       - name: Check Rust formatting
         id: formatting
         continue-on-error: true
         run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Build the real control API for the quoted-worker HTTP integration
+        run: cargo build --locked -p control-api
       - run: cargo test --workspace --locked
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
-        with:
-          node-version: '24'
+        env:
+          ARB_TEST_CONTROL_API_BIN: ${{ github.workspace }}/target/debug/control-api
       - name: Verify the real browser client against the Rust HTTP service
         env:
           ARB_OPERATOR_SECRET: isolated-ci-only-operator-secret-00000000
@@ -136,6 +140,9 @@ jobs:
       - run: npm run build
       - run: npx playwright install --with-deps chromium
       - run: npm run test:browser
+      - name: Emit three synthetic dashboard screenshots for visual review
+        if: always()
+        run: python ../../scripts/emit_ui_review.py
       - name: Preserve dashboard browser evidence and lockfile
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

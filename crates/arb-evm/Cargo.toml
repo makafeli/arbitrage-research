@@ -9,6 +9,8 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+arb-domain.workspace = true
+primitive-types = { version = "=0.14.0", default-features = false, features = ["std"] }
 arb-adapter-api = { path = "../arb-adapter-api" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

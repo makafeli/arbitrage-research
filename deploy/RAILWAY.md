@@ -9,8 +9,8 @@ Railway is the selected host, confirmed by the user on 12 September 2026. This i
 | `web` | One Railway HTTPS domain or selected custom domain | None | Caddy serves the built dashboard and proxies `/v1/*` to the API |
 | `control-api` | Private networking only | PostgreSQL | Validates configuration, applies migrations, then serves authenticated requests |
 | `postgres` | Private connection string | Railway database storage | Stores immutable configurations, sessions, commands and audit data |
-| Base observation worker | None; add after qualification | Dedicated capture volume and PostgreSQL | Claims an existing OBSERVE session, recovers fenced, waits for explicit START |
-| Solana observation worker | None; add after qualification | A different capture volume and PostgreSQL | Independent session and worker epoch; same fenced recovery rule |
+| Base research worker | None; add after qualification | Dedicated capture volume and PostgreSQL | Claims an existing OBSERVE or PAPER session with the same frozen mode/configuration, recovers fenced, waits for explicit START |
+| Solana research worker | None; add after qualification | A different capture volume and PostgreSQL | Independent OBSERVE or PAPER session and worker epoch; same configuration/recovery rule |
 
 Use one API replica because browser authentication is stored in that process. Use one owner for each research session. API restart revokes browser login cookies, while durable research state remains. Workers must not share writable capture volumes or be scaled horizontally as a latency shortcut.
 
@@ -34,7 +34,7 @@ Use the TypeScript configuration in `.railway/railway.ts`. Railway documents thi
 
 After the web service exists, generate its Railway domain or attach the chosen domain, update the exact shared HTTPS origin and redeploy the API. Configure **no public domain or TCP proxy** for the API/database. Check the web `/healthz`, authenticated API health and session capabilities separately. Caddy preserves the browser's Origin and the API's secure cookie behavior.
 
-Both networks in the shipped configuration are disabled. A healthy deployment can authenticate and report capabilities while correctly rejecting session creation. It is not an active arbitrage service. Register qualified enabled configurations and pool registries before adding observation workers; full quote/simulation/paper qualification remains separate.
+Both networks in the shipped configuration are disabled. A healthy deployment can authenticate and report capabilities while correctly rejecting session creation. It is not an active arbitrage service. Register qualified enabled configurations and pool registries before adding research workers; deployed-protocol qualification, complete simulation and automatic paper scenarios remain separate gates.
 
 ## Worker volumes, shutdown and recovery
 
@@ -42,14 +42,16 @@ Each worker needs a dedicated persistent volume mounted at `/data`, with its con
 
 Select region and capacity after measuring provider RTT and expected capture size; this runbook assigns no invented latency benefit to a region. Keep queues and recording quotas bounded. A capture volume is not a backup. Set and test database backups and capture export/retention before an observation campaign.
 
-Pause or STOP through the authenticated API and verify the per-session worker receipt. PENDING is not APPLIED. Stop the worker process only after the requested fence and relevant reconciliation are known. Railway service shutdown, redeployment or database shutdown is not proof of a durable STOP. After restart, the worker recovers fenced and requires a fresh START; loss of readiness faults the session rather than silently resuming.
+Pause or STOP through the authenticated API and verify the per-session worker receipt. PENDING is not APPLIED. Stop the worker process only after the requested fence and relevant reconciliation are known. Railway service shutdown, redeployment or database shutdown is not proof of a durable STOP. After restart, the worker recovers fenced and requires a fresh START; loss of readiness faults the session rather than silently resuming. In OBSERVE and PAPER, PAUSE/STOP fence candidate evaluation/admission while raw acquisition can continue. Stop the process separately to stop all provider reads. Standalone capture CLIs are outside these durable session controls.
 
 ## Validation boundary
 
 The source includes container build definitions and CI validation. Actual Railway deployment, region RTT measurements, volume permissions, backup restore and provider behavior must be recorded against the deployed image/commit before ARB-004 or ARB-044 can be accepted. Container base images use named versions; resolve and record immutable image digests and vulnerability review before a production release. Research services expose no signing or transaction broadcasting capability.
 
-## Add qualified observation workers
+## Add qualified research workers
 
-`deploy/Dockerfile.worker` builds the OBSERVE-only binary. Its entrypoint prepares `/data/captures` on the mounted volume and drops to UID/GID 10001 before reading configuration or starting the worker. Supply `ARB_WORKER_CONFIG`, `ARB_POOL_REGISTRY`, `ARB_OPERATOR_ID=operator`, and the API-created `ARB_SESSION_ID`, plus the environment variables named by the immutable configuration's secret references. No API operator secret is needed in a worker.
+`deploy/Dockerfile.worker` builds the controlled OBSERVE/PAPER research binary. Its entrypoint prepares `/data/captures` on the mounted volume and drops to UID/GID 10001 before reading configuration or starting the worker. Supply `ARB_WORKER_CONFIG`, `ARB_POOL_REGISTRY`, `ARB_OPERATOR_ID=operator`, and the API-created `ARB_SESSION_ID`, plus the environment variables named by the immutable configuration's secret references. No API operator secret is needed in a worker.
+
+The API-created session and worker must use the exact same validated enabled configuration, registry digest and immutable mode. To initialize virtual capital, create a PAPER session, let its worker recover to STOPPED, then create the immutable account through the connected Runs page or paper-run API. Pending commands can block creation. Starting that PAPER worker only captures inputs and stores CANDIDATE decisions: it does not automatically reserve capital or settle quotes into balances. Keep token principal and native fee inventory separate, and retain the original idempotency key if account creation has an uncertain response. See [research and paper accounts](../wiki/Using-Research-and-Paper-Accounts.md).
 
 The default IaC graph intentionally provisions only the deployable API/dashboard foundation. Add each worker and its own volume to that same full graph after recording the actual configuration, session and registry choices. Keep those additions in IaC before applying again, since omitting an existing managed service from a full desired-state graph can propose removal. Use `replicas: 1`, `RAILWAY_DOCKERFILE_PATH: "deploy/Dockerfile.worker"`, `volumeMounts: { "/data": workerVolume }`, and no HTTP healthcheck. Pin a deployment commit and verify the plan before provisioning; never set a worker start command that automatically issues START.

@@ -1,12 +1,15 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:arbitrage-research:opportunity:1.0.0",
+  "$id": "urn:arbitrage-research:opportunity:1.1.0",
   "title": "Opportunity evidence record",
   "type": "object",
   "additionalProperties": false,
   "properties": {
     "schema_version": {
-      "const": "1.0.0"
+      "enum": [
+        "1.0.0",
+        "1.1.0"
+      ]
     },
     "source_kind": {
       "enum": [
@@ -199,8 +202,12 @@
       "const": true
     },
     "net_after_explicit_costs_minor": {
-      "type": "string",
-      "pattern": "^-?(0|[1-9][0-9]*)$"
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^-?(0|[1-9][0-9]*)$",
+      "description": "Null means unavailable external costs, never zero. Version 1.1 allows a numeric net only when costs_complete is true."
     },
     "simulation_status": {
       "enum": [
@@ -272,6 +279,14 @@
         "string",
         "null"
       ]
+    },
+    "dataset_origin": {
+      "enum": [
+        "SYNTHETIC",
+        "MANUALLY_CONSTRUCTED",
+        "RECORDED_LIVE"
+      ],
+      "description": "Required in version 1.1; replaying or capturing manually constructed bytes does not make them recorded live market data."
     }
   },
   "required": [
@@ -451,6 +466,137 @@
               "PROVISIONAL",
               "FINALIZED"
             ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "schema_version": {
+            "const": "1.0.0"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "net_after_explicit_costs_minor": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9][0-9]*)$"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "schema_version": {
+            "const": "1.1.0"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "dataset_origin"
+        ],
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "eligibility_checks": {
+                  "properties": {
+                    "costs_complete": {
+                      "const": false
+                    }
+                  }
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "net_after_explicit_costs_minor": {
+                  "type": "null"
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "net_after_explicit_costs_minor": {
+                  "type": "string",
+                  "pattern": "^-?(0|[1-9][0-9]*)$"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "dataset_origin": {
+                  "const": "RECORDED_LIVE"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "source_kind": {
+                  "const": "CAPTURED_MARKET_DATA"
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "source_kind": {
+                  "const": "SYNTHETIC_FIXTURE"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "evidence_label": {
+            "const": "ESTIMATED_EXECUTABLE"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "net_after_explicit_costs_minor": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9][0-9]*)$"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "dataset_origin"
+        ]
+      },
+      "then": {
+        "if": {
+          "properties": {
+            "dataset_origin": {
+              "const": "RECORDED_LIVE"
+            }
+          }
+        },
+        "then": {
+          "properties": {
+            "source_kind": {
+              "const": "CAPTURED_MARKET_DATA"
+            }
+          }
+        },
+        "else": {
+          "properties": {
+            "source_kind": {
+              "const": "SYNTHETIC_FIXTURE"
+            }
           }
         }
       }

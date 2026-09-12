@@ -27,7 +27,13 @@ Root integration owns shared manifests, lockfiles, CI, publication and final acc
 4. Attach the tested commit and relevant evidence to the ticket. Close it only when its complete acceptance criteria and applicable dependency gates are satisfied.
 5. Record incomplete criteria and external prerequisites explicitly. Continue independent work while awaiting them.
 
-The first usable milestone is a captured, exact, reproducible observation route that appears in the connected dashboard and has a durable worker stop acknowledgement. Full atomic transaction simulation and virtual accounting are additional gates for executable paper research. A quote or metadata snapshot alone is not that milestone.
+## Current delivery checkpoint
+
+PR [#89](https://github.com/makafeli/arbitrage-research/pull/89) connects same-network captured route evaluation, durable decision queries, offline economic replay and immutable virtual accounts to the dashboard. Base V3 and Solana Whirlpool calculations use exact amounts; unsupported state and inconsistent capture contexts fail closed. Both OBSERVE and PAPER workers recover stopped and require an explicit START. The paper ledger supports reservations and reconciled outcomes internally, but the worker does not automatically convert quotes into virtual fills.
+
+[Research integration verification](docs/17-RESEARCH-INTEGRATION-VERIFICATION.md) is the current test/review record; the earlier PR #83 checkpoint is historical. Match its tested commit to the current branch before claiming acceptance.
+
+The next usable-market milestone requires qualified providers/pools, a common multi-pool acquisition anchor and chain-lag evidence. Complete atomic transaction simulation, explicit costs/inclusion assumptions and scenario-driven paper settlement remain necessary for executable paper research. A gross route quote or virtual opening balance establishes neither profitable arbitrage nor a simulated complete transaction.
 
 ## External prerequisites
 

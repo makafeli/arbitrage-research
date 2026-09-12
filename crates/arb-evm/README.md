@@ -4,7 +4,9 @@
 
 The reader decodes exact Q64.96 price bytes, signed ticks, active liquidity, a configured bounded bitmap window and every initialized tick within that window. ABI lengths, integer/sign bounds, initialization and liquidity consistency are checked. The operator supplies the actual independently verified pool identities and SHA-256 hashes. No example pool here has been verified on Base. Runtime hashes are SHA-256 over decoded `eth_getCode` bytes, not Ethereum's Keccak code hash.
 
-Both quote completeness and quote implementation qualification remain **false**. A bounded bitmap window is not proof that an arbitrary input amount can be quoted. Streaming logs, reconnect/backfill, continuous rollback invalidation, token behavior qualification, real captured fixture comparison and protocol math qualification remain unfinished ARB-016/018/019 work.
+Acquisition quote completeness and quote implementation qualification remain **false**. The `math` module can now calculate a direction- and amount-specific exact-input estimate against the captured window, using checked integers and the pinned MIT Uniswap SDK reference. It takes the unchanged v1 `PoolSnapshot` plus its explicit `PoolRegistry`. It preserves tick-word boundary rounding, includes the pool fee, checks every liquidity transition, and rejects partial input, missing tick data and exhausted coverage. Successful output is always **CANDIDATE**; the quoted fee is already reflected in `amount_out`.
+
+Streaming logs, reconnect/backfill, continuous rollback invalidation, token behavior qualification, real captured fixture comparison and deployed protocol qualification remain unfinished ARB-016/018/019 work. The math implementation does not promote capture readiness or provide transaction simulation. Provenance, license and limitations are recorded in [the Uniswap SDK notice](../../third-party/UNISWAP-V3-SDK-3.11.0.md). Synthetic independent oracle vectors and regeneration instructions are in `tests/reference`; these are not market captures.
 
 Protocol facts were checked against these primary sources on 2026-09-12:
 

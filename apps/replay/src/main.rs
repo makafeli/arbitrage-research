@@ -36,9 +36,26 @@ fn main() -> ExitCode {
             }
         };
     }
+    if args.len() == 2 && args[0] == "--evaluate-captures" {
+        return match evaluate_file(&args[1]) {
+            Ok(report) => {
+                println!("{report}");
+                ExitCode::SUCCESS
+            }
+            Err(_) => {
+                eprintln!(
+                    "Replay evaluation failed: invalid request, unavailable retained inputs or incompatible evidence"
+                );
+                ExitCode::FAILURE
+            }
+        };
+    }
     if args.len() != 1 || args[0] != "--lifecycle-demo" {
         eprintln!("Usage: replay --verify-capture DIRECTORY --manifest-digest sha256:HASH");
-        eprintln!("Quote and paper-outcome replay are not implemented.");
+        eprintln!("       replay --evaluate-captures REQUEST.json");
+        eprintln!(
+            "Research arithmetic replay produces CANDIDATE evidence only; paper-outcome replay is unavailable."
+        );
         eprintln!("Use --lifecycle-demo for an offline synthetic control-state example.");
         return ExitCode::from(2);
     }
@@ -71,4 +88,29 @@ fn lifecycle_demo() -> Result<(), Box<dyn Error>> {
     let session = session.resolve_attempt()?;
     println!("After synthetic resolution: {:?}", session.state());
     Ok(())
+}
+
+fn evaluate_file(path: &str) -> Result<serde_json::Value, Box<dyn Error>> {
+    use std::io::Read;
+    let meta = std::fs::symlink_metadata(path)?;
+    if !meta.file_type().is_file() || meta.len() > 1024 * 1024 {
+        return Err("request must be a regular file at most 1 MiB".into());
+    }
+    let mut bytes = Vec::new();
+    std::fs::File::open(path)?
+        .take(1024 * 1024 + 1)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() > 1024 * 1024 {
+        return Err("request exceeds byte bound".into());
+    }
+    let request: replay::ReplayEvaluationRequest = serde_json::from_slice(&bytes)?;
+    let now = u64::try_from(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_millis(),
+    )?;
+    let mut report = replay::evaluate_captures(&request, now)?;
+    report["replay_build_digest"] =
+        serde_json::json!(arb_capture::file_digest(&std::env::current_exe()?)?);
+    Ok(report)
 }

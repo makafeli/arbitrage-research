@@ -1,12 +1,12 @@
 # Implementation and team handoff
 
-Version: 0.2, 12 September 2026. This handoff covers the approved dashboard reference, initial source scaffold, full delivery specifications and GitHub setup. Product, architecture, engineering, operations and UX contributions are design work. They do not imply a staffed company, a completed audit or an operating trading system.
+Version: 0.3, 12 September 2026. This handoff covers the approved dashboard implementation, integrated research/virtual-account source, delivery requirements and GitHub project material. Product, architecture, engineering, operations and UX work has been carried out in parallel. It does not imply a staffed company, an independent audit, deployed services or an operating live trader.
 
 ## 1. Start here
 
-The supplied destination is [makafeli/arbitrage-research](https://github.com/makafeli/arbitrage-research). The user selected the existing [dashboard reference](../design/dashboard-wireframe.html) for implementation. The repository contains a React/TypeScript dashboard scaffold, Rust foundation code, versioned requirements, a structured delivery backlog and Wiki source.
+The supplied destination is [makafeli/arbitrage-research](https://github.com/makafeli/arbitrage-research). The user selected the existing [dashboard reference](../design/dashboard-wireframe.html) for implementation. The repository contains a React/TypeScript Demo/Connected dashboard, Rust capture/math/decision and virtual-account services, versioned requirements, a structured delivery backlog and Wiki source. Railway is the selected host, with a [prepared private-service runbook](../deploy/RAILWAY.md).
 
-Read [implementation status](12-IMPLEMENTATION-STATUS.md) before running the code. It distinguishes source present from checks completed and capabilities not yet implemented. The demonstration does not observe a blockchain, discover live arbitrage, simulate a complete route, maintain a paper ledger, sign or submit a transaction. The original uploaded script is not imported as trusted production code.
+Read [implementation status](12-IMPLEMENTATION-STATUS.md) and [integration verification](17-RESEARCH-INTEGRATION-VERIFICATION.md) before interpreting the current source. The latter owns pending CI and the exact validated checkpoint; earlier main-branch test counts do not prove this integration. Read-only capture and CANDIDATE calculations are distinct from a qualified live observation campaign. Durable virtual accounts are distinct from automatic paper fills. Complete atomic simulation, current deployed-provider/protocol qualification, signing and submission remain unavailable. The original uploaded script is not imported as trusted production code.
 
 The detailed requirements in `docs` are canonical. [planning/backlog.json](../planning/backlog.json) carries the complete stable ticket set from project qualification through optional live and expansion phases. GitHub issues mirror those work items. Wiki pages summarize and link the source instead of defining a second set of requirements.
 
@@ -33,17 +33,17 @@ No external person is assigned work merely by these role labels. GitHub assignee
 
 The first useful market-data demonstration is: capture a small verified pool universe; record a coherent complete snapshot; evaluate a route in Rust; display its CANDIDATE evidence and costs; stop the session with a visible durable worker acknowledgement; restart into STOPPED; and reproduce the calculation from the capture. This is useful even if every route is rejected or unprofitable.
 
-The source scaffold is the starting point for that work, not evidence that the slice has already been achieved. Base can be the first integrated chain while Solana account ingestion proceeds in parallel. This is a delivery convenience, not a claim that Base is more profitable. Both chains must satisfy equivalent data and evidence requirements before comparative executable-paper results are published.
+The source now connects retained captures, bounded exact math, durable decision admission and authenticated UI inspection, with a separate virtual-account workflow. Its fixtures and implementation reviews do not establish qualified market capture or the complete release gate. Pool acquisition is still independent; differing contexts are rejected, and finalized-state age is distinct from receipt age. Both chains need equivalent provider/state/simulation evidence before comparative executable-paper results are published.
 
-The early dependency sequence is:
+The remaining acceptance sequence is:
 
 1. Settle data access, provider cost ceilings, host assumptions and a verified token/pool universe.
-2. Complete workspace/build validation, exact types, capability declarations and fail-closed configuration.
-3. Implement durable commands, revisions, idempotency, worker acknowledgements and recovery.
-4. Capture complete, coherent state on each chain and preserve reproducible fixtures.
-5. Implement protocol-exact quoting and bounded distinct-pool route evaluation.
-6. Connect captured CANDIDATE evidence to the approved dashboard and validate real controls.
-7. Add deterministic replay, complete transaction simulation and paper inventory/cost scenarios.
+2. Finish the current locked build, PostgreSQL, reference-oracle, browser and container checks; link the exact CI commit.
+3. Accept implemented durable commands, decision/virtual-account idempotency, worker fencing and restart behavior against their integration evidence.
+4. Qualify coherent multi-pool state on each chain and retain representative actual-capture fixtures.
+5. Establish current deployed-protocol equivalence for the implemented exact math and configured routes.
+6. Accept the connected CANDIDATE/coverage/account UI against browser and API-contract evidence.
+7. Add complete transaction simulation, cost/inclusion scenarios and automatic paper execution without weakening the existing virtual ledger or replay boundaries.
 
 Keep the first sprint narrow. The full backlog specifies the complete route to later releases so dependencies and omitted capabilities remain visible; it does not imply the entire product fits one sprint.
 
@@ -63,7 +63,7 @@ The first deployment against mainnet data remains a research deployment with no 
 
 If either chain lacks a complete intended atomic route simulation, release only a clearly labeled quote-research preview. Do not present that as a completed executable-paper comparison. M3 requires at least one fully simulatable supported route per chain; synthetic success fixtures prove mechanics and never enter market-return reports.
 
-M5 produces a comparable observation study and an explicit feasibility decision, including negative results and insufficient evidence. An initial suggested 30-calendar-day research window is a planning assumption; adequate coverage and controlled methodology are still required. Scope and thresholds remain those in the PRD and operations requirements; scaffold validation does not satisfy them.
+M5 produces a comparable observation study and an explicit feasibility decision, including negative results and insufficient evidence. An initial suggested 30-calendar-day research window is a planning assumption; adequate coverage and controlled methodology are still required. Scope and thresholds remain those in the PRD and operations requirements; source-level validation does not satisfy them.
 
 M6/M7 live work requires the previous phase decision, bounded limits, independent review, deployment/funding arrangements and explicit operator activation. Tickets can be ready for review while activation remains disabled. Repository creation, public source publication, a passing build or a paper profit cannot arm a strategy.
 
@@ -82,4 +82,4 @@ The implementation must preserve these cross-role resolutions:
 9. **Evidence:** Paper never earns REALIZED. Unknown cost inputs are not zero, pool fees/impact already in a quote are not subtracted twice, and USDC is not guaranteed to equal a dollar.
 10. **Implementation claims:** Design, scaffold, integration, research and live gates are different stages. Record the stage actually achieved.
 
-See [the decision register](09-DECISIONS-AND-OPEN-QUESTIONS.md) for remaining budgets, hosting, integrations and future live limits, and [the delivery plan](07-DELIVERY-PLAN.md) for effort assumptions and phase gates.
+See [the decision register](09-DECISIONS-AND-OPEN-QUESTIONS.md) for remaining budgets, hosting parameters, integrations and future live limits, and [the delivery plan](07-DELIVERY-PLAN.md) for effort assumptions and phase gates.

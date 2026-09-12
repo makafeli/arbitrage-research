@@ -81,6 +81,7 @@ valid_estimated['eligibility_checks']={k:True for k in valid_estimated['eligibil
 check(s,valid_estimated)
 negatives=[]
 for label,mutation in [
+ ('legacy-provided-origin-source-mismatch',lambda x:x.update(dataset_origin='RECORDED_LIVE')),
  ('paper-realized',lambda x:x.update(evidence_label='REALIZED',transaction_id='fakehash',finality_status='FINALIZED')),
  ('numeric-token-amount',lambda x:x.update(amount_in_minor=100)),
  ('negative-input',lambda x:x.update(amount_in_minor='-1')),
@@ -105,6 +106,27 @@ for label,bad in [
  try:check(s,bad)
  except AssertionError:negatives.append(label)
  else:raise AssertionError('negative example accepted: '+label)
+new_example=json.loads((root/'specs/opportunity.v1.1.example.json').read_text())
+check(s,new_example)
+for label,mutation in [
+ ('v1.1-missing-origin',lambda x:x.pop('dataset_origin')),
+ ('v1.1-synthetic-claimed-as-market',lambda x:x.update(dataset_origin='SYNTHETIC',source_kind='CAPTURED_MARKET_DATA')),
+ ('v1.1-manual-claimed-as-market',lambda x:x.update(dataset_origin='MANUALLY_CONSTRUCTED',source_kind='CAPTURED_MARKET_DATA')),
+ ('v1.1-recorded-claimed-as-synthetic',lambda x:x.update(dataset_origin='RECORDED_LIVE',source_kind='SYNTHETIC_FIXTURE')),
+ ('v1.1-unknown-cost-numeric-net',lambda x:x.update(net_after_explicit_costs_minor='0')),
+ ('v1.1-complete-cost-null-net',lambda x:x['eligibility_checks'].update(costs_complete=True)),
+ ('v1.1-estimated-null-net',lambda x:x.update(evidence_label='ESTIMATED_EXECUTABLE'))]:
+ bad=copy.deepcopy(new_example);mutation(bad)
+ try:check(s,bad)
+ except AssertionError:negatives.append(label)
+ else:raise AssertionError('negative example accepted: '+label)
+valid_estimated_v11=copy.deepcopy(valid_estimated)
+valid_estimated_v11.update(schema_version='1.1.0',dataset_origin='SYNTHETIC')
+check(s,valid_estimated_v11)
+valid_estimated_v11['net_after_explicit_costs_minor']=None
+try:check(s,valid_estimated_v11)
+except AssertionError:negatives.append('v1.1-fully-qualified-estimated-null-net')
+else:raise AssertionError('fully qualified estimated example accepted null net')
 assert e['route'][0]['asset_in']==e['start_asset_id']
 for first,second in zip(e['route'],e['route'][1:]):assert first['asset_out']==second['asset_in']
 assert e['route'][-1]['asset_out']==e['start_asset_id']

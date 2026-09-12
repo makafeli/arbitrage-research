@@ -5,8 +5,10 @@ for configuration snapshots, immutable research sessions, revisioned command int
 receipts. It supports the operations in [`../../specs/openapi.yaml`](../../specs/openapi.yaml).
 
 The service does **not** collect market data, quote pools, sign transactions or broadcast.
-`GET /v1/capabilities` reports those limitations explicitly. Connected opportunity pages are
-empty until a capture implementation exists; synthetic dashboard fixtures never enter API responses.
+`GET /v1/capabilities` reports those process limitations explicitly. Research workers may
+admit durable decision records; the API reads those records from PostgreSQL. Synthetic and
+manually constructed datasets retain their explicit provenance and cannot appear as captured
+market data. The API never substitutes dashboard fixtures for a missing database result.
 
 ## Start locally
 
@@ -99,6 +101,51 @@ is only process liveness; neither route asserts provider or worker readiness.
 Ctrl-C stops the HTTP process. It does not issue STOP to workers. To stop research,
 submit STOP while the API is running and verify the applied receipt and observed state.
 
+## Persisted decisions and hypothetical portfolios
+
+`GET /v1/decisions?session_id=...` returns pages of `{trace_id, recorded_at, trace}`.
+`GET /v1/decisions/{observation_id}` returns the same durable wrapper. Trace outcomes
+remain QUOTED, REJECTED, NO_ROUTE or DATA_UNAVAILABLE. QUOTED is CANDIDATE evidence:
+the output includes pool fees and price impact, while missing external costs leave net
+unavailable. A negative gross difference remains a recorded candidate, not a winning trade.
+All routes are scoped to the authenticated operator, including cursor pages and details.
+
+`GET /v1/opportunities` projects only eligible stored QUOTED records. Network, session,
+evidence and `source_kind` filters run before pagination; rejected rows cannot consume a
+page or hide later eligible records. Use `source_kind=CAPTURED_MARKET_DATA` for a captured
+data view. Version 1.1 includes `dataset_origin`; SYNTHETIC and MANUALLY_CONSTRUCTED
+use SYNTHETIC_FIXTURE and fixture identities. Unknown external costs produce
+`net_after_explicit_costs_minor:null`, never a fabricated zero or gross-as-net amount.
+
+`GET /v1/decision-groups?session_id=...` provides paginated counts by reproducible
+grouping key with explicit origin. `GET /v1/decision-coverage?session_id=...` counts
+raw observations and their outcomes separately from distinct quoted groups. An empty
+session has zero recorded observations and null coverage window boundaries. Collection
+completeness is UNKNOWN; this does not prove zero arbitrage in a chain or period.
+Execution-accounting fields are null with `execution_accounting_available:false`.
+Capture metadata and paper journal rows are not reconciled transactions.
+
+`POST /v1/sessions/{session_id}/paper-runs` accepts only `initial_balances` with typed
+token/native asset identities and integer minor-unit strings. It requires the same
+Origin, CSRF and idempotency controls as session creation. The session must be PAPER,
+STOPPED and without a pending command. Assets must belong to its registered, frozen
+configuration; the authenticated capability response exposes those `paper_assets`
+without secrets or RPC endpoints. Initial virtual capital and configuration are immutable:
+start a new run to change them. The same key and payload replays the accepted run even
+after API restart or removal of that configuration from current choices. Changed payloads
+conflict. A revision difference alone is not treated as proof of a pending command.
+
+`GET /v1/sessions/{session_id}/paper-runs` lists runs. `GET /v1/paper-runs/{run_id}`
+returns balances consistent with the reported revision, including original virtual
+balances, free/reserved/total amounts, HYPOTHETICAL evidence and execution_authorized=false.
+The `/journal` and `/reservations` child routes are paginated reads. Reservation fee
+budgets are original request budgets, not current remaining inventory. No HTTP endpoint
+can reserve, resolve, settle, sign, send, reset or promote a result to REALIZED.
+
+All pages accept limits 1..100 and returned cursors only. Decision-history and paper-ledger
+capability flags describe implemented API functionality, not provider readiness or populated
+data. Browser authentication still expires on restart; durable records remain.
+
 ## Verification
 
 Run `cargo test -p control-api` for HTTP-boundary tests covering cookie flags, token rotation,
@@ -114,3 +161,8 @@ explicitly filter out this integration case rather than reporting a skipped case
 integration tests separately verify actual durability, idempotency, revision races,
 worker acknowledgement and database constraints. HTTP mock success does not establish
 PostgreSQL behavior or live market capability.
+
+Additional PostgreSQL HTTP tests exercise persisted research filtering, rejection counts,
+pagination, origin separation, immutable paper creation and cross-operator denial. These
+cases require TEST_DATABASE_URL and must be executed in CI; source presence or successful
+mock tests alone are not evidence of database behavior.

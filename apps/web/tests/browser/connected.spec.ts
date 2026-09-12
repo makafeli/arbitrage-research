@@ -25,7 +25,7 @@ test('connected mode shows unsupported capture, rejects synthetic substitution a
     if (outage && path === '/v1/sessions') { await route.fulfill({ status: 503, json: { code: 'UNAVAILABLE', message: 'Database offline' } }); return true; }
     return false;
   });
-  await expect(page.getByText('Market records unavailable', { exact: true })).toBeVisible();
+  await expect(page.getByText('No captured quote records on this page', { exact: true })).toBeVisible();
   await expect(page.getByText('API CONNECTED', { exact: true })).toBeVisible();
   await expect(page.getByText('LOCAL SYNTHETIC DEMO', { exact: true })).toHaveCount(0);
   outage = true;
@@ -70,6 +70,7 @@ test('transport failure retries the exact idempotent command without a new recei
     if (path !== '/v1/sessions/session-base/commands') return false;
     requests.push({ key: route.request().headers()['idempotency-key'], body: route.request().postDataJSON() });
     if (requests.length === 1) await route.abort('failed');
+    else if (requests.length === 2) await route.fulfill({ status: 429, json: { code: 'RATE_LIMITED', message: 'Retry later' } });
     else await route.fulfill({ status: 202, json: pending });
     return true;
   });
@@ -78,8 +79,10 @@ test('transport failure retries the exact idempotent command without a new recei
   await expect(card.getByText('Delivery uncertain', { exact: true })).toBeVisible();
   await expect(card.getByText('STOP · APPLIED', { exact: true })).toHaveCount(0);
   await card.getByRole('button', { name: 'Retry same request', exact: true }).click();
+  await expect(card.getByText('Delivery uncertain', { exact: true })).toBeVisible();
+  await card.getByRole('button', { name: 'Retry same request', exact: true }).click();
   await expect(card.getByText('STOP · PENDING', { exact: true })).toBeVisible();
-  expect(requests).toHaveLength(2); expect(requests[0]).toEqual(requests[1]);
+  expect(requests).toHaveLength(3); expect(requests[0]).toEqual(requests[1]); expect(requests[1]).toEqual(requests[2]);
 });
 
 test('view filter does not change stop-all scope and partial rejection stays on its session', async ({ page }) => {
@@ -175,3 +178,26 @@ for (const width of [320, 390, 1440]) {
     await testInfo.attach(`connected-${width}`, { body: await page.screenshot({ fullPage: true }), contentType: 'image/png' });
   });
 }
+
+test('uncertain session creation retains the same key after a retry is rate limited', async ({ page }) => {
+  const requests: { key: string; body: unknown }[] = [];
+  await stub(page, async (route, path) => {
+    if (path !== '/v1/sessions' || route.request().method() !== 'POST') return false;
+    requests.push({ key: route.request().headers()['idempotency-key'], body: route.request().postDataJSON() });
+    if (requests.length === 1) await route.fulfill({ status: 504, json: { code: 'REQUEST_TIMEOUT', message: 'Outcome uncertain' } });
+    else if (requests.length === 2) await route.fulfill({ status: 429, json: { code: 'RATE_LIMITED', message: 'Retry later' } });
+    else await route.fulfill({ status: 201, json: { ...running, session_id: 'created-after-retry', observed_state: 'RECOVERING', health: 'UNKNOWN', desired_revision: '0', applied_revision: '0' } });
+    return true;
+  });
+  await page.getByRole('navigation').getByRole('button', { name: 'Experiments', exact: true }).click();
+  await page.getByLabel('Validated configuration', { exact: true }).selectOption('sha256:browser-config');
+  await page.getByLabel('Session network', { exact: true }).selectOption('base-mainnet');
+  await page.getByLabel('Experiment reference', { exact: true }).fill('retry-experiment');
+  await page.getByRole('checkbox').check();
+  await page.getByRole('button', { name: 'Create research session', exact: true }).click();
+  await page.getByRole('button', { name: 'Retry same creation request', exact: true }).click();
+  await expect(page.getByLabel('Experiment reference', { exact: true })).toBeDisabled();
+  await page.getByRole('button', { name: 'Retry same creation request', exact: true }).click();
+  await expect(page.getByText('Created created-after-retry · RECOVERING. No start command was sent.', { exact: true })).toBeVisible();
+  expect(requests).toHaveLength(3); expect(requests[0]).toEqual(requests[1]); expect(requests[1]).toEqual(requests[2]);
+});

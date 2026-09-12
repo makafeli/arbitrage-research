@@ -4,11 +4,13 @@
 //! serialize it with their actual worker gate and journal before integration.
 
 mod amount;
+mod decision;
 mod identity;
 mod lifecycle;
 mod opportunity;
 
 pub use amount::{AmountError, AtomicAmount, Decimals, Rounding, SignedAmount};
+pub use decision::*;
 pub use identity::{AssetId, FixtureId, IdentityError, NetworkId, PoolId, Route, RouteLeg};
 pub use lifecycle::{Action, ControlError, Mode, Progress, Session, SessionSnapshot, State};
 pub use opportunity::*;

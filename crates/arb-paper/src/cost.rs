@@ -7,7 +7,8 @@ use std::{collections::HashSet, fmt};
 #[serde(
     tag = "kind",
     content = "identity",
-    rename_all = "SCREAMING_SNAKE_CASE"
+    rename_all = "SCREAMING_SNAKE_CASE",
+    deny_unknown_fields
 )]
 pub enum AccountingAsset {
     Token(AssetId),
@@ -315,6 +316,16 @@ pub fn evaluate_costs(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn accounting_asset_rejects_unknown_fields() {
+        let ordinary = serde_json::json!({"kind":"NATIVE","identity":"base-mainnet"});
+        let parsed: AccountingAsset = serde_json::from_value(ordinary.clone()).unwrap();
+        assert_eq!(parsed, AccountingAsset::Native(NetworkId::BaseMainnet));
+        assert_eq!(serde_json::to_value(parsed).unwrap(), ordinary);
+        let hidden = serde_json::json!({"kind":"NATIVE","identity":"base-mainnet","hidden":true});
+        assert!(serde_json::from_value::<AccountingAsset>(hidden).is_err());
+    }
+
     fn base_asset() -> AssetId {
         AssetId::new(
             NetworkId::BaseMainnet,

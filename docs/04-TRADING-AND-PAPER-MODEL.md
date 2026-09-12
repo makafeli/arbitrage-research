@@ -1,6 +1,12 @@
 # Trading and paper model
 
-Status: v0.2 target implementation specification, 12 September 2026. Owner: trading engineering. All venues below remain integration targets. The dashboard contains synthetic explanatory fixtures; no market-return study, complete transaction simulation or paper ledger has been implemented by the scaffold. This document does not certify a deployed address, working adapter, historical return or profitable strategy.
+Status: v0.3 TARGET economics and paper-release specification, 12 September 2026. Source now implements bounded Base/Solana acquisition, exact candidate math, same-chain route decisions, retained-input replay and a durable virtual ledger. These do not establish a market-return study, current deployed-program equivalence, full transaction simulation or automatic paper execution. The [integration verification record](17-RESEARCH-INTEGRATION-VERIFICATION.md) tracks pending CI; this document does not certify a provider, deployed address or profitable strategy.
+
+## Current research boundary
+
+Current quotes include protocol pool fees and price impact. External execution, inclusion and operating costs are unavailable; opportunity net amounts therefore remain `null`, even when gross output exceeds input. Decision history keeps raw observations and rejection reasons separately from grouped candidates. Collection completeness remains `UNKNOWN`, while eligible attempts and reconciled transactions remain unavailable rather than invented zero totals.
+
+A stopped PAPER session can receive an immutable virtual account with token principal and native fee inventory. The ledger supports checked reservations and journaled internal transitions, but the HTTP surface exposes account creation and inspection, not arbitrary reservation/settlement or balance reset. Running a PAPER worker captures and evaluates candidates; it never automatically posts a quote as a fill. Replay evaluates retained inputs under explicitly modeled historical timing. These implemented foundations do not satisfy the full-simulation and inclusion gates below.
 
 ## 1. Product question and bounded scope
 

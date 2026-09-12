@@ -1,0 +1,61 @@
+{
+  "schema_version": "1.1.0",
+  "source_kind": "SYNTHETIC_FIXTURE",
+  "opportunity_id": "fixture-opportunity-unknown-costs",
+  "session_id": "fixture-session-paper-base",
+  "experiment_id": "fixture-experiment-001",
+  "strategy_revision": "1",
+  "network_id": "base-mainnet",
+  "mode": "PAPER",
+  "evidence_label": "CANDIDATE",
+  "observed_at": "2026-09-12T12:00:00Z",
+  "snapshot": {
+    "snapshot_id": "fixture-snapshot-001",
+    "state_reference": "fixture:block:1",
+    "source": "synthetic-unit-fixture",
+    "consistent": true,
+    "complete": true,
+    "finality_label": "fixture-only",
+    "age_ms": 15
+  },
+  "funding_mode": "OWN_CAPITAL",
+  "start_asset_id": "fixture:base:usdc",
+  "amount_in_minor": "100000000",
+  "quoted_output_minor": "100060000",
+  "route": [
+    {
+      "pool_id": "fixture:pool-a",
+      "venue_family": "uniswap-v3",
+      "asset_in": "fixture:base:usdc",
+      "asset_out": "fixture:base:weth"
+    },
+    {
+      "pool_id": "fixture:pool-b",
+      "venue_family": "uniswap-v3",
+      "asset_in": "fixture:base:weth",
+      "asset_out": "fixture:base:usdc"
+    }
+  ],
+  "costs": [],
+  "quoted_output_includes_pool_fees_and_price_impact": true,
+  "net_after_explicit_costs_minor": null,
+  "simulation_status": "NOT_RUN",
+  "inclusion_scenario_id": null,
+  "finality_status": "NOT_APPLICABLE",
+  "transaction_id": null,
+  "reason_codes": [
+    "SYNTHETIC_DATA_NOT_A_MARKET_OPPORTUNITY",
+    "FULL_TRANSACTION_SIMULATION_NOT_RUN",
+    "EXTERNAL_COSTS_UNAVAILABLE"
+  ],
+  "eligibility_checks": {
+    "state_fresh_and_coherent": true,
+    "atomic_route_supported": false,
+    "final_balance_guard_present": false,
+    "costs_complete": false,
+    "principal_and_fee_reservations_valid": false,
+    "simulation_matches_exact_plan": false
+  },
+  "execution_plan_digest": null,
+  "dataset_origin": "SYNTHETIC"
+}

@@ -1,25 +1,36 @@
-# Offline acquisition verification
+# Offline replay
 
-The replay executable re-decodes a captured Base or Solana RPC transcript entirely offline. It verifies the supplied manifest digest, object lengths/hashes, retention, schema and sequence coverage, consumes the transcript with exact method/parameter matching, and compares the resulting snapshot and context with the recorded snapshot.
+`replay --verify-capture DIRECTORY --manifest-digest sha256:HASH` verifies retained capture hashes, exact request/response order, protocol source revision, frozen configuration authorization where required, and deterministic re-decoding. It makes zero network requests. The original single-pool capture format remains supported; bounded pool-set captures select their pool from the exact retained registry document.
 
-```sh
-cargo run --locked -p replay -- --verify-capture /path/to/capture --manifest-digest sha256:EXPECTED_HASH
+`replay --evaluate-captures REQUEST.json` additionally requires valid frozen configuration for every origin, re-decodes every capture, then runs bounded research math using the same engine as the controlled worker. It reports CANDIDATE decisions, explicit rejection reasons and historical timing policy. It does not simulate complete transactions, settle virtual trades or establish current protocol/provider qualification.
+
+## Evaluation request
+
+Supply a regular JSON file at most 1 MiB with no unknown fields:
+
+```json
+{
+  "schema_version": 1,
+  "session_id": "original-research-session",
+  "experiment_id": "original-experiment",
+  "strategy_id": "cyclic-exact-in-2leg-v1",
+  "network_id": "base-mainnet",
+  "generation": 1,
+  "observed_at_unix_ms": 1780000000000,
+  "input_age_ms": 100,
+  "captures": [
+    {"path": "/data/captures/first", "manifest_digest": "sha256:<64 lowercase hex digits>"},
+    {"path": "/data/captures/second", "manifest_digest": "sha256:<64 lowercase hex digits>"}
+  ]
+}
 ```
 
-Use the digest emitted at capture time or stored in the durable admission record. Hash agreement checks integrity against that reference; it does not authenticate an author by itself. Recorded-live captures also revalidate effective configuration, mode/network, registry digest, pool/asset allowlists and supported adapter format. This path never resolves credential references or creates an HTTP client. Missing data cannot be backfilled from current chain state.
+The manifest placeholders must be replaced with actual expected hashes. Capture paths resolve relative to the process working directory, unless absolute. At most eight retained captures are accepted. Their frozen configuration digests must agree; the engine checks their network, provenance, pool uniqueness and chain context. Original configuration is never an instruction to resolve secrets or connect to RPC.
 
-The report says `ACQUISITION_REDECODE_MATCHED` and retains the fixture/recorded origin, protocol source revision, original build digest and current replay build digest. It explicitly reports quote replay, paper P&L and full transaction simulation as unavailable. A matching decoded state is capture-layer evidence; ARB-027 economic replay remains incomplete.
+`input_age_ms` is explicit historical elapsed time from the batch observation. It has no default and must be below 65,000 ms. This is a user-supplied modeled timing scenario; the retained manifests alone do not prove actual batch latency. Reproduce the original stored decision's age and metadata to compare deterministic outputs. A different historical age is a different scenario and may change rejection status. The frozen freshness threshold still applies. Present wall time is used only for raw-retention validation, never to silently make historical quotes fresh.
 
-The CLI uses the current clock to enforce raw-retention expiry. The library accepts an injected clock for deterministic tests. Redirect the JSON output if a durable verification record is needed. Raw captured data is not printed automatically.
+Output preserves SYNTHETIC, MANUALLY_CONSTRUCTED or RECORDED_LIVE origin and exact integer strings. Gross route math includes protocol pool fees and price impact. External costs remain unknown, so the engine's opportunity projection has a null net amount. Captured input alone is not proof of executable profit.
 
-## Synthetic control example
+Decoder-only synthetic fixtures with arbitrary nonvalidated configuration remain usable for `--verify-capture`; they cannot be promoted to economic evidence by changing their origin label. Raw objects that have expired, mismatch their digests or cannot be deterministically re-decoded are rejected.
 
-```sh
-cargo run --locked -p replay -- --lifecycle-demo
-```
-
-This separate in-memory example records a fictional unresolved attempt, requests STOP, applies the fence, shows DRAINING and resolves it to STOPPED. It contains no prices, P&L, persistence or market data.
-
-## Verification
-
-`cargo test -p replay` re-decodes both manually constructed protocol fixtures, checks repeatability and rejects altered normalized state even after a bundle is rehashed, changed configuration/source identity, sequence mismatch and expired inputs. These tests establish acquisition decoding integrity. Exact quote evaluation, complete transaction plans, seeded scenarios and virtual ledger integration remain separate work.
+`replay --lifecycle-demo` remains an explicitly synthetic in-memory control-state demonstration.

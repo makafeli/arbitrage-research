@@ -1,6 +1,6 @@
 # Delivery plan and team ownership
 
-Version: 0.2. The initial repository scaffold and approved dashboard reference accompany a complete dependency-ordered [delivery backlog](../planning/backlog.json). The milestone table remains the target release plan, not an implementation record or commercial quotation. Multi-agent contributions provide design perspectives; they do not constitute independent audits or a staffed delivery company.
+Version: 0.3. Research integration now includes capture/registry, exact candidate math, durable decisions/virtual accounts and connected dashboard source. The [delivery backlog](../planning/backlog.json) and milestone table remain TARGET acceptance, not blanket completion or a commercial quotation. [Integration verification](17-RESEARCH-INTEGRATION-VERIFICATION.md) records pending CI and exact accepted evidence. Multi-agent implementation/review does not constitute an independent audit or a staffed delivery company.
 
 ## 1. Delivery approach
 
@@ -69,7 +69,7 @@ The first backlog refinement should select initial venues and data providers, ag
 
 [planning/backlog.json](../planning/backlog.json) is the canonical structured backlog. Every implementation ticket has a stable ID, milestone/epic, scope, exclusions, dependencies, role owner, acceptance criteria and validation evidence. Native GitHub issue numbers and project item IDs are publication metadata. Keep those identities separate so references survive re-import or a project migration.
 
-The eight epics correspond to M0–M7 above. Initial scaffolding does not close a ticket whose acceptance requires provider qualification, durable storage, a complete adapter, rendered UI verification or an integrated recovery exercise. Imported tickets start with honest status and remain open until their own acceptance evidence is linked. Later live and expansion tickets are fully specified for planning, but remain gated by M5/M6 and explicit operator activation.
+The eight epics correspond to M0–M7 above. Implemented capture, math, persistence and UI source does not by itself close tickets requiring provider qualification, full protocol coverage, exact deployed-state comparison, rendered UI verification or an integrated recovery exercise. Imported tickets start with honest status and remain open until their own acceptance evidence is linked. Later live and expansion tickets are fully specified for planning, but remain gated by M5/M6 and explicit operator activation.
 
 Work order is dependency-driven: settle essential scope and data access; complete shared types/configuration/control persistence; qualify state ingestion and exact protocol math on both chains; build complete transaction simulation and realistic paper accounting; integrate the approved dashboard; run the comparative research campaign; decide whether any bounded live implementation is justified. Frontend demo work and design review can proceed while adapters are under development.
 

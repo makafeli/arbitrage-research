@@ -4,6 +4,8 @@ The product helps one operator determine which supported chain, route and trade 
 
 The [PRD](https://github.com/makafeli/arbitrage-research/blob/main/docs/01-PRD.md) defines 18 functional requirements and eight nonfunctional requirements. The [delivery plan](https://github.com/makafeli/arbitrage-research/blob/main/docs/07-DELIVERY-PLAN.md) owns effort assumptions, responsibilities and phase exit gates.
 
+Current source connects read-only capture, exact two-pool candidate math, retained-input replay, durable controls, virtual accounts and the dashboard. It remains a quote-research preview: deployed provider/pool qualification, complete transaction simulation, automatic paper scenarios and a comparable market campaign are not claimed. [Integration verification](https://github.com/makafeli/arbitrage-research/blob/main/docs/17-RESEARCH-INTEGRATION-VERIFICATION.md) records the current checks and pending CI.
+
 ## Initial scope
 
 Base and Solana are the first comparison targets. Initial routes start and end in USDC and cross two distinct supported pools: USDC/WETH on Base, USDC/wSOL on Solana. Native ETH/SOL fee reserves are separate. Initial adapters qualify Uniswap V3 on Base and Orca Whirlpools on Solana. Pool identities, liquidity and supported behavior must be verified before enabling them.
@@ -25,7 +27,7 @@ Other tokens and venues can be added through explicit adapter/registry qualifica
 
 M0–M4 deliver research functionality. If complete atomic simulation is missing on either chain, the release is a quote-research preview. M5 evaluates whether more work is justified. Live funding and activation remain separate explicit operator decisions after the relevant engineering/review gates.
 
-The original 22–36 engineering person-week estimate for M0–M4 remains a planning judgment. It excludes provider purchases, trading capital and independent live review. The scaffold does not consume that whole estimate or imply that future tickets are already accepted. Re-estimate after the first real adapter and capture work.
+The original 22–36 engineering person-week estimate for M0–M4 remains a planning judgment. It excludes provider purchases, trading capital and independent live review. Implemented source does not imply that whole milestones are accepted. Re-estimate remaining effort after current integration evidence and qualified live capture measurements are available.
 
 ## Working with tickets
 

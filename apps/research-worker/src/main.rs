@@ -1,15 +1,17 @@
-//! OBSERVE-only PostgreSQL-controlled read-only capture runtime.
-//! Raw input captures are never opportunities, simulations, paper fills, or live trades.
+//! PostgreSQL-controlled OBSERVE/PAPER read-only capture and research runtime.
+//! Captures feed bounded research-only route evaluation. Gross quotes never imply fills or executable profit.
 use arb_adapter_api::{Chain, HttpReadRpc, ReadRpc, RpcRecord, StateContext};
-use arb_capture::{CaptureManifest, MAX_BUNDLE_BYTES, Origin, digest, file_digest, write_bundle};
+use arb_capture::{CaptureManifest, MAX_BUNDLE_BYTES, Origin, file_digest, write_bundle};
 use arb_config::ValidatedConfig;
 use arb_control::{ControlWorker, WorkGeneration};
 use arb_domain::{Mode, NetworkId};
+use arb_registry::{PoolRegistry, RegistryDocument};
 use arb_storage::{Store, StoreError};
 use serde_json::{Value, json};
 use std::{
     error::Error,
     fs,
+    io::Read,
     path::{Path, PathBuf},
     process::ExitCode,
     sync::Arc,
@@ -22,6 +24,68 @@ type AnyError = Box<dyn Error + Send + Sync>;
 const POLL_INTERVAL: Duration = Duration::from_millis(250);
 const CAPTURE_INTERVAL: Duration = Duration::from_secs(5);
 const CAPTURE_READY_AGE: Duration = Duration::from_secs(90);
+const EVALUATION_DEADLINE: Duration = Duration::from_secs(65);
+
+struct EvaluationPayload {
+    pools: Vec<arb_engine::CapturedPool>,
+    observed_at_ms: u64,
+}
+struct ResearchGate {
+    cancellation: arb_scheduler::Cancellation,
+    started: Instant,
+    generation: u64,
+}
+impl arb_engine::EvaluationGate for ResearchGate {
+    fn state(&self) -> arb_engine::GateState {
+        let now = Instant::now();
+        arb_engine::GateState {
+            generation: self.generation,
+            admission_open: self.cancellation.check(now).is_ok(),
+            now_monotonic_ms: u64::try_from(
+                now.saturating_duration_since(self.started).as_millis(),
+            )
+            .unwrap_or(u64::MAX),
+        }
+    }
+}
+fn evaluate_blocking(
+    permit: arb_scheduler::WorkPermit<EvaluationPayload, WorkGeneration>,
+    config: Arc<ValidatedConfig>,
+    session_id: String,
+    experiment_id: String,
+    strategy_id: String,
+) -> Result<Vec<arb_domain::DecisionTrace>, AnyError> {
+    let item = permit.item();
+    let gate = ResearchGate {
+        cancellation: permit.cancellation(),
+        started: item.observed_at,
+        generation: item.generation.generation(),
+    };
+    let origin = item
+        .payload
+        .pools
+        .first()
+        .ok_or("empty captured batch")?
+        .origin;
+    let request = arb_engine::EvaluationRequest {
+        session_id: &session_id,
+        experiment_id: &experiment_id,
+        generation: item.generation.generation(),
+        configuration: &config,
+        strategy_id: &strategy_id,
+        network_id: item.network,
+        dataset_origin: origin,
+        observed_at_unix_ms: item.payload.observed_at_ms,
+        observed_monotonic_ms: 0,
+        deadline_monotonic_ms: EVALUATION_DEADLINE.as_millis() as u64,
+        pools: &item.payload.pools,
+    };
+    let traces = arb_engine::evaluate(&request, &gate)?;
+    if permit.finish(Instant::now())?.is_err() {
+        return Err("evaluation fenced or expired before persistence".into());
+    }
+    Ok(traces)
+}
 
 #[derive(Clone)]
 enum Registry {
@@ -29,51 +93,6 @@ enum Registry {
     Solana(arb_solana::PoolRegistry),
 }
 impl Registry {
-    fn load(bytes: &[u8], network: NetworkId, config: &ValidatedConfig) -> Result<Self, AnyError> {
-        if !config.network_enabled(network) || config.mode() != Mode::Observe {
-            return Err("research-worker requires an enabled OBSERVE network".into());
-        }
-        if config.registry_qualification_digest(network) != Some(digest(bytes).as_str()) {
-            return Err("registry digest differs from immutable configuration".into());
-        }
-        let (registry, pool, assets) = match network {
-            NetworkId::BaseMainnet => {
-                let r: arb_evm::PoolRegistry = serde_json::from_slice(bytes)?;
-                r.validate()?;
-                let pool = r.pool.to_ascii_lowercase();
-                let assets = [r.token0.to_ascii_lowercase(), r.token1.to_ascii_lowercase()];
-                (Self::Base(r), pool, assets)
-            }
-            NetworkId::SolanaMainnet => {
-                let r: arb_solana::PoolRegistry = serde_json::from_slice(bytes)?;
-                r.validate()?;
-                if r.expected_genesis_hash != config.expected_genesis_identity() {
-                    return Err("registry genesis differs from immutable configuration".into());
-                }
-                let pool = r.pool.clone();
-                let assets = [r.mint_a.clone(), r.mint_b.clone()];
-                (Self::Solana(r), pool, assets)
-            }
-        };
-        let canonical = |s: &str| match network {
-            NetworkId::BaseMainnet => s.to_ascii_lowercase(),
-            NetworkId::SolanaMainnet => s.to_owned(),
-        };
-        if !config
-            .verified_pools(network)
-            .iter()
-            .any(|p| canonical(p.address()) == pool)
-            || assets.iter().any(|asset| {
-                !config
-                    .verified_assets(network)
-                    .iter()
-                    .any(|a| canonical(a.address()) == *asset)
-            })
-        {
-            return Err("registry pool or asset is not in the immutable allowlist".into());
-        }
-        Ok(registry)
-    }
     fn capture(
         &self,
         rpc: &mut impl ReadRpc,
@@ -110,16 +129,10 @@ impl Registry {
             Self::Solana(_) => arb_solana::SOURCE_COMMIT,
         }
     }
-    fn adapter(&self) -> &'static str {
-        match self {
-            Self::Base(_) => "arb_evm-v1",
-            Self::Solana(_) => "arb_solana-v1",
-        }
-    }
 }
 
 struct CapturePlan {
-    registry: Registry,
+    registry: RegistryDocument,
     origin: Origin,
     registry_bytes: Vec<u8>,
     config_bytes: Vec<u8>,
@@ -135,6 +148,12 @@ struct CompletedCapture {
     capture_id: String,
     manifest_digest: String,
     path: PathBuf,
+    pool: arb_engine::CapturedPool,
+}
+struct CompletedBatch {
+    captures: Vec<CompletedCapture>,
+    started: Instant,
+    observed_at_ms: u64,
 }
 
 fn now_ms() -> Result<u64, AnyError> {
@@ -147,7 +166,14 @@ fn read_small(path: &str) -> Result<Vec<u8>, AnyError> {
     if !meta.file_type().is_file() || meta.len() > 1024 * 1024 {
         return Err("configuration/registry must be a regular file at most 1 MiB".into());
     }
-    Ok(fs::read(path)?)
+    let mut bytes = Vec::new();
+    fs::File::open(path)?
+        .take(1024 * 1024 + 1)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() > 1024 * 1024 {
+        return Err("configuration/registry exceeds 1 MiB".into());
+    }
+    Ok(bytes)
 }
 fn required_env(name: &str) -> Result<String, AnyError> {
     std::env::var(name)
@@ -196,7 +222,8 @@ fn directory_bytes(root: &Path) -> Result<u64, AnyError> {
     Ok(total)
 }
 
-fn capture_blocking(plan: &CapturePlan) -> Result<CompletedCapture, AnyError> {
+fn capture_blocking(plan: &CapturePlan) -> Result<CompletedBatch, AnyError> {
+    let started = Instant::now();
     let observed = now_ms()?;
     // At most one blocking capture exists. Transport enforces a 60-second total
     // deadline as well as per-request timeout, response bytes and request count.
@@ -206,65 +233,104 @@ fn capture_blocking(plan: &CapturePlan) -> Result<CompletedCapture, AnyError> {
         8 * 1024 * 1024,
         4096,
     )?;
-    let (snapshot, context, coherent) = plan.registry.capture(&mut rpc, observed)?;
-    let records: Vec<RpcRecord> = rpc.into_records();
-    if records.is_empty() {
-        return Err("capture returned no recorded inputs".into());
+    let mut captures = Vec::new();
+    for selected in plan.registry.pools() {
+        let registry = match selected {
+            PoolRegistry::Base(r) => Registry::Base(r.clone()),
+            PoolRegistry::Solana(r) => Registry::Solana(r.clone()),
+        };
+        let pool_observed = now_ms()?;
+        let (snapshot, context, coherent) = registry.capture(&mut rpc, pool_observed)?;
+        let records: Vec<RpcRecord> = rpc.take_records();
+        if records.is_empty() {
+            return Err("capture returned no recorded inputs".into());
+        }
+        let capture_id = Uuid::new_v4().to_string();
+        let path = plan.root.join(&capture_id);
+        let remaining = plan
+            .quota_bytes
+            .checked_sub(directory_bytes(&plan.root)?)
+            .filter(|q| *q > 0)
+            .ok_or("capture volume quota exhausted")?;
+        let manifest = CaptureManifest {
+            schema_version: 1,
+            capture_id: capture_id.clone(),
+            origin: plan.origin.clone(),
+            network: registry.chain(),
+            provider_alias: plan.provider_alias.clone(),
+            adapter_version: plan.registry.adapter_version().into(),
+            adapter_source_commit: registry.source().into(),
+            build_digest: plan.build_digest.clone(),
+            config_digest: plan.config_digest.clone(),
+            created_at_ms: pool_observed,
+            raw_expires_at_ms: Some(
+                observed
+                    .checked_add(u64::from(plan.retention_days) * 86_400_000)
+                    .ok_or("retention overflow")?,
+            ),
+            context,
+            first_sequence: 0,
+            last_sequence: records.len() as u64 - 1,
+            required_inputs: vec![
+                "pool-state".into(),
+                "qualified-quote-range".into(),
+                "qualified-quote-math".into(),
+            ],
+            missing_inputs: vec![
+                "qualified-quote-range".into(),
+                "qualified-quote-math".into(),
+            ],
+            coherent,
+            complete_for_quote: false,
+            objects: vec![],
+        };
+        let manifest_digest = write_bundle(
+            &path,
+            manifest,
+            vec![
+                ("rpc.json".into(), serde_json::to_vec(&records)?),
+                ("snapshot.json".into(), serde_json::to_vec(&snapshot)?),
+                ("registry.json".into(), plan.registry_bytes.clone()),
+                ("effective-config.json".into(), plan.config_bytes.clone()),
+            ],
+            remaining.min(MAX_BUNDLE_BYTES),
+        )?;
+        let state = match selected {
+            PoolRegistry::Base(r) => arb_engine::PoolState::Base {
+                snapshot: serde_json::from_value(snapshot)?,
+                registry: r.clone(),
+            },
+            PoolRegistry::Solana(r) => arb_engine::PoolState::Solana {
+                snapshot: serde_json::from_value(snapshot)?,
+                registry: r.clone(),
+            },
+        };
+        let origin = match plan.origin {
+            Origin::Synthetic => arb_domain::DatasetOrigin::Synthetic,
+            Origin::ManuallyConstructed => arb_domain::DatasetOrigin::ManuallyConstructed,
+            Origin::RecordedLive => arb_domain::DatasetOrigin::RecordedLive,
+        };
+        let pool = arb_engine::CapturedPool {
+            capture: arb_domain::DecisionCaptureRef {
+                capture_id: capture_id.clone(),
+                manifest_digest: manifest_digest.clone(),
+                snapshot_id: manifest_digest.clone(),
+            },
+            origin,
+            configuration_digest: plan.config_digest.clone(),
+            state,
+        };
+        captures.push(CompletedCapture {
+            capture_id,
+            manifest_digest,
+            path,
+            pool,
+        });
     }
-    let capture_id = Uuid::new_v4().to_string();
-    let path = plan.root.join(&capture_id);
-    let remaining = plan
-        .quota_bytes
-        .checked_sub(directory_bytes(&plan.root)?)
-        .filter(|q| *q > 0)
-        .ok_or("capture volume quota exhausted")?;
-    let manifest = CaptureManifest {
-        schema_version: 1,
-        capture_id: capture_id.clone(),
-        origin: plan.origin.clone(),
-        network: plan.registry.chain(),
-        provider_alias: plan.provider_alias.clone(),
-        adapter_version: plan.registry.adapter().into(),
-        adapter_source_commit: plan.registry.source().into(),
-        build_digest: plan.build_digest.clone(),
-        config_digest: plan.config_digest.clone(),
-        created_at_ms: observed,
-        raw_expires_at_ms: Some(
-            observed
-                .checked_add(u64::from(plan.retention_days) * 86_400_000)
-                .ok_or("retention overflow")?,
-        ),
-        context,
-        first_sequence: 0,
-        last_sequence: records.len() as u64 - 1,
-        required_inputs: vec![
-            "pool-state".into(),
-            "qualified-quote-range".into(),
-            "qualified-quote-math".into(),
-        ],
-        missing_inputs: vec![
-            "qualified-quote-range".into(),
-            "qualified-quote-math".into(),
-        ],
-        coherent,
-        complete_for_quote: false,
-        objects: vec![],
-    };
-    let manifest_digest = write_bundle(
-        &path,
-        manifest,
-        vec![
-            ("rpc.json".into(), serde_json::to_vec(&records)?),
-            ("snapshot.json".into(), serde_json::to_vec(&snapshot)?),
-            ("registry.json".into(), plan.registry_bytes.clone()),
-            ("effective-config.json".into(), plan.config_bytes.clone()),
-        ],
-        remaining.min(MAX_BUNDLE_BYTES),
-    )?;
-    Ok(CompletedCapture {
-        capture_id,
-        manifest_digest,
-        path,
+    Ok(CompletedBatch {
+        captures,
+        started,
+        observed_at_ms: observed,
     })
 }
 
@@ -272,8 +338,8 @@ async fn run() -> Result<(), AnyError> {
     let config = ValidatedConfig::from_toml(&String::from_utf8(read_small(&required_env(
         "ARB_WORKER_CONFIG",
     )?)?)?)?;
-    if config.mode() != Mode::Observe {
-        return Err("research-worker supports OBSERVE sessions only".into());
+    if !matches!(config.mode(), Mode::Observe | Mode::Paper) {
+        return Err("research-worker supports OBSERVE and PAPER research sessions only".into());
     }
     let operator = required_env("ARB_OPERATOR_ID")?;
     let session_id = required_env("ARB_SESSION_ID")?;
@@ -283,12 +349,21 @@ async fn run() -> Result<(), AnyError> {
     .await?;
     store.migrate().await?;
     let session = store.get_session(&operator, &session_id).await?;
-    if session.mode != "OBSERVE" || session.configuration_digest != config.digest() {
+    let experiment_id = store
+        .get_session_experiment_id(&operator, &session_id)
+        .await?;
+    let expected_mode = match config.mode() {
+        Mode::Observe => "OBSERVE",
+        Mode::Paper => "PAPER",
+        _ => return Err("unsupported research mode".into()),
+    };
+    if session.mode != expected_mode || session.configuration_digest != config.digest() {
         return Err("worker configuration or mode differs from immutable session".into());
     }
     let network: NetworkId = session.network_id.parse()?;
     let registry_bytes = read_small(&required_env("ARB_POOL_REGISTRY")?)?;
-    let registry = Registry::load(&registry_bytes, network, &config)?;
+    let registry = RegistryDocument::from_bytes(&registry_bytes, network)?;
+    registry.authorize(&config)?;
     let reference = config.rpc_secret_reference(network).name();
     let endpoint = resolve_reference(reference)?;
     let provider_alias = reference
@@ -306,10 +381,9 @@ async fn run() -> Result<(), AnyError> {
     }
     // HTTP transport is accepted only for loopback fixtures by HttpReadRpc.
     // Such captures must never be labelled recorded market input.
-    let origin = if endpoint.starts_with("http://") {
-        Origin::ManuallyConstructed
-    } else {
-        Origin::RecordedLive
+    let origin = match arb_adapter_api::endpoint_kind(&endpoint)? {
+        arb_adapter_api::EndpointKind::LoopbackFixture => Origin::ManuallyConstructed,
+        arb_adapter_api::EndpointKind::HttpsRemote => Origin::RecordedLive,
     };
     let plan = Arc::new(CapturePlan {
         registry,
@@ -336,11 +410,24 @@ async fn run() -> Result<(), AnyError> {
     worker.complete_recovery().await?;
     println!(
         "{}",
-        json!({"event":"worker-ready","session_id":session_id,"mode":"OBSERVE","state":"STOPPED","capability":"raw-read-only-capture","quote_ready":false})
+        json!({"event":"worker-ready","session_id":session_id,"mode":expected_mode,"state":"STOPPED","capability":"capture-and-candidate-research","quote_ready":false})
     );
+    // This process owns one network and one capture/evaluation at a time.
+    // Host-wide resource isolation across Railway services is a deployment concern.
+    let scheduler = arb_scheduler::Scheduler::<EvaluationPayload, WorkGeneration>::new(
+        arb_scheduler::Limits {
+            queue_per_network: 1,
+            in_flight_per_network: 1,
+            global_in_flight: 2,
+            stage_deadlines: [EVALUATION_DEADLINE; 6],
+        },
+    )?;
+    let configuration = Arc::new(config);
+    let mut evaluation: Option<JoinHandle<Result<Vec<arb_domain::DecisionTrace>, AnyError>>> = None;
+    let mut evaluation_generation: Option<WorkGeneration> = None;
     let mut poll = tokio::time::interval(POLL_INTERVAL);
     poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    let mut job: Option<JoinHandle<Result<CompletedCapture, AnyError>>> = None;
+    let mut job: Option<JoinHandle<Result<CompletedBatch, AnyError>>> = None;
     let mut queued_generation: Option<WorkGeneration> = None;
     let mut last_good_capture: Option<Instant> = None;
     let mut next_capture = Instant::now();
@@ -354,23 +441,66 @@ async fn run() -> Result<(), AnyError> {
                 // cannot be recalled; its eventual artifact remains unadmitted.
                 stopping = true;
                 worker.fence_local().await;
+                scheduler.fence(network)?;
                 println!("{}",json!({"event":"shutdown-fenced","capture_inflight":job.is_some()}));
-                if job.is_none() { break; }
+                if job.is_none() && evaluation.is_none() { break; }
             }
             _ = poll.tick() => {
+                if evaluation.as_ref().is_some_and(JoinHandle::is_finished) {
+                    let result = evaluation.take().expect("finished evaluation exists").await?;
+                    let generation = evaluation_generation.take().expect("evaluation has generation");
+                    match result {
+                        Ok(traces) if !stopping => {
+                            let admitted = match worker.admit_decision_traces(generation, &traces).await {
+                                Ok(_) => true,
+                                Err(StoreError::Conflict(_)) => false,
+                                Err(error) => return Err(error.into()),
+                            };
+                            println!("{}", json!({"event":"decision-batch","count":traces.len(),"admitted":admitted,"evidence_ceiling":"CANDIDATE","full_transaction_simulation":false}));
+                        }
+                        _ => println!("{}",json!({"event":"decision-batch-discarded","reason":"FENCED_EXPIRED_OR_UNAVAILABLE"})),
+                    }
+                }
                 if job.as_ref().is_some_and(JoinHandle::is_finished) {
                     let completed = job.take().expect("finished job exists").await?;
                     match completed {
-                        Ok(capture) => {
+                        Ok(batch) => {
                             last_good_capture=Some(Instant::now());
-                            let admission = if stopping { None } else if let Some(generation)=queued_generation.take() {
-                                match worker.admit_capture_manifest(generation,&capture.capture_id,&capture.manifest_digest,capture.path.to_str().ok_or("capture path is not UTF-8")?).await {
-                                    Ok(update)=>update.attempt_id,
-                                    Err(StoreError::Conflict(_))=>None,
-                                    Err(error)=>return Err(error.into()),
+                            let generation=queued_generation.take();
+                            let mut all_admitted=!stopping && generation.is_some();
+                            for capture in &batch.captures {
+                                let admission = if stopping { None } else if let Some(generation)=generation {
+                                    match worker.admit_capture_manifest(generation,&capture.capture_id,&capture.manifest_digest,capture.path.to_str().ok_or("capture path is not UTF-8")?).await {
+                                        Ok(update)=>update.attempt_id,
+                                        Err(StoreError::Conflict(_))=>None,
+                                        Err(error)=>return Err(error.into()),
+                                    }
+                                } else { None };
+                                all_admitted &= admission.is_some();
+                                println!("{}",json!({"event":"capture-written","capture_id":capture.capture_id,"manifest_digest":capture.manifest_digest,"admission":if admission.is_some(){"ADMITTED_RAW_CAPTURE"}else{"UNADMITTED_RAW_CAPTURE"},"research_attempt_id":admission,"quote_ready":false}));
+                            }
+                            scheduler.set_gate(network, worker.generation().await.ok())?;
+                            if all_admitted {
+                                let generation=generation.expect("admitted capture has generation");
+                                let item=arb_scheduler::WorkItem {
+                                    network, stage:arb_scheduler::Stage::Quote, generation,
+                                    correlation_id:arb_scheduler::CorrelationId::new(&Uuid::new_v4().to_string())?,
+                                    observed_at:batch.started,
+                                    payload:EvaluationPayload {
+                                        pools:batch.captures.into_iter().map(|c|c.pool).collect(),
+                                        observed_at_ms:batch.observed_at_ms,
+                                    },
+                                };
+                                if scheduler.try_enqueue(item,Instant::now())?.is_ok()
+                                    && let Some(permit)=scheduler.dispatch(Instant::now())? {
+                                    let config=Arc::clone(&configuration);
+                                    let session_id=session_id.clone();
+                                    let experiment_id=experiment_id.clone();
+                                    let strategy=configuration.strategy_ids()[0].clone();
+                                    evaluation_generation=Some(generation);
+                                    evaluation=Some(tokio::task::spawn_blocking(move||evaluate_blocking(permit,config,session_id,experiment_id,strategy)));
                                 }
-                            } else { None };
-                            println!("{}",json!({"event":"capture-written","capture_id":capture.capture_id,"manifest_digest":capture.manifest_digest,"admission":if admission.is_some(){"ADMITTED_RAW_CAPTURE"}else{"UNADMITTED_RAW_CAPTURE"},"research_attempt_id":admission,"quote_ready":false}));
+                            }
                         }
                         Err(_) => {
                             // Transport details are intentionally absent; endpoint/credentials
@@ -380,16 +510,24 @@ async fn run() -> Result<(), AnyError> {
                         }
                     }
                     next_capture=Instant::now()+CAPTURE_INTERVAL;
-                    if stopping { break; }
+                    if stopping && evaluation.is_none() { break; }
                 }
-                if stopping { continue; }
+                if stopping {
+                    if job.is_none() && evaluation.is_none() { break; }
+                    continue;
+                }
                 let ready=last_good_capture.is_some_and(|at|at.elapsed()<CAPTURE_READY_AGE);
-                let update=worker.tick(ready).await?;
+                let update=match worker.tick(ready).await {
+                    Ok(update)=>update,
+                    Err(error)=>{ scheduler.fence(network)?; return Err(error.into()); }
+                };
+                scheduler.set_gate(network,worker.generation().await.ok())?;
                 if update.session.observed_state=="FAULTED" {
                     worker.fence_local().await;
+                    scheduler.fence(network)?;
                     return Err("capture readiness lost; worker faulted and requires explicit recovery".into());
                 }
-                if job.is_none() && Instant::now()>=next_capture {
+                if job.is_none() && evaluation.is_none() && Instant::now()>=next_capture {
                     queued_generation=worker.generation().await.ok();
                     let task_plan=Arc::clone(&plan);
                     job=Some(tokio::task::spawn_blocking(move||capture_blocking(&task_plan)));
@@ -448,7 +586,8 @@ mod tests {
             ValidatedConfig::from_toml(include_str!("../../../config/research.example.toml"))
                 .unwrap();
         let bytes = include_bytes!("../../../crates/arb-evm/tests/fixtures/registry.json");
-        assert!(Registry::load(bytes, NetworkId::BaseMainnet, &config).is_err());
+        let registry = RegistryDocument::from_bytes(bytes, NetworkId::BaseMainnet).unwrap();
+        assert!(registry.authorize(&config).is_err());
     }
 
     #[test]
