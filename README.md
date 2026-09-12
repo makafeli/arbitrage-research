@@ -18,7 +18,7 @@ A Rust-first research platform for comparing same-chain arbitrage opportunities 
 
 ## Dashboard preview
 
-Captured from the verified synthetic dashboard. [Mobile preview](design/dashboard-mobile.png).
+Captured from the verified synthetic dashboard. [Mobile preview](design/dashboard-mobile.png). The current connected paper-account view is also available at [desktop](docs/review/research-paper-1440.png) and [mobile](docs/review/research-paper-390.png) widths, using explicitly synthetic API test fixtures.
 
 ![Arbitrage Research dashboard with synthetic Base and Solana examples](design/dashboard-desktop.png)
 

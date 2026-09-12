@@ -26,16 +26,26 @@ impl Drop for ChildGuard {
     }
 }
 
-fn test_config(root: &str, registry: &[u8]) -> String {
+fn test_config(root: &str, registry: &[u8], mode: &str) -> String {
     let mut input = include_str!("../../../config/research.example.toml")
-        .replace("mode = \"PAPER\"", "mode = \"OBSERVE\"");
+        .replace("mode = \"PAPER\"", &format!("mode = \"{mode}\""));
     let begin = input.find("[networks.base]").unwrap();
     let end = input.find("[networks.solana]").unwrap();
     let mut base = input[begin..end].replace("enabled = false", "enabled = true");
     base=base.replace("verified_pool_ids = []","verified_pool_ids = [\"base-mainnet:0x0303030303030303030303030303030303030303\", \"base-mainnet:0x0404040404040404040404040404040404040404\"]");
     base=base.replace("verified_asset_ids = []","verified_asset_ids = [\"base-mainnet:0x0101010101010101010101010101010101010101\", \"base-mainnet:0x0202020202020202020202020202020202020202\"]");
     base=base.replace("rpc_secret_reference = \"UNCONFIGURED\"",&format!("rpc_secret_reference = \"env:TEST_WORKER_RPC\"\nregistry_qualification_digest = \"{}\"",digest(registry)));
+    if mode == "PAPER" {
+        let fixture: Value = serde_json::from_slice(registry).unwrap();
+        let token0 = fixture["token0"].as_str().unwrap();
+        base.push_str(&format!("starting_asset_id = \"base-mainnet:{token0}\"\n"));
+    }
     input.replace_range(begin..end, &base);
+    if mode == "PAPER" {
+        // Exact fixture-token base units, used only to exercise research capture.
+        // A single manually constructed pool still cannot form an arbitrage route.
+        input = input.replace("trade_sizes_minor = []", "trade_sizes_minor = [\"1000\"]");
+    }
     input = input.replace(
         "database_secret_reference = \"UNCONFIGURED\"",
         "database_secret_reference = \"env:TEST_DATABASE_URL\"",
@@ -44,6 +54,31 @@ fn test_config(root: &str, registry: &[u8]) -> String {
         "capture_directory = \"./data/captures\"",
         &format!("capture_directory = \"{root}\""),
     )
+}
+
+#[test]
+fn process_fixtures_pass_production_config_validation_without_postgres() {
+    let registry = include_bytes!("../../../crates/arb-evm/tests/fixtures/registry.json");
+    let fixture: Value = serde_json::from_slice(registry).unwrap();
+    for mode in ["OBSERVE", "PAPER"] {
+        let config = test_config("./synthetic-test-captures", registry, mode);
+        let validated = ValidatedConfig::from_toml(&config).unwrap();
+        assert_eq!(serde_json::to_value(validated.mode()).unwrap(), mode);
+        arb_registry::RegistryDocument::from_bytes(registry, arb_domain::NetworkId::BaseMainnet)
+            .unwrap()
+            .authorize(&validated)
+            .unwrap();
+        if mode == "PAPER" {
+            assert_eq!(
+                validated
+                    .starting_asset(arb_domain::NetworkId::BaseMainnet)
+                    .unwrap()
+                    .to_string(),
+                format!("base-mainnet:{}", fixture["token0"].as_str().unwrap())
+            );
+            assert_eq!(validated.trade_sizes()[0].to_string(), "1000");
+        }
+    }
 }
 
 async fn wait_until(mut check: impl AsyncFnMut() -> bool, seconds: u64) {
@@ -78,8 +113,7 @@ async fn controlled_process(mode: &str) {
     let capture_root = root.join("captures");
     fs::create_dir(&capture_root).unwrap();
     let registry = include_bytes!("../../../crates/arb-evm/tests/fixtures/registry.json");
-    let config = test_config(capture_root.to_str().unwrap(), registry)
-        .replace("mode = \"OBSERVE\"", &format!("mode = \"{mode}\""));
+    let config = test_config(capture_root.to_str().unwrap(), registry, mode);
     let validated = ValidatedConfig::from_toml(&config).unwrap();
     let config_path = root.join("config.toml");
     let registry_path = root.join("registry.json");

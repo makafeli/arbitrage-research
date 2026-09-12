@@ -2,7 +2,7 @@
   "schema_version": 1,
   "goal": "Implement a reproducible Rust research and paper platform on Base and Solana, using the approved dashboard, with evidence-backed ticket delivery.",
   "updated_on": "2026-09-12",
-  "branch": "feat/research-foundations",
+  "branch": "feat/research-evaluation",
   "autonomous_background_runner": false,
   "completion_rule": "A source implementation is not completion. Original ticket acceptance and dependency gates must have reviewable evidence before closing its GitHub issue.",
   "tickets": [
@@ -51,7 +51,9 @@
         "docs/16-PROVIDER-QUALIFICATION.md cross-references primary documentation for Base chain/factory/WETH/USDC and Solana Whirlpool/wSOL/USDC identities; these are documented identities, not verified runtime state.",
         "The bounded probe prepares two Base factory fee-tier searches and a Solana pool-layout/mint-filter discovery request, but stops before discovery after identity transport failures. Zero pools have been qualified; config/research.example.toml remains disabled.",
         "crates/arb-domain and crates/arb-config reject ticker-only/fixture production identities and require typed same-network allowlists plus a registry qualification digest before an enabled network is structurally accepted.",
-        "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Passing runtime checkpoint and test scope are recorded in docs/14-IMPLEMENTATION-VERIFICATION.md; original ticket dependencies and unfulfilled acceptance gates remain authoritative."
+        "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Passing runtime checkpoint and test scope are recorded in docs/14-IMPLEMENTATION-VERIFICATION.md; original ticket dependencies and unfulfilled acceptance gates remain authoritative.",
+        "crates/arb-registry introduces one shared parser for legacy single-pool documents and bounded 1..8 pool sets. It checks protocol-specific registry shape, duplicate/cross-network identities, allowlists and the immutable digest of the complete registry document; structural acceptance does not qualify a live pool.",
+        "Round-2 implementation/review: https://github.com/makafeli/arbitrage-research/pull/89; scope, review corrections and current verification limits are recorded in docs/17-RESEARCH-INTEGRATION-VERIFICATION.md. The fixed-head PostgreSQL/browser CI checkpoint remains pending."
       ],
       "remaining_acceptance": "Obtain and independently review read-only mainnet identity, current factory/program-code hashes, owners, token behavior and quote-relevant pool/account state. Seek at least two distinct eligible pools on each chain; keep two-pool experiments blocked if absent. Verify Solana genesis and registry evidence from actual responses; do not enable from documented addresses or constructed fixtures alone.",
       "external_prerequisite": "No real pool has been qualified on either chain. Mainnet responses, independently reviewed runtime/program identities, asset behavior and at least two eligible pools per chain remain required."
@@ -124,12 +126,15 @@
         "ARB-006"
       ],
       "evidence": [
-        "Cargo.toml/Cargo.lock contain the implemented 15-member research workspace and Cargo-generated dependency resolution; .github/workflows/ci.yml retains Rust 1.90.0 and explicit formatting, Clippy, Rust, PostgreSQL, frontend/browser and container checks.",
+        "Cargo.toml/Cargo.lock contain the implemented 17-member research workspace, including arb-registry and arb-engine and Cargo-generated dependency resolution; .github/workflows/ci.yml retains Rust 1.90.0 and explicit formatting, Clippy, Rust, PostgreSQL, frontend/browser and container checks.",
         "docs/14-IMPLEMENTATION-VERIFICATION.md distinguishes local Rust 1.91.1 checks from required remote database/browser execution and records the initial CI failures plus source corrections. docs/15-FOUNDATION-REVIEW.md inspects the no-signer/no-broadcast process graph.",
         "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Passing runtime checkpoint and test scope are recorded in docs/14-IMPLEMENTATION-VERIFICATION.md; original ticket dependencies and unfulfilled acceptance gates remain authoritative.",
-        "Validated runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988): all four GitHub CI jobs passed; 139 Rust tests with zero failures/ignored/filtered tests, real PostgreSQL 17.11 API/control/storage/worker-process integration and client smoke, 20/20 browser scenarios, 13 Node tests, 19 importer tests, specification checks and all three container images. These results apply to this exact checkpoint and do not establish provider qualification, deployment or profitability."
+        "Validated runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988): all four GitHub CI jobs passed; 139 Rust tests with zero failures/ignored/filtered tests, real PostgreSQL 17.11 API/control/storage/worker-process integration and client smoke, 20/20 browser scenarios, 13 Node tests, 19 importer tests, specification checks and all three container images. These results apply to this exact checkpoint and do not establish provider qualification, deployment or profitability.",
+        "The round-2 source cohort passed 167 local non-PostgreSQL Rust tests plus formatting and Clippy checks, as reported by root integration. This local evidence does not replace the canonical Rust 1.90/PostgreSQL/browser workflow on the fixed PR head.",
+        "Previous PR #89 checkpoint 6f933099f696b16773b4de7976e5247e160c0099, https://github.com/makafeli/arbitrage-research/actions/runs/34716682208, passed specification checks, 20 Node tests, the web build and all three container images; its Rust lint job failed and only 21/30 browser scenarios passed. Corrections are submitted for fresh CI; that prior run is not a fully passing release checkpoint.",
+        "Round-2 implementation/review: https://github.com/makafeli/arbitrage-research/pull/89; scope, review corrections and current verification limits are recorded in docs/17-RESEARCH-INTEGRATION-VERIFICATION.md. The fixed-head PostgreSQL/browser CI checkpoint remains pending."
       ],
-      "remaining_acceptance": "The clean-checkout Rust/PostgreSQL, frontend/browser, specification and container CI requirement passed at c77af2e. ARB-004 deployment/retention/benchmark assumptions remain unaccepted, so ARB-007 cannot close despite accepted ARB-005/006 and passing CI. Complete ARB-004 and maintainer acceptance without presenting a source checkpoint as a deployed research release."
+      "remaining_acceptance": "Rerun and accept all canonical Rust/PostgreSQL, reference-oracle, frontend/browser, specification and container jobs on the final corrected PR #89 head. ARB-004 deployment/retention/benchmark assumptions remain unaccepted; ARB-007 cannot close until that dependency and maintainer review are satisfied. Earlier c77af2e and partial 6f93309 results apply only to their recorded checkpoints."
     },
     {
       "id": "ARB-008",
@@ -144,9 +149,12 @@
         "Typed network/asset/pool identities and two-leg route validation reject ticker-only identity, cross-network discontinuity and repeated pools. Opportunity validation enforces research/REALIZED separation and declared full-simulation/estimated-executable gates; native fees remain distinct from wrapped assets.",
         "Boundary/exhaustive bounded property tests, shared opportunity JSON round-trip, explicit missing/unknown variants and lifecycle snapshot/restart tests are present; evidence consistency validation is not proof of provider truth or settlement.",
         "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Passing runtime checkpoint and test scope are recorded in docs/14-IMPLEMENTATION-VERIFICATION.md; original ticket dependencies and unfulfilled acceptance gates remain authoritative.",
-        "Validated runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988): all four GitHub CI jobs passed; 139 Rust tests with zero failures/ignored/filtered tests, real PostgreSQL 17.11 API/control/storage/worker-process integration and client smoke, 20/20 browser scenarios, 13 Node tests, 19 importer tests, specification checks and all three container images. These results apply to this exact checkpoint and do not establish provider qualification, deployment or profitability."
+        "Validated runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988): all four GitHub CI jobs passed; 139 Rust tests with zero failures/ignored/filtered tests, real PostgreSQL 17.11 API/control/storage/worker-process integration and client smoke, 20/20 browser scenarios, 13 Node tests, 19 importer tests, specification checks and all three container images. These results apply to this exact checkpoint and do not establish provider qualification, deployment or profitability.",
+        "crates/arb-domain/src/decision.rs adds immutable, content-addressed DecisionTrace records with exact signed gross deltas, decimal-string generations, explicit origin, manifest-bound capture references and versioned route/size/window grouping. Validation rejects altered hashes, mixed origin/source, duplicate pools, invalid route continuity and unprojectable timestamps.",
+        "Opportunity schema 1.1 represents unknown external-cost net as null and requires matching dataset origin; legacy 1.0 remains supported. QUOTED trace projection stays CANDIDATE and explicitly maps constructed identities to fixture IDs. Seven new domain regressions cover integrity, grouping, large signed amounts, provenance and projection boundaries.",
+        "Round-2 implementation/review: https://github.com/makafeli/arbitrage-research/pull/89; scope, review corrections and current verification limits are recorded in docs/17-RESEARCH-INTEGRATION-VERIFICATION.md. The fixed-head PostgreSQL/browser CI checkpoint remains pending."
       ],
-      "remaining_acceptance": "Maintainer must review the passing c77af2e domain/Rust and specification evidence after ARB-007 is accepted. Provider truth and transaction-simulation/ledger proof remain later producer responsibilities; local arithmetic must never be promoted to SIMULATED."
+      "remaining_acceptance": "After ARB-007 acceptance, review the current domain and schema contract against final PR #89 CI, including nullable-cost and legacy compatibility cases. Provider truth, deployed-program equivalence, full transaction simulation and settlement evidence remain producer responsibilities and cannot be inferred from a valid DTO."
     },
     {
       "id": "ARB-009",
@@ -162,9 +170,11 @@
         "FrozenSessionConfig has immutable mode/network/starting-asset/digest getters; replacement requires STOPPED. Structural enabled-network checks require same-network allowlists and a qualification digest; the shipped example remains inert.",
         "Configuration tests cover stable hashes across equivalent serialization, unsafe limits/capabilities, fixture/unqualified registries, secret redaction, frozen replacement and effective JSON revalidation; API/storage bind sessions to registered configuration digests.",
         "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Passing runtime checkpoint and test scope are recorded in docs/14-IMPLEMENTATION-VERIFICATION.md; original ticket dependencies and unfulfilled acceptance gates remain authoritative.",
-        "Validated runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988): all four GitHub CI jobs passed; 139 Rust tests with zero failures/ignored/filtered tests, real PostgreSQL 17.11 API/control/storage/worker-process integration and client smoke, 20/20 browser scenarios, 13 Node tests, 19 importer tests, specification checks and all three container images. These results apply to this exact checkpoint and do not establish provider qualification, deployment or profitability."
+        "Validated runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988): all four GitHub CI jobs passed; 139 Rust tests with zero failures/ignored/filtered tests, real PostgreSQL 17.11 API/control/storage/worker-process integration and client smoke, 20/20 browser scenarios, 13 Node tests, 19 importer tests, specification checks and all three container images. These results apply to this exact checkpoint and do not establish provider qualification, deployment or profitability.",
+        "Round-2 registry, worker, replay and paper initialization consume the existing immutable configuration/digest and typed asset allowlists. The configuration schema and canonical digest algorithm were preserved; a new pool-set document must match the originally registered qualification digest.",
+        "Round-2 implementation/review: https://github.com/makafeli/arbitrage-research/pull/89; scope, review corrections and current verification limits are recorded in docs/17-RESEARCH-INTEGRATION-VERIFICATION.md. The fixed-head PostgreSQL/browser CI checkpoint remains pending."
       ],
-      "remaining_acceptance": "Accept ARB-003/008 and review the passing c77af2e configuration/API/PostgreSQL evidence for frozen persisted bindings. Actual runtime registry qualification remains unresolved; structural configuration acceptance cannot grant data readiness or establish pool eligibility."
+      "remaining_acceptance": "Accept ARB-003/008 and review frozen configuration bindings across the new registry, worker, replay and PostgreSQL paper paths in final PR #89 CI. Qualified provider/program/token activation is still separate from structural TOML/JSON validation; the example remains inert."
     },
     {
       "id": "ARB-010",
@@ -180,9 +190,11 @@
         "Worker storage persists lease/generation state and actual research attempt IDs; duplicate resolution is idempotent, and read/recovery paths reject inconsistent persisted state rather than infer APPLIED from API acceptance.",
         "migrations/README.md documents forward recovery and compatibility limits. crates/arb-storage/tests/postgres.rs requires a real database and covers concurrent duplicates/revisions, immutable records, recovery and durable acknowledgement paths.",
         "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Passing runtime checkpoint and test scope are recorded in docs/14-IMPLEMENTATION-VERIFICATION.md; original ticket dependencies and unfulfilled acceptance gates remain authoritative.",
-        "Validated runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988): all four GitHub CI jobs passed; 139 Rust tests with zero failures/ignored/filtered tests, real PostgreSQL 17.11 API/control/storage/worker-process integration and client smoke, 20/20 browser scenarios, 13 Node tests, 19 importer tests, specification checks and all three container images. These results apply to this exact checkpoint and do not establish provider qualification, deployment or profitability."
+        "Validated runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988): all four GitHub CI jobs passed; 139 Rust tests with zero failures/ignored/filtered tests, real PostgreSQL 17.11 API/control/storage/worker-process integration and client smoke, 20/20 browser scenarios, 13 Node tests, 19 importer tests, specification checks and all three container images. These results apply to this exact checkpoint and do not establish provider qualification, deployment or profitability.",
+        "migrations/0002_decisions_and_paper.sql adds append-only decision traces and paper journal/creation receipts, immutable initial balances and run identity, and bounded journal cursors without changing migration 0001. PostgreSQL transactions bind every paper update to the owning session/run and atomically persist event, cursor and audit history.",
+        "Round-2 implementation/review: https://github.com/makafeli/arbitrage-research/pull/89; scope, review corrections and current verification limits are recorded in docs/17-RESEARCH-INTEGRATION-VERIFICATION.md. The fixed-head PostgreSQL/browser CI checkpoint remains pending."
       ],
-      "remaining_acceptance": "Maintainer must review the passing c77af2e PostgreSQL concurrency, persistence, corruption and restart evidence together with migration/recovery instructions and accept ARB-008/009. The durable control journal does not establish the separately planned financial paper ledger."
+      "remaining_acceptance": "Accept ARB-008/009 and review canonical PostgreSQL evidence for migrations 0001/0002, concurrent idempotency, immutable initial inventory, append-only records, corruption rejection and restart. The financial paper ledger now exists, but its new database and epoch-takeover tests still require the final PR #89 CI result and reviewed recovery compatibility."
     },
     {
       "id": "ARB-011",
@@ -197,9 +209,12 @@
         "Peer-review fixes latch the gate closed before cancellable database awaits, fault on lost readiness, reject stale generations and reconcile actual unresolved attempt rows during restart.",
         "apps/research-worker integrates OBSERVE control polling independently from bounded read-only capture; process tests block RPC while applying STOP and ensure the late bundle remains unadmitted. Independent one-shot capture CLIs are explicitly outside dashboard control.",
         "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Passing runtime checkpoint and test scope are recorded in docs/14-IMPLEMENTATION-VERIFICATION.md; original ticket dependencies and unfulfilled acceptance gates remain authoritative.",
-        "Validated runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988): all four GitHub CI jobs passed; 139 Rust tests with zero failures/ignored/filtered tests, real PostgreSQL 17.11 API/control/storage/worker-process integration and client smoke, 20/20 browser scenarios, 13 Node tests, 19 importer tests, specification checks and all three container images. These results apply to this exact checkpoint and do not establish provider qualification, deployment or profitability."
+        "Validated runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988): all four GitHub CI jobs passed; 139 Rust tests with zero failures/ignored/filtered tests, real PostgreSQL 17.11 API/control/storage/worker-process integration and client smoke, 20/20 browser scenarios, 13 Node tests, 19 importer tests, specification checks and all three container images. These results apply to this exact checkpoint and do not establish provider qualification, deployment or profitability.",
+        "The coordinated research worker now accepts OBSERVE and PAPER sessions, recovers to STOPPED and fences capture/decision admission by epoch and generation. Internal virtual accounting requires the running generation for new reservations while explicit reconciliation may finish after a fence.",
+        "A new PostgreSQL regression simulates lease loss and a replacement worker epoch: UNKNOWN balances/configuration must survive unchanged, the old claim cannot settle, and the new claim reconciles exactly once. This test is written for mandatory CI; it is not an observed production takeover.",
+        "Round-2 implementation/review: https://github.com/makafeli/arbitrage-research/pull/89; scope, review corrections and current verification limits are recorded in docs/17-RESEARCH-INTEGRATION-VERIFICATION.md. The fixed-head PostgreSQL/browser CI checkpoint remains pending."
       ],
-      "remaining_acceptance": "Accept ARB-010 and review the passing c77af2e database/control, real worker-process and browser evidence for cancellation, delayed ACK, stale results, idempotent resolution, draining, pause/resume and restart. Already-started RPC calls cannot be recalled; there is no live execution fence."
+      "remaining_acceptance": "Accept ARB-010 and review final PR #89 control/storage/worker-process tests for PAPER activation, late decisions, stop acknowledgement, unknown virtual budgets and old-epoch rejection. Virtual reservation counts remain separate from emitted research attempts; complete automatic paper execution/reconciliation is not implemented. Already-started RPC calls cannot be recalled and no live execution fence is claimed."
     },
     {
       "id": "ARB-012",
@@ -216,9 +231,12 @@
         "Operator cookies are secure by default; exact Origin/CSRF, login/request rate limits, bounded bodies/concurrency/deadlines, token rotation/logout and explicit LIVE/DISARM capability denials are implemented.",
         "Unit/virtual-time cases and a mandatory PostgreSQL router/coordinator integration case cover authentication, forbidden mutations, conflicts, idempotency and PENDING-to-worker-APPLIED semantics; specs/openapi.yaml includes the implemented 11-operation contract.",
         "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Passing runtime checkpoint and test scope are recorded in docs/14-IMPLEMENTATION-VERIFICATION.md; original ticket dependencies and unfulfilled acceptance gates remain authoritative.",
-        "Validated runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988): all four GitHub CI jobs passed; 139 Rust tests with zero failures/ignored/filtered tests, real PostgreSQL 17.11 API/control/storage/worker-process integration and client smoke, 20/20 browser scenarios, 13 Node tests, 19 importer tests, specification checks and all three container images. These results apply to this exact checkpoint and do not establish provider qualification, deployment or profitability."
+        "Validated runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988): all four GitHub CI jobs passed; 139 Rust tests with zero failures/ignored/filtered tests, real PostgreSQL 17.11 API/control/storage/worker-process integration and client smoke, 20/20 browser scenarios, 13 Node tests, 19 importer tests, specification checks and all three container images. These results apply to this exact checkpoint and do not establish provider qualification, deployment or profitability.",
+        "apps/control-api/src/research.rs now exposes authenticated, operator-scoped decision detail/pages, grouped counts, coverage, persisted opportunity projections and paper run/balance/journal/reservation reads. Stopped PAPER initialization is an idempotent authenticated mutation; no HTTP reserve, settle, sign or broadcast endpoint is exposed.",
+        "OpenAPI and strict client DTOs describe decimal-string values, explicit origin, unknown external net and unavailable execution counters. Database/API regressions cover scope, altered bodies and research-only boundaries.",
+        "Round-2 implementation/review: https://github.com/makafeli/arbitrage-research/pull/89; scope, review corrections and current verification limits are recorded in docs/17-RESEARCH-INTEGRATION-VERIFICATION.md. The fixed-head PostgreSQL/browser CI checkpoint remains pending."
       ],
-      "remaining_acceptance": "Maintainer must review the passing c77af2e API/PostgreSQL integration, contract, real client smoke and browser evidence after ARB-008/010/011 acceptance. Opportunity production/query integration remains empty and separate; HTTP/schema success is not market-data availability or proof of deployed HTTPS."
+      "remaining_acceptance": "Accept ARB-008/010/011 and review final PR #89 real PostgreSQL/API tests, strict schemas and typed-client interoperability. Persisted opportunity and paper query paths are implemented; their existence does not establish populated live data, a qualified provider or deployed HTTPS. Complete the real recorded capture-to-dashboard acceptance exercise separately."
     },
     {
       "id": "ARB-013",
@@ -235,9 +253,11 @@
         "Deterministic overload, blocked-Solana/Base-dispatch, stale completion, abandonment and stop-ordering tests exercise bounded work and isolation. Payload destruction and external I/O stay outside the scheduler lock.",
         "The scheduler README explicitly states that it does not create the fixed CPU thread pool or export a metrics backend; the OBSERVE worker separately bounds capture concurrency and control polling.",
         "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Passing runtime checkpoint and test scope are recorded in docs/14-IMPLEMENTATION-VERIFICATION.md; original ticket dependencies and unfulfilled acceptance gates remain authoritative.",
-        "Validated runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988): all four GitHub CI jobs passed; 139 Rust tests with zero failures/ignored/filtered tests, real PostgreSQL 17.11 API/control/storage/worker-process integration and client smoke, 20/20 browser scenarios, 13 Node tests, 19 importer tests, specification checks and all three container images. These results apply to this exact checkpoint and do not establish provider qualification, deployment or profitability."
+        "Validated runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988): all four GitHub CI jobs passed; 139 Rust tests with zero failures/ignored/filtered tests, real PostgreSQL 17.11 API/control/storage/worker-process integration and client smoke, 20/20 browser scenarios, 13 Node tests, 19 importer tests, specification checks and all three container images. These results apply to this exact checkpoint and do not establish provider qualification, deployment or profitability.",
+        "apps/research-worker dispatches quote work through arb-scheduler with the original observation time, cancellation and WorkGeneration retained across bounded blocking capture/evaluation jobs. arb-engine checks admission/deadline between legs and caps one batch at eight pools, 63 calculations, 64 traces and 256 KiB with explicit capacity-exhaustion evidence.",
+        "Round-2 implementation/review: https://github.com/makafeli/arbitrage-research/pull/89; scope, review corrections and current verification limits are recorded in docs/17-RESEARCH-INTEGRATION-VERIFICATION.md. The fixed-head PostgreSQL/browser CI checkpoint remains pending."
       ],
-      "remaining_acceptance": "Integrate the scheduler with a fixed-size CPU pool, per-process resource budgets, real evaluation/control paths and asynchronous stage-metric export. Record measured p50/p95/p99 and bounded-memory overload evidence on the named deployment host; test slow analytics/dashboard isolation. Complete ARB-007/008/011 acceptance before closure."
+      "remaining_acceptance": "Accept ARB-007/008/011 and validate the integrated scheduler/worker generation and deadline paths on final PR #89 CI. Complete fixed-size CPU/process resource policy and asynchronous stage-metric export; measure p50/p95/p99, queue/memory overload and slow analytics/dashboard isolation on the named deployment host. Engine batch limits alone do not establish system-wide latency budgets."
     },
     {
       "id": "ARB-014",
@@ -252,16 +272,19 @@
       "evidence": [
         "crates/arb-capture writes immutable versioned bundles with fsynced objects/manifest, an INCOMPLETE marker, input/build/config/source provenance, bounded flat filenames and SHA-256 integrity checks.",
         "Load/round-trip tests reject corrupt/missing objects, invalid versions, traversal, quota failures, incomplete writes and expired raw retention. Synthetic/manually constructed origins remain distinguishable from recorded-live provenance.",
-        "OBSERVE admissions store manifest digest/path/generation only after the bundle commits; orphaned raw captures remain unadmitted. Replay rechecks the original manifest/configuration and exact recorded inputs.",
+        "OBSERVE and PAPER capture admissions store manifest digest/path/generation only after the bundle commits; orphaned raw captures remain unadmitted. Replay rechecks the original manifest/configuration and exact recorded inputs.",
         "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Passing runtime checkpoint and test scope are recorded in docs/14-IMPLEMENTATION-VERIFICATION.md; original ticket dependencies and unfulfilled acceptance gates remain authoritative.",
-        "Validated runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988): all four GitHub CI jobs passed; 139 Rust tests with zero failures/ignored/filtered tests, real PostgreSQL 17.11 API/control/storage/worker-process integration and client smoke, 20/20 browser scenarios, 13 Node tests, 19 importer tests, specification checks and all three container images. These results apply to this exact checkpoint and do not establish provider qualification, deployment or profitability."
+        "Validated runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988): all four GitHub CI jobs passed; 139 Rust tests with zero failures/ignored/filtered tests, real PostgreSQL 17.11 API/control/storage/worker-process integration and client smoke, 20/20 browser scenarios, 13 Node tests, 19 importer tests, specification checks and all three container images. These results apply to this exact checkpoint and do not establish provider qualification, deployment or profitability.",
+        "Each pool-set capture retains the entire immutable registry document with one independently replayable pool snapshot and RPC transcript. Distinct per-pool manifests are admitted before decision traces; storage additionally binds each capture reference to the current worker epoch.",
+        "Decision traces and browser inspectors now retain manifest/snapshot references and explicit SYNTHETIC, MANUALLY_CONSTRUCTED or RECORDED_LIVE provenance. A reference does not assert that the raw artifact is still retained.",
+        "Round-2 implementation/review: https://github.com/makafeli/arbitrage-research/pull/89; scope, review corrections and current verification limits are recorded in docs/17-RESEARCH-INTEGRATION-VERIFICATION.md. The fixed-head PostgreSQL/browser CI checkpoint remains pending."
       ],
-      "remaining_acceptance": "Capture/control/replay CI passed at c77af2e. Review a real provider-backed export for provenance, secret redaction and decision-to-bundle lookup once ARB-008/009/010 and production qualification pass. Wire retention and decision/report references without rewriting historical evidence; constructed fixtures do not establish real capture completeness or market performance."
+      "remaining_acceptance": "Accept ARB-008/009/010 and review final PR #89 capture-to-decision/replay references, format compatibility and epoch isolation. Obtain a real provider-backed redacted export after qualification; complete retention/report lookup behavior and ensure expiry remains visible without rewriting historical evidence. Constructed fixtures do not prove market capture completeness."
     },
     {
       "id": "ARB-015",
       "issue_url": "https://github.com/makafeli/arbitrage-research/issues/29",
-      "state": "planned",
+      "state": "in_progress",
       "owner_role": "Technical Lead / QA",
       "dependencies": [
         "ARB-012",
@@ -272,8 +295,12 @@
         "ARB-022",
         "ARB-023"
       ],
-      "evidence": [],
-      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+      "evidence": [
+        "PR #89 connects bounded pool-set acquisition, per-pool manifest admission, shared exact route evaluation, immutable decision persistence and authenticated API/dashboard readers. Negative quotes remain CANDIDATE, rejections remain explicit and missing external costs remain unknown.",
+        "The worker and offline replay use the same engine; synthetic fixtures exercise both Base and Solana math while preserving their constructed origin. Actual provider-backed capture and continuous collection have not been established.",
+        "Round-2 implementation/review: https://github.com/makafeli/arbitrage-research/pull/89; scope, review corrections and current verification limits are recorded in docs/17-RESEARCH-INTEGRATION-VERIFICATION.md. The fixed-head PostgreSQL/browser CI checkpoint remains pending."
+      ],
+      "remaining_acceptance": "Execute the original Base demonstration using one genuinely recorded, qualified input set after ARB-012/013/014/016/018/022/023 acceptance. Preserve exact configuration/build/capture versions, negative or rejected results, measured stage latency and the same trace through stop acknowledgement, restart-to-STOPPED, replay and browser inspection. Both adapter prerequisites and the separate dual-chain gate remain open."
     },
     {
       "id": "ARB-016",
@@ -292,9 +319,11 @@
         "Manually constructed transcript fixtures exercise deterministic ABI decoding, wrong identities and incomplete state; the adapter reports acquisition capability and withholds quote completeness.",
         "docs/16-PROVIDER-QUALIFICATION.md records that the public Base identity probe obtained no response and discovered no qualified pools; documented addresses are not enabled production registry evidence.",
         "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Passing runtime checkpoint and test scope are recorded in docs/14-IMPLEMENTATION-VERIFICATION.md; original ticket dependencies and unfulfilled acceptance gates remain authoritative.",
-        "Validated runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988): all four GitHub CI jobs passed; 139 Rust tests with zero failures/ignored/filtered tests, real PostgreSQL 17.11 API/control/storage/worker-process integration and client smoke, 20/20 browser scenarios, 13 Node tests, 19 importer tests, specification checks and all three container images. These results apply to this exact checkpoint and do not establish provider qualification, deployment or profitability."
+        "Validated runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988): all four GitHub CI jobs passed; 139 Rust tests with zero failures/ignored/filtered tests, real PostgreSQL 17.11 API/control/storage/worker-process integration and client smoke, 20/20 browser scenarios, 13 Node tests, 19 importer tests, specification checks and all three container images. These results apply to this exact checkpoint and do not establish provider qualification, deployment or profitability.",
+        "Base acquisition supports the shared bounded pool-set registry and retains block-hash-pinned transcript state for each independently captured pool. It feeds the new V3 math/engine path without promoting SnapshotQuality to qualified or executable.",
+        "Round-2 implementation/review: https://github.com/makafeli/arbitrage-research/pull/89; scope, review corrections and current verification limits are recorded in docs/17-RESEARCH-INTEGRATION-VERIFICATION.md. The fixed-head PostgreSQL/browser CI checkpoint remains pending."
       ],
-      "remaining_acceptance": "Qualify ARB-002/003 providers and at least two real pools; capture complete amount-relevant state and compare decoded values with official ABI/state queries. Implement and test bounded reconnect/backfill, missing-log/gap handling and coherent quote coverage after ARB-008/009/014. Static transcript decoding alone does not satisfy read-only ingestion acceptance."
+      "remaining_acceptance": "Qualify ARB-002/003 providers and at least two real pools; compare complete quote-relevant state against current official ABI/state responses. Complete reconnect/backfill and missing-log/gap handling after ARB-008/009/014. Independent per-pool acquisition currently rejects mismatched contexts rather than guaranteeing one common live block anchor; current chain-lag/freshness evidence is still required."
     },
     {
       "id": "ARB-017",
@@ -313,9 +342,11 @@
         "Acquisition uses one finalized getMultipleAccounts response for declared account context; manually constructed fixtures cover decoding/identity failures and preserve the layout/source revision in capture provenance.",
         "docs/16-PROVIDER-QUALIFICATION.md leaves mainnet genesis, provider semantics and every actual pool unqualified after the failed bounded identity probe; no sample registry is promoted to production.",
         "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Passing runtime checkpoint and test scope are recorded in docs/14-IMPLEMENTATION-VERIFICATION.md; original ticket dependencies and unfulfilled acceptance gates remain authoritative.",
-        "Validated runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988): all four GitHub CI jobs passed; 139 Rust tests with zero failures/ignored/filtered tests, real PostgreSQL 17.11 API/control/storage/worker-process integration and client smoke, 20/20 browser scenarios, 13 Node tests, 19 importer tests, specification checks and all three container images. These results apply to this exact checkpoint and do not establish provider qualification, deployment or profitability."
+        "Validated runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988): all four GitHub CI jobs passed; 139 Rust tests with zero failures/ignored/filtered tests, real PostgreSQL 17.11 API/control/storage/worker-process integration and client smoke, 20/20 browser scenarios, 13 Node tests, 19 importer tests, specification checks and all three container images. These results apply to this exact checkpoint and do not establish provider qualification, deployment or profitability.",
+        "Solana acquisition supports bounded pool sets, case-sensitive genesis/mint/vault/program identities and independently replayable per-pool transcripts. The shared engine calls the restricted historical Orca math while retaining unqualified completeness and origin diagnostics.",
+        "Round-2 implementation/review: https://github.com/makafeli/arbitrage-research/pull/89; scope, review corrections and current verification limits are recorded in docs/17-RESEARCH-INTEGRATION-VERIFICATION.md. The fixed-head PostgreSQL/browser CI checkpoint remains pending."
       ],
-      "remaining_acceptance": "Complete ARB-002/003/008/009/014 qualification and compare representative real account captures with the pinned official layout. Exercise missing arrays, duplicate/out-of-order writes and bounded reconnect gaps; qualify the provider account-coherence semantics and current program before claiming complete valid quote state."
+      "remaining_acceptance": "Accept ARB-002/003/008/009/014 and compare representative real account captures with the supported official layout and current program. Complete missing-array, duplicate/out-of-order write and reconnect-gap review. Qualify provider bank/account coherence and a common acquisition policy; equal slots from separate pool reads are not full atomic transaction evidence."
     },
     {
       "id": "ARB-018",
@@ -331,22 +362,29 @@
         "Domain evidence gates reject stale/incomplete/inconsistent declared state for estimated-executable labels; capture/replay retain original provenance and compare normalized snapshot/context/quality exactly.",
         "Current adapters deliberately report unqualified quote completeness; similar wall-clock timestamps never establish a shared cross-chain atomic snapshot.",
         "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Passing runtime checkpoint and test scope are recorded in docs/14-IMPLEMENTATION-VERIFICATION.md; original ticket dependencies and unfulfilled acceptance gates remain authoritative.",
-        "Validated runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988): all four GitHub CI jobs passed; 139 Rust tests with zero failures/ignored/filtered tests, real PostgreSQL 17.11 API/control/storage/worker-process integration and client smoke, 20/20 browser scenarios, 13 Node tests, 19 importer tests, specification checks and all three container images. These results apply to this exact checkpoint and do not establish provider qualification, deployment or profitability."
+        "Validated runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988): all four GitHub CI jobs passed; 139 Rust tests with zero failures/ignored/filtered tests, real PostgreSQL 17.11 API/control/storage/worker-process integration and client smoke, 20/20 browser scenarios, 13 Node tests, 19 importer tests, specification checks and all three container images. These results apply to this exact checkpoint and do not establish provider qualification, deployment or profitability.",
+        "arb-engine rejects mismatched complete Base/Solana contexts, snapshots outside the original batch interval, expired deadlines and elapsed input age beyond the frozen threshold. Generation cancellation is checked between quote legs and again before durable admission.",
+        "The implemented age is acquisition/processing elapsed time. It does not measure how old the underlying finalized block or slot is; repeatedly returned old finalized state cannot establish current-market freshness, as documented in docs/17-RESEARCH-INTEGRATION-VERIFICATION.md.",
+        "Round-2 implementation/review: https://github.com/makafeli/arbitrage-research/pull/89; scope, review corrections and current verification limits are recorded in docs/17-RESEARCH-INTEGRATION-VERIFICATION.md. The fixed-head PostgreSQL/browser CI checkpoint remains pending."
       ],
-      "remaining_acceptance": "Implement the rolling snapshot state machine, versioned freshness policy and durable rollback/gap invalidation of dependent work. Replay real reorgs, out-of-order updates and mismatched account dependencies; prove formerly valid work becomes ineligible without altering captured provenance. Accept ARB-016/017 and attach current-commit integration evidence."
+      "remaining_acceptance": "Implement rolling snapshot reconstruction, common acquisition anchors, chain-lag limits and durable reorg/rollback/gap invalidation of dependent work. Replay genuine out-of-order/reorg/account-dependency cases and show prior work becomes ineligible without rewriting capture provenance. Accept ARB-016/017 and current integration evidence; matching pair context and elapsed age alone do not complete this gate."
     },
     {
       "id": "ARB-019",
       "issue_url": "https://github.com/makafeli/arbitrage-research/issues/33",
-      "state": "planned",
+      "state": "implemented_pending_acceptance",
       "owner_role": "EVM engineer",
       "dependencies": [
         "ARB-008",
         "ARB-016",
         "ARB-018"
       ],
-      "evidence": [],
-      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+      "evidence": [
+        "crates/arb-evm/src/math.rs implements checked integer exact-input V3 traversal, tick/liquidity transitions, included pool fees, price movement and bounded captured bitmap/price coverage. Partial input, unsupported state and arithmetic errors are rejected; no V2/V4 or transaction simulation path is implied.",
+        "crates/arb-evm/tests/reference contains an independently generated corpus from pinned @uniswap/v3-sdk 3.11.0: 14 full-swap cases and three primitive vectors, with package/source provenance and lockfiles. Rust differential tests consume committed results; the final workflow regenerates with --check. Tests cover both directions, fee rounding, negative ticks, initialized crossings, empty words, gaps and large integer boundaries.",
+        "Round-2 implementation/review: https://github.com/makafeli/arbitrage-research/pull/89; scope, review corrections and current verification limits are recorded in docs/17-RESEARCH-INTEGRATION-VERIFICATION.md. The fixed-head PostgreSQL/browser CI checkpoint remains pending."
+      ],
+      "remaining_acceptance": "Review the final canonical reference --check and Rust differential/boundary results after ARB-008/016/018 acceptance. Extend randomized differential coverage and validate supported real captured state/current deployment assumptions before claiming venue qualification. The local mathematical corpus and CANDIDATE labels do not establish current provider/program eligibility."
     },
     {
       "id": "ARB-020",
@@ -363,14 +401,16 @@
         "docs/14-IMPLEMENTATION-VERIFICATION.md records the initial nonterminating boundary regression and the fix: constrain the SDK swap to captured tick coverage, reject partial consumption and validate liquidity transitions.",
         "All eight local math regressions passed after correction, including the formerly hanging case, both directions and malformed liquidity. Focused third-party archive/license provenance is recorded in the foundation review.",
         "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Passing runtime checkpoint and test scope are recorded in docs/14-IMPLEMENTATION-VERIFICATION.md; original ticket dependencies and unfulfilled acceptance gates remain authoritative.",
-        "Validated runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988): all four GitHub CI jobs passed; 139 Rust tests with zero failures/ignored/filtered tests, real PostgreSQL 17.11 API/control/storage/worker-process integration and client smoke, 20/20 browser scenarios, 13 Node tests, 19 importer tests, specification checks and all three container images. These results apply to this exact checkpoint and do not establish provider qualification, deployment or profitability."
+        "Validated runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988): all four GitHub CI jobs passed; 139 Rust tests with zero failures/ignored/filtered tests, real PostgreSQL 17.11 API/control/storage/worker-process integration and client smoke, 20/20 browser scenarios, 13 Node tests, 19 importer tests, specification checks and all three container images. These results apply to this exact checkpoint and do not establish provider qualification, deployment or profitability.",
+        "The shared round-2 engine now composes actual historical Orca exact-input calls across two distinct configured pools, preserving exact u64 size limits, included fees, negative gross outcomes and missing external costs. Manual Solana fixtures verify CANDIDATE-only projection and rejection of unrepresentable configured sizes.",
+        "Round-2 implementation/review: https://github.com/makafeli/arbitrage-research/pull/89; scope, review corrections and current verification limits are recorded in docs/17-RESEARCH-INTEGRATION-VERIFICATION.md. The fixed-head PostgreSQL/browser CI checkpoint remains pending."
       ],
-      "remaining_acceptance": "The corrected math/workspace CI passed at c77af2e. Qualify current deployed-program equivalence with golden/randomized differential cases, real complete captured state and the supported token-behavior matrix. Finish overflow/truncation, tick-boundary/empty-liquidity and unavailable-array review after ARB-008/017/018; the historical primitive is not a current-program qualification."
+      "remaining_acceptance": "Accept ARB-008/017/018 and qualify current deployed-program equivalence using golden/randomized differential cases, real complete captures and the supported token-behavior matrix. Historical static-fee math and the new two-leg engine are implemented; adaptive fees, current program parity and full-transaction simulation remain separate gaps."
     },
     {
       "id": "ARB-021",
       "issue_url": "https://github.com/makafeli/arbitrage-research/issues/35",
-      "state": "planned",
+      "state": "in_progress",
       "owner_role": "Technical Lead / Chain engineers",
       "dependencies": [
         "ARB-003",
@@ -378,13 +418,17 @@
         "ARB-019",
         "ARB-020"
       ],
-      "evidence": [],
-      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+      "evidence": [
+        "arb-engine::capabilities explicitly separates implemented read/decode and research math from qualified quote, transaction build, full simulation and submit; the latter remain unavailable. Tests prevent configuration or SnapshotQuality booleans from promoting capability.",
+        "arb-registry binds bounded same-chain pool sets to frozen allowlists/digests; typed pool variants and identity checks reject unsupported selections. Empty/no-cycle graphs produce explicit NO_ROUTE or missing-input diagnostics and never fabricate an opportunity.",
+        "Round-2 implementation/review: https://github.com/makafeli/arbitrage-research/pull/89; scope, review corrections and current verification limits are recorded in docs/17-RESEARCH-INTEGRATION-VERIFICATION.md. The fixed-head PostgreSQL/browser CI checkpoint remains pending."
+      ],
+      "remaining_acceptance": "Complete reviewed activation evidence per concrete pool/token/program combination after ARB-003/009/019/020. The current conservative capability matrix is per network/venue, not a qualified activation catalog, and it is not yet exposed as a complete operator API matrix. Review changed program/token identity cases and the final generated support matrix; research submit must remain unavailable."
     },
     {
       "id": "ARB-022",
       "issue_url": "https://github.com/makafeli/arbitrage-research/issues/36",
-      "state": "planned",
+      "state": "implemented_pending_acceptance",
       "owner_role": "Engine engineer",
       "dependencies": [
         "ARB-008",
@@ -393,13 +437,17 @@
         "ARB-020",
         "ARB-021"
       ],
-      "evidence": [],
-      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+      "evidence": [
+        "arb-engine enumerates deterministically ordered same-chain A-to-B-to-A routes through two distinct pools using only the frozen starting asset and configured exact sizes. Pool/asset allowlists, origin, configuration, full pair context and original batch timestamps are checked before math.",
+        "Evaluation is bounded to eight pools, 63 route/size calculations, 64 output traces and 256 KiB; a reserved explicit DATA_UNAVAILABLE row marks capacity exhaustion. Tests cover ordering, duplicate pools, missing inputs/cycles, staleness, context mismatch, tick coverage and generation/deadline cancellation between legs. Storage repeats epoch/generation fencing transactionally.",
+        "Round-2 implementation/review: https://github.com/makafeli/arbitrage-research/pull/89; scope, review corrections and current verification limits are recorded in docs/17-RESEARCH-INTEGRATION-VERIFICATION.md. The fixed-head PostgreSQL/browser CI checkpoint remains pending."
+      ],
+      "remaining_acceptance": "Accept ARB-008/009/019/020/021 and review final PR #89 engine/worker/PostgreSQL admission evidence. Run the known-cycle and overload fixtures against qualified registry snapshots and the named host. The engine supports configured allowlisted pairs; real USDC/WETH and USDC/wSOL route availability remains unqualified. Budget-exhaustion diagnostics do not constitute a complete census of omitted market opportunities."
     },
     {
       "id": "ARB-023",
       "issue_url": "https://github.com/makafeli/arbitrage-research/issues/37",
-      "state": "planned",
+      "state": "implemented_pending_acceptance",
       "owner_role": "Engine engineer / Data engineer",
       "dependencies": [
         "ARB-010",
@@ -407,8 +455,13 @@
         "ARB-018",
         "ARB-022"
       ],
-      "evidence": [],
-      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+      "evidence": [
+        "DecisionTrace seals each raw observation with an immutable content digest and a separate versioned route/size/window grouping key. Captures, configuration, calculation version, session/experiment/generation, origin, inputs, signed gross output and static rejection reasons remain inspectable; grouping preserves raw negative/rejected/missing observations.",
+        "Migration 0002 and crates/arb-storage/src/decisions.rs persist batches under session/epoch/generation fences and already-admitted manifest references. Scoped queries distinguish quoted groups, raw rejections, NO_ROUTE and DATA_UNAVAILABLE; unavailable execution counters stay null and collection completeness stays UNKNOWN.",
+        "API/dashboard readers now consume stored decisions and CANDIDATE opportunity projections with unknown external-cost net. PostgreSQL fixtures test idempotency, changed payloads, grouping/coverage, scoped pages and stale provenance; the canonical database/browser result is pending.",
+        "Round-2 implementation/review: https://github.com/makafeli/arbitrage-research/pull/89; scope, review corrections and current verification limits are recorded in docs/17-RESEARCH-INTEGRATION-VERIFICATION.md. The fixed-head PostgreSQL/browser CI checkpoint remains pending."
+      ],
+      "remaining_acceptance": "Accept ARB-010/014/018/022 and compare final PostgreSQL aggregates with all raw observations, repeated/changing-spread fixtures and grouping boundaries. Inspect a genuinely recorded end-to-end capture/decision/API/browser trace and document a complete observation schedule before making coverage claims. Live pagination is not a frozen export or proof of continuous collection."
     },
     {
       "id": "ARB-024",
@@ -440,9 +493,11 @@
         "Native fee amounts retain asset identity and timestamped exact-ratio valuation; missing execution/funding/valuation inputs yield no complete net result. Gross, transaction-net and disclosed method/version overhead allocation remain separate and denominated in the actual starting asset.",
         "Hand-calculated Base L1/execution and Solana execution/priority/tip fixtures preserve rounding, negative failed-attempt scenarios and missing-versus-zero distinctions. No USDC-to-guaranteed-USD claim is made.",
         "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Passing runtime checkpoint and test scope are recorded in docs/14-IMPLEMENTATION-VERIFICATION.md; original ticket dependencies and unfulfilled acceptance gates remain authoritative.",
-        "Validated runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988): all four GitHub CI jobs passed; 139 Rust tests with zero failures/ignored/filtered tests, real PostgreSQL 17.11 API/control/storage/worker-process integration and client smoke, 20/20 browser scenarios, 13 Node tests, 19 importer tests, specification checks and all three container images. These results apply to this exact checkpoint and do not establish provider qualification, deployment or profitability."
+        "Validated runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988): all four GitHub CI jobs passed; 139 Rust tests with zero failures/ignored/filtered tests, real PostgreSQL 17.11 API/control/storage/worker-process integration and client smoke, 20/20 browser scenarios, 13 Node tests, 19 importer tests, specification checks and all three container images. These results apply to this exact checkpoint and do not establish provider qualification, deployment or profitability.",
+        "Opportunity schema 1.1 and strict browser parsing now preserve incomplete external costs as null net through the persisted decision path. Included protocol pool fees remain part of quoted output and are not reintroduced as deductible expenses; native accounting identity validation remains strict.",
+        "Round-2 implementation/review: https://github.com/makafeli/arbitrage-research/pull/89; scope, review corrections and current verification limits are recorded in docs/17-RESEARCH-INTEGRATION-VERIFICATION.md. The fixed-head PostgreSQL/browser CI checkpoint remains pending."
       ],
-      "remaining_acceptance": "Connect the core to the persisted ARB-023 evaluation pipeline and complete scenario fee/funding inputs; reproduce conversions and aggregate conservation from recorded decisions/reports. Review the passing c77af2e core tests and ARB-008/023 dependencies. In-memory fixture calculations do not establish complete transaction simulation or a deployed cost ledger."
+      "remaining_acceptance": "After ARB-008/023, integrate complete recorded fee, funding, conversion and overhead scenarios with the cost reducer and reproduce transaction-net/allocated results from stored references. Unknown-cost quote persistence is implemented but deliberately does not invent missing valuation, simulation or expense inputs. Review final schema/core tests and economic conservation evidence before accepting complete-cost reporting."
     },
     {
       "id": "ARB-026",
@@ -458,9 +513,13 @@
         "Concurrent Mutex-mediated candidates cannot overreserve; unknown outcomes retain funds, failed included attempts spend fees while releasing atomic principal, and known non-inclusion releases both. Reset requires a different run.",
         "Idempotent command/body replay, prefix reconstruction, tamper/gap/mixed-run rejection, conflicting-capital and bounded conservation tests cover the deterministic single-owner in-memory reducer.",
         "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Passing runtime checkpoint and test scope are recorded in docs/14-IMPLEMENTATION-VERIFICATION.md; original ticket dependencies and unfulfilled acceptance gates remain authoritative.",
-        "Validated runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988): all four GitHub CI jobs passed; 139 Rust tests with zero failures/ignored/filtered tests, real PostgreSQL 17.11 API/control/storage/worker-process integration and client smoke, 20/20 browser scenarios, 13 Node tests, 19 importer tests, specification checks and all three container images. These results apply to this exact checkpoint and do not establish provider qualification, deployment or profitability."
+        "Validated runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988): all four GitHub CI jobs passed; 139 Rust tests with zero failures/ignored/filtered tests, real PostgreSQL 17.11 API/control/storage/worker-process integration and client smoke, 20/20 browser scenarios, 13 Node tests, 19 importer tests, specification checks and all three container images. These results apply to this exact checkpoint and do not establish provider qualification, deployment or profitability.",
+        "crates/arb-storage/src/paper.rs and migration 0002 persist immutable initial portfolios, creation keys and append-only exact accounting events. Session/run row locks prevent concurrent reuse of principal/native fees; event, revision, byte total and audit record commit together. UNKNOWN retains funds and positive reconciliation can complete after a fence.",
+        "Every open reservation retains one terminal event slot and 64 KiB within the 5,000-event/16 MiB journal bounds. Independent review removed quadratic replay-history copying while retaining public command rollback and exact event/posting comparisons; the 4,998-event UNKNOWN/corruption regression passed in the local 13-test arb-paper cohort.",
+        "Mandatory PostgreSQL cases now cover concurrent creation/reservations, idempotent outcomes, immutable balances, reconnect and actual new-epoch ownership. The new epoch regression preserves UNKNOWN balances, rejects the old claimant and allows one replacement reconciliation; final canonical PostgreSQL execution is pending.",
+        "Round-2 implementation/review: https://github.com/makafeli/arbitrage-research/pull/89; scope, review corrections and current verification limits are recorded in docs/17-RESEARCH-INTEGRATION-VERIFICATION.md. The fixed-head PostgreSQL/browser CI checkpoint remains pending."
       ],
-      "remaining_acceptance": "Integrate reservations/settlements with PostgreSQL transactions and the evaluation/worker pipeline, then run real crash/restart and concurrent persistent-reservation tests. Verify report balances and mutually exclusive decisions using recorded inputs after ARB-010/025. Journal-prefix replay is not disk durability or cross-process ownership proof."
+      "remaining_acceptance": "Accept ARB-010/025 and review final PR #89 PostgreSQL concurrency, durable epoch/recovery, immutable-history and exact-balance tests. Integrate scenario-approved reservations/outcomes with the evaluation and full-simulation pipeline; the current mutation methods are internal hypothetical accounting primitives and there is no automatic paper settlement endpoint. Perform the broader crash/restore and mutually exclusive recorded-opportunity acceptance exercise before claiming executable paper trading."
     },
     {
       "id": "ARB-027",
@@ -475,12 +534,15 @@
       ],
       "evidence": [
         "apps/replay verifies original manifest/object digests and re-decodes ordered RPC transcripts offline, requiring matching methods/parameters, complete consumption and exact snapshot/context/quality equality.",
-        "Recorded-live effective configuration and registry bindings are revalidated; protocol source revision, original build and replay build identities are distinguished. The report explicitly marks quote replay, paper P&L and full-transaction simulation unavailable.",
+        "Effective configuration, registry and source/build bindings are revalidated. The decoder-only verification report distinguishes acquisition replay from quote/economic replay; the new --evaluate-captures path is described separately in the PR #89 evidence below.",
         "docs/14-IMPLEMENTATION-VERIFICATION.md records four passing local strict capture replay regressions, including self-consistently rehashed mismatches, configuration/source/sequence changes and repeated deterministic acquisition output.",
         "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Passing runtime checkpoint and test scope are recorded in docs/14-IMPLEMENTATION-VERIFICATION.md; original ticket dependencies and unfulfilled acceptance gates remain authoritative.",
-        "Validated runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988): all four GitHub CI jobs passed; 139 Rust tests with zero failures/ignored/filtered tests, real PostgreSQL 17.11 API/control/storage/worker-process integration and client smoke, 20/20 browser scenarios, 13 Node tests, 19 importer tests, specification checks and all three container images. These results apply to this exact checkpoint and do not establish provider qualification, deployment or profitability."
+        "Validated runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988): all four GitHub CI jobs passed; 139 Rust tests with zero failures/ignored/filtered tests, real PostgreSQL 17.11 API/control/storage/worker-process integration and client smoke, 20/20 browser scenarios, 13 Node tests, 19 importer tests, specification checks and all three container images. These results apply to this exact checkpoint and do not establish provider qualification, deployment or profitability.",
+        "apps/replay --evaluate-captures verifies up to eight retained independently replayable captures, requires matching frozen configuration/registry/network/origin, and invokes the same arb-engine used by the worker with zero network requests. Legacy single-pool and pool-set formats retain explicit compatibility checks.",
+        "Historical input age is an explicit modeled scenario, never silently replaced by current wall time. Output preserves original configuration mode and dataset origin; the replay operation/report remains distinct from a fresh observation. Missing/expired/tampered inputs reject, gross quotes remain CANDIDATE and external net stays unknown.",
+        "Round-2 implementation/review: https://github.com/makafeli/arbitrage-research/pull/89; scope, review corrections and current verification limits are recorded in docs/17-RESEARCH-INTEGRATION-VERIFICATION.md. The fixed-head PostgreSQL/browser CI checkpoint remains pending."
       ],
-      "remaining_acceptance": "Build complete route/evaluation/economic replay over qualified Base/Orca math and persisted ARB-023 records; retain missing-input rejection and CANDIDATE evidence for mathematical results. Compare canonical full outputs in isolated environments with network denied, record platform/version limits and accept ARB-014/019/020/023. Acquisition re-decoding alone is not full deterministic trading replay."
+      "remaining_acceptance": "Accept ARB-014/019/020/023 and compare canonical complete engine outputs for the same retained input set, versions and explicit historical age in isolated network-denied environments. Complete economic cost/portfolio/scenario replay, broader supported-chain compatibility and genuine recorded-input acceptance. Shared quote replay now exists, but modeled age is not measured historical latency and full transaction/executable-paper replay remains unavailable."
     },
     {
       "id": "ARB-028",
@@ -600,14 +662,18 @@
     {
       "id": "ARB-036",
       "issue_url": "https://github.com/makafeli/arbitrage-research/issues/50",
-      "state": "planned",
+      "state": "implemented_pending_acceptance",
       "owner_role": "Frontend engineer / UI Designer",
       "dependencies": [
         "ARB-006",
         "ARB-008"
       ],
-      "evidence": [],
-      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+      "evidence": [
+        "apps/web implements the approved lime/navy shell, light/dark tokens, responsive sidebar and six research destinations. Explicit Demo/Connected modes preserve fictional labels; view filters do not change worker scope and no wallet/key/live-arm controls are present.",
+        "PR #89 adds decision and paper workspaces inside the existing design hierarchy, with exact long amounts/addresses and explicit source/unknown states. Desktop and 320/390-pixel browser fixtures and screenshot capture are present; the final browser execution/visual acceptance remains pending.",
+        "Round-2 implementation/review: https://github.com/makafeli/arbitrage-research/pull/89; scope, review corrections and current verification limits are recorded in docs/17-RESEARCH-INTEGRATION-VERIFICATION.md. The fixed-head PostgreSQL/browser CI checkpoint remains pending."
+      ],
+      "remaining_acceptance": "After ARB-006/008 acceptance, compare final PR #89 desktop/narrow screenshots with design/dashboard-wireframe.html and review both themes, equal chain emphasis and visible source/mode/control states. Confirm final TypeScript/build/browser results and record unresolved visual issues before accepting the complete shell."
     },
     {
       "id": "ARB-037",
@@ -624,9 +690,12 @@
         "RecordedOpportunities.tsx displays exact string amounts, snapshot/plan/valuation provenance, missing costs as unknown and failed simulations as rejection; disconnected snapshots do not invent continued activity.",
         "API-client/unit and Connected browser fixtures cover data-quality and failure states. The native-fetch receiver defect is corrected with a regression test; the corrected full browser suite passed at the recorded c77af2e checkpoint.",
         "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Passing runtime checkpoint and test scope are recorded in docs/14-IMPLEMENTATION-VERIFICATION.md; original ticket dependencies and unfulfilled acceptance gates remain authoritative.",
-        "Validated runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988): all four GitHub CI jobs passed; 139 Rust tests with zero failures/ignored/filtered tests, real PostgreSQL 17.11 API/control/storage/worker-process integration and client smoke, 20/20 browser scenarios, 13 Node tests, 19 importer tests, specification checks and all three container images. These results apply to this exact checkpoint and do not establish provider qualification, deployment or profitability."
+        "Validated runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988): all four GitHub CI jobs passed; 139 Rust tests with zero failures/ignored/filtered tests, real PostgreSQL 17.11 API/control/storage/worker-process integration and client smoke, 20/20 browser scenarios, 13 Node tests, 19 importer tests, specification checks and all three container images. These results apply to this exact checkpoint and do not establish provider qualification, deployment or profitability.",
+        "DecisionExplorer, strict research DTO parsers and scoped cancellable readers now display persisted observations, grouped counts, explicit missing data, exact signed gross values and capture/calculation provenance. RecordedOpportunities remains captured-only; synthetic persisted traces require visible origin badges in the separate explorer.",
+        "Unknown costs/age/execution counters stay unknown, cross-scope rows are cleared, same-scope refresh failures retain a stale snapshot and pagination is bounded. Node/HTTP fixture coverage exists for origin consistency, nullable net, outages, cancellation and exact large integers.",
+        "Round-2 implementation/review: https://github.com/makafeli/arbitrage-research/pull/89; scope, review corrections and current verification limits are recorded in docs/17-RESEARCH-INTEGRATION-VERIFICATION.md. The fixed-head PostgreSQL/browser CI checkpoint remains pending."
       ],
-      "remaining_acceptance": "Connected browser/service-client CI passed at c77af2e. Inspect one real persisted captured decision end-to-end against its API trace after the original dependencies pass and wire actual opportunity production/query persistence. An empty endpoint and mocked evidence inspector do not complete the real-data dashboard acceptance."
+      "remaining_acceptance": "Accept ARB-012/023/036 and review the corrected final PR #89 browser/real-service tests for all data-quality states. Opportunity production/query persistence is implemented; inspect one genuinely recorded qualified decision from capture through API and browser, including exclusion reasons and raw-retention limits. HTTP fixtures and local passing Node tests are not live-market evidence."
     },
     {
       "id": "ARB-038",
@@ -644,9 +713,12 @@
         "The API revalidates selections and rejects hidden-field/URL LIVE attempts, unsupported modes/networks/strategies and invalid requests. Disabled/unqualified defaults cannot be used to start an active session.",
         "Frontend creation/error fixtures and configuration/API tests exercise invalid selection and immutable-binding behavior without exposing RPC/database secrets.",
         "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Passing runtime checkpoint and test scope are recorded in docs/14-IMPLEMENTATION-VERIFICATION.md; original ticket dependencies and unfulfilled acceptance gates remain authoritative.",
-        "Validated runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988): all four GitHub CI jobs passed; 139 Rust tests with zero failures/ignored/filtered tests, real PostgreSQL 17.11 API/control/storage/worker-process integration and client smoke, 20/20 browser scenarios, 13 Node tests, 19 importer tests, specification checks and all three container images. These results apply to this exact checkpoint and do not establish provider qualification, deployment or profitability."
+        "Validated runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988): all four GitHub CI jobs passed; 139 Rust tests with zero failures/ignored/filtered tests, real PostgreSQL 17.11 API/control/storage/worker-process integration and client smoke, 20/20 browser scenarios, 13 Node tests, 19 importer tests, specification checks and all three container images. These results apply to this exact checkpoint and do not establish provider qualification, deployment or profitability.",
+        "PaperWorkspace now reviews immutable session/configuration identity, a configured token principal and a separate native fee amount before creating a stopped PAPER run. The API validates the frozen allowlist and pending command state; new runs retain prior histories.",
+        "Uncertain creation preserves the exact body/idempotency key across normal Connected navigation and retry failures. A later authentication/rate-limit rejection cannot silently authorize a new key. Browser fixtures cover this flow, explicit native-zero budgets and revised session selection.",
+        "Round-2 implementation/review: https://github.com/makafeli/arbitrage-research/pull/89; scope, review corrections and current verification limits are recorded in docs/17-RESEARCH-INTEGRATION-VERIFICATION.md. The fixed-head PostgreSQL/browser CI checkpoint remains pending."
       ],
-      "remaining_acceptance": "Complete the full experiment review flow, including explicit virtual principal, separate native-fee reserves, sizes/delay/cost assumptions and capability feedback for pool/token models. Existing registered-session creation/browser/API checks passed at c77af2e; revised-experiment history and review flows still need their actual immutable experiment records. Current registered-session creation is narrower than the full ticket."
+      "remaining_acceptance": "Accept ARB-009/012/021/036 and review final keyboard/browser/API evidence for immutable session and paper creation. Complete the full registry/size/delay/cost/scenario review and qualified pool/token capability feedback; creating a virtual account is narrower than the whole experiment workflow. Document/reconcile uncertain requests after reload or sign-out because browser-side keys currently last only while Connected is mounted."
     },
     {
       "id": "ARB-039",
@@ -664,14 +736,16 @@
         "Demo controls explicitly remain local; Connected mode handles delayed/lost ACK, stale revision, disconnect, uncertain request retry and per-session stop-all outcomes without claiming an atomic global stop.",
         "The passing c77af2e runtime checkpoint exercises browser/control fixtures for pending stop, command acknowledgement, unresolved attempts and focus/accessibility, together with real PostgreSQL/coordinator and worker-process tests. Root integration visually confirmed the 320-pixel mobile button fix in the successful CI artifact.",
         "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Passing runtime checkpoint and test scope are recorded in docs/14-IMPLEMENTATION-VERIFICATION.md; original ticket dependencies and unfulfilled acceptance gates remain authoritative.",
-        "Validated runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988): all four GitHub CI jobs passed; 139 Rust tests with zero failures/ignored/filtered tests, real PostgreSQL 17.11 API/control/storage/worker-process integration and client smoke, 20/20 browser scenarios, 13 Node tests, 19 importer tests, specification checks and all three container images. These results apply to this exact checkpoint and do not establish provider qualification, deployment or profitability."
+        "Validated runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988): all four GitHub CI jobs passed; 139 Rust tests with zero failures/ignored/filtered tests, real PostgreSQL 17.11 API/control/storage/worker-process integration and client smoke, 20/20 browser scenarios, 13 Node tests, 19 importer tests, specification checks and all three container images. These results apply to this exact checkpoint and do not establish provider qualification, deployment or profitability.",
+        "Existing revisioned start/pause/resume/stop and per-session stop-all controls remain available around the new research views. Mode switching is disabled while command or creation delivery is unresolved; leaving a view or logging out does not imply worker shutdown.",
+        "Round-2 implementation/review: https://github.com/makafeli/arbitrage-research/pull/89; scope, review corrections and current verification limits are recorded in docs/17-RESEARCH-INTEGRATION-VERIFICATION.md. The fixed-head PostgreSQL/browser CI checkpoint remains pending."
       ],
-      "remaining_acceptance": "The c77af2e checkpoint passed the corrected browser suite and real API/PostgreSQL/worker-process acknowledgement tests, with the 320-pixel button fix visually confirmed. Complete original dependency acceptance and maintainer review of command/stop-all/pause/resume evidence. Infrastructure shutdown or local demo state must never stand in for a worker fence."
+      "remaining_acceptance": "Accept ARB-011/012/036/037 and review final PR #89 command/focus/narrow-layout regressions, including unresolved creation and independent stop-all outcomes. Preserve the distinction between emitted research-attempt draining and internal virtual reservation history; no browser/demo transition or infrastructure shutdown can substitute for a worker-applied fence."
     },
     {
       "id": "ARB-040",
       "issue_url": "https://github.com/makafeli/arbitrage-research/issues/54",
-      "state": "planned",
+      "state": "in_progress",
       "owner_role": "Frontend engineer / Research engineer",
       "dependencies": [
         "ARB-026",
@@ -679,13 +753,17 @@
         "ARB-037",
         "ARB-038"
       ],
-      "evidence": [],
-      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+      "evidence": [
+        "PaperWorkspace now reads immutable run metadata, initial balances, exact free/reserved/total amounts, journal postings and reservation history from authenticated persisted API records. Every accounting view is HYPOTHETICAL; native fee inventory and token principal remain separate and no realized-return total is generated.",
+        "Current run/journal/reservation snapshots disclose their separate receive times and revision context. Comparison remains explicitly unavailable where valuation, simulation and matched coverage are absent; no chain winner or fabricated conversions are displayed.",
+        "Round-2 implementation/review: https://github.com/makafeli/arbitrage-research/pull/89; scope, review corrections and current verification limits are recorded in docs/17-RESEARCH-INTEGRATION-VERIFICATION.md. The fixed-head PostgreSQL/browser CI checkpoint remains pending."
+      ],
+      "remaining_acceptance": "Accept ARB-026/034/037/038 and verify final browser/API totals against durable ledger fixtures, including losses and unavailable conversions. Complete gross/transaction-net/allocated reporting, inventory-versus-arbitrage attribution, matched-chain/holdout comparisons and actionable expired-capture reproducibility status. Conduct the operator rejection/withheld-comparison walkthrough; current balances/history do not complete fair-comparison views."
     },
     {
       "id": "ARB-041",
       "issue_url": "https://github.com/makafeli/arbitrage-research/issues/55",
-      "state": "planned",
+      "state": "in_progress",
       "owner_role": "Data engineer / Frontend engineer",
       "dependencies": [
         "ARB-023",
@@ -693,8 +771,12 @@
         "ARB-034",
         "ARB-040"
       ],
-      "evidence": [],
-      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+      "evidence": [
+        "apps/web/src/domain/researchExport.ts exports selected received decision pages/details, one paper run or one journal page as bounded 2 MiB JSON. Exact decimal strings, source/evidence, scope, receive/export timestamps and explicit collection/retention limitations are retained without hidden bulk fetching.",
+        "Strict known-field projections remove unknown metadata before display/export. Journal exports intentionally contain command kind and postings rather than full command inputs; current exports are limited evidence selections, not complete historical audit packages.",
+        "Round-2 implementation/review: https://github.com/makafeli/arbitrage-research/pull/89; scope, review corrections and current verification limits are recorded in docs/17-RESEARCH-INTEGRATION-VERIFICATION.md. The fixed-head PostgreSQL/browser CI checkpoint remains pending."
+      ],
+      "remaining_acceptance": "Accept ARB-023/027/034/040 and implement CSV with formula-injection escaping plus quote/newline/credential-redaction tests. Add complete run/summary/ledger/capture-dependency export semantics, decimals/methodology and explicit expired/missing artifacts; compare round-trip amounts and row counts to a frozen source query. The implemented page-scoped JSON export does not satisfy CSV or reproducible full-history export acceptance."
     },
     {
       "id": "ARB-042",
@@ -712,7 +794,7 @@
     {
       "id": "ARB-043",
       "issue_url": "https://github.com/makafeli/arbitrage-research/issues/57",
-      "state": "planned",
+      "state": "in_progress",
       "owner_role": "UI/UX Designer / QA",
       "dependencies": [
         "ARB-037",
@@ -722,8 +804,12 @@
         "ARB-041",
         "ARB-042"
       ],
-      "evidence": [],
-      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+      "evidence": [
+        "The new decision/paper views add focus-managed detail dialogs, keyboard-accessible immutable creation, exact large amount wrapping, stale/unknown announcements and 320/390/1440-pixel screenshot fixtures. Source review covered scope cancellation, request identity and truthful hypothetical/missing states.",
+        "Thirty Playwright scenarios are defined. Prior 6f93309 CI passed 21/30 and exposed fixture/mock/UI issues; the corrected final browser run and screenshot review are pending. Local TypeScript/build and 20 Node tests passed, which do not establish browser accessibility acceptance.",
+        "Round-2 implementation/review: https://github.com/makafeli/arbitrage-research/pull/89; scope, review corrections and current verification limits are recorded in docs/17-RESEARCH-INTEGRATION-VERIFICATION.md. The fixed-head PostgreSQL/browser CI checkpoint remains pending."
+      ],
+      "remaining_acceptance": "After ARB-037/038/039/040/041/042, run and inspect all corrected browser scenarios and desktop/narrow screenshot artifacts on the final PR #89 head. Complete manual keyboard, screen-reader-oriented, zoom/contrast and long-data review with actual browser versions and unresolved findings recorded. Local source/Node checks and partial prior browser results cannot close this ticket."
     },
     {
       "id": "ARB-044",
@@ -742,9 +828,11 @@
         "The final c77af2e runtime checkpoint passed all three container-image jobs and the complete four-job CI suite; docs/14-IMPLEMENTATION-VERIFICATION.md separates image/runtime verification from actual Railway deployment.",
         "The runbook documents inert startup, operator STOP versus process shutdown, fenced recovery, raw-capture expiry and outstanding configuration/volume/provider prerequisites. No authenticated Railway project or billable deployment was created.",
         "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Passing runtime checkpoint and test scope are recorded in docs/14-IMPLEMENTATION-VERIFICATION.md; original ticket dependencies and unfulfilled acceptance gates remain authoritative.",
-        "Validated runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988): all four GitHub CI jobs passed; 139 Rust tests with zero failures/ignored/filtered tests, real PostgreSQL 17.11 API/control/storage/worker-process integration and client smoke, 20/20 browser scenarios, 13 Node tests, 19 importer tests, specification checks and all three container images. These results apply to this exact checkpoint and do not establish provider qualification, deployment or profitability."
+        "Validated runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988): all four GitHub CI jobs passed; 139 Rust tests with zero failures/ignored/filtered tests, real PostgreSQL 17.11 API/control/storage/worker-process integration and client smoke, 20/20 browser scenarios, 13 Node tests, 19 importer tests, specification checks and all three container images. These results apply to this exact checkpoint and do not establish provider qualification, deployment or profitability.",
+        "The previous PR #89 checkpoint built the API, worker and dashboard images; the release now also contains migration 0002 and paper/decision recovery constraints. This prepares deployable artifacts and restore inputs without establishing a running Railway deployment.",
+        "Round-2 implementation/review: https://github.com/makafeli/arbitrage-research/pull/89; scope, review corrections and current verification limits are recorded in docs/17-RESEARCH-INTEGRATION-VERIFICATION.md. The fixed-head PostgreSQL/browser CI checkpoint remains pending."
       ],
-      "remaining_acceptance": "After ARB-035/039/041/042/043, execute a reviewed authenticated Railway plan/deployment, verify volume permissions and clean inert startup, implement backup/retention jobs and perform an isolated restore drill comparing configurations, commands, ledger and replay references. Exercise abrupt restart/degraded providers and end-to-end STOP, record immutable release/image hashes and actual recovery evidence. Prepared images/runbooks are not deployment acceptance."
+      "remaining_acceptance": "After ARB-035/039/041/042/043 and complete final PR #89 CI, execute the reviewed authenticated Railway plan/deployment, confirm inert startup and volume permissions, implement backup/retention jobs and perform an isolated restore comparing configurations, commands, paper journals/balances and replay references. Exercise abrupt restart, degraded providers and STOP; record exact image/release hashes and recovery evidence. Prepared containers and local tests are not deployment acceptance."
     },
     {
       "id": "ARB-045",
