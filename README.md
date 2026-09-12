@@ -40,10 +40,12 @@ The shipped research configuration keeps both networks disabled. Register qualif
 
 ```sh
 cargo run --locked -p replay -- --lifecycle-demo
+cargo build --locked -p control-api
+export ARB_TEST_CONTROL_API_BIN="$(pwd)/target/debug/control-api"
 cargo test --workspace --locked
 ```
 
-The full test command requires a disposable PostgreSQL database in `TEST_DATABASE_URL`. CI provisions it and also checks the real UI API client, browser scenarios and deployment containers. [Replay](apps/replay/README.md) verifies captured transcripts and evaluates routes offline under an explicitly modeled historical timing scenario. It does not replay complete transaction or paper outcomes.
+The full test command requires a disposable PostgreSQL database in `TEST_DATABASE_URL` and the built API executable in `ARB_TEST_CONTROL_API_BIN` (use its actual absolute path if your Cargo target directory differs). CI provisions it and also checks the real UI API client, browser scenarios and deployment containers. [Replay](apps/replay/README.md) verifies captured transcripts and evaluates routes offline under an explicitly modeled historical timing scenario. It does not replay complete transaction or paper outcomes.
 
 ## Research scope
 

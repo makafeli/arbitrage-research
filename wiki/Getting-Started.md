@@ -20,11 +20,13 @@ Use the pinned toolchain and Cargo workspace at the repository root. Baseline ch
 ```sh
 cargo fmt --all --check
 cargo clippy --locked --workspace --all-targets -- -D warnings
+cargo build --locked -p control-api
+export ARB_TEST_CONTROL_API_BIN="$(pwd)/target/debug/control-api"
 cargo test --locked --workspace
 python scripts/validate_project.py
 ```
 
-The full Rust test suite requires a disposable PostgreSQL database configured through `TEST_DATABASE_URL`; follow the root README and CI setup. These commands describe how to validate a checkout, not evidence that its exact commit passed. Rust 1.90 CI, database behavior and browser/container checks must be recorded against that commit. Earlier foundation test counts do not verify the current integration.
+The full Rust test suite requires a disposable PostgreSQL database configured through `TEST_DATABASE_URL`, plus the built API executable path in `ARB_TEST_CONTROL_API_BIN`; follow the root README and CI setup. These commands describe how to validate a checkout, not evidence that its exact commit passed. Rust 1.90 CI, database behavior and browser/container checks must be recorded against that commit. Earlier foundation test counts do not verify the current integration.
 
 Research examples ship with disabled networks and empty allowlists. They are inert templates, not verified market identities. A `fixture:` address cannot become a production allowlist entry. Before enabling capture, independently qualify actual registry identities, provider behavior and supported pool state, then freeze the matching configuration and registry digests.
 

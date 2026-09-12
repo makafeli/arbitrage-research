@@ -63,7 +63,11 @@ jobs:
         continue-on-error: true
         run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Build the real control API for the quoted-worker HTTP integration
+        run: cargo build --locked -p control-api
       - run: cargo test --workspace --locked
+        env:
+          ARB_TEST_CONTROL_API_BIN: ${{ github.workspace }}/target/debug/control-api
       - name: Verify the real browser client against the Rust HTTP service
         env:
           ARB_OPERATOR_SECRET: isolated-ci-only-operator-secret-00000000
