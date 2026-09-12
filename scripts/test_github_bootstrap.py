@@ -84,6 +84,34 @@ class ImportTests(unittest.TestCase):
             self.assertEqual(app.individual_reads, 1)
             self.assertIn("ARB-001", app.state["issues"])
 
+    def test_status_initialized_only_at_creation_and_removed_status_stays_removed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            item = self.item()
+            item["labels"] += ["status:planned", "area:platform"]
+            app = FakeBootstrap(Path(tmp), [item])
+            app.issues_phase()
+            self.assertIn({"name": "status:planned"}, app.remote[0]["labels"])
+            app.remote[0]["labels"] = [{"name": "test"}]
+            app.remote[0]["body"] += "\n<!-- arb-implementation-status:start -->\nIn progress\n<!-- arb-implementation-status:end -->\n"
+            app.issues_phase()
+            self.assertNotIn({"name": "status:planned"}, app.remote[0]["labels"])
+            self.assertIn({"name": "area:platform"}, app.remote[0]["labels"])
+            self.assertIn("In progress", app.remote[0]["body"])
+            self.assertEqual(app.created, 1)
+
+    def test_rerun_preserves_new_status_and_closed_issue(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            item = self.item()
+            item["labels"] += ["status:planned"]
+            app = FakeBootstrap(Path(tmp), [item])
+            app.issues_phase()
+            app.remote[0]["labels"] = [{"name": "status:done"}, {"name": "reviewed"}]
+            app.remote[0]["state"] = "closed"
+            app.issues_phase()
+            self.assertEqual({label["name"] for label in app.remote[0]["labels"]},
+                             {"status:done", "reviewed", "test"})
+            self.assertEqual(app.remote[0]["state"], "closed")
+
     def test_stale_collection_after_restart_does_not_create_duplicate(self):
         with tempfile.TemporaryDirectory() as tmp:
             original = FakeBootstrap(Path(tmp), [self.item()])

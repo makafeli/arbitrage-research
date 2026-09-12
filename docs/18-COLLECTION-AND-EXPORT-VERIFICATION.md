@@ -1,0 +1,51 @@
+# Collection telemetry and frozen research exports
+
+This record covers the implementation cohort after PR #89: durable collection attempts, frozen research export and the connected diagnostics/export UI. It advances ARB-013, ARB-023, ARB-041 and ARB-042. The original acceptance criteria and dependency graph remain authoritative; partial implementation does not close these tickets.
+
+## Evidence checkpoint
+
+Implementation is on `feat/research-telemetry-exports`. Local Rust 1.91.1 all-target compilation, formatting and Clippy with warnings denied pass. The selected changed-component runtime cohorts pass: 22 API, four storage and four worker tests (30 total). These deliberately exclude PostgreSQL tests. Frontend type checking and production build pass, together with 25 Node tests. The importer passes 21 regressions; the specification validator resolves 23 API operations and rejects 31 invalid contract cases. No full CI result for this cohort is claimed here yet. The established baseline is merged PR #89 at `bf3a186a26993252060712e4bac66abdef545452`: 210 Rust tests, including 41 real PostgreSQL tests, 30 Chromium scenarios and 20 Node tests. Its [main validation](https://github.com/makafeli/arbitrage-research/actions/runs/34718464924) is historical baseline evidence, not verification of subsequent edits.
+
+## Research denominators
+
+Collection attempts and decision observations measure different things. An attempt begins durably before acquisition; it can produce several decisions, fail before a decision exists, or remain unresolved after a crash. Readiness collection while stopped is distinct from evaluation in a running session. Intentional suppression by STOP or a newer generation must not be presented as provider downtime.
+
+A successful collection outcome is not a profitable opportunity, executable route or virtual fill. Quoted routes remain CANDIDATE; incomplete external costs retain null net results. A completed attempt count describes registered attempts only. It cannot prove that a configured observation schedule was followed or that no work was missed while the process or database was unavailable. `collection_completeness` therefore remains `UNKNOWN`.
+
+These operational attempt records have no asserted market-input origin; failure counts must not be silently treated as recorded-market observations. Raw failures use finite reason codes. Provider URLs, authentication headers and raw exception text do not belong in public telemetry. Generation and worker-epoch fences remain authoritative for decision admission. Recording a terminal diagnostic after STOP must never admit a late decision.
+
+## Export semantics
+
+A reproducible database export needs all its rows and counts from the same snapshot. PostgreSQL REPEATABLE READ keeps successive reads on the snapshot established by the first non-transaction-control statement; plain read-only queries do not require row locks. See the [primary PostgreSQL isolation documentation](https://www.postgresql.org/docs/current/transaction-iso.html#XACT-REPEATABLE-READ).
+
+Database snapshot completeness and replay-input availability are separate claims. An admitted capture reference establishes a recorded association; it does not prove that a raw bundle on a worker volume still exists or passes its retention and integrity checks. Exports must preserve references and explicitly disclose unavailable or unverified dependencies. Provider configuration, local artifact paths and authentication material are excluded or redacted.
+
+JSON retains exact integer amounts as strings. CSV serialization needs both structural quoting and protection against spreadsheet formula interpretation, including prefixes hidden behind whitespace. CSV scalar identity columns may carry a protective apostrophe. Each payload_json cell contains the lossless JSON record, so exact values and authoritative identities should be recovered from that JSON rather than by guessing which scalar prefixes were added. Generic spreadsheet automatic number conversion is not a precision guarantee.
+
+## Review and validation
+
+The required review covers immutable attempt identity, terminal retry conflicts, old-worker and generation suppression, failure-versus-no-route counts, consistent export counts under concurrent writes, finite resource limits, operator isolation, credential redaction, exact large integers and spreadsheet injection. Real PostgreSQL integration and Chromium results must be attached to the reviewed commit before claiming they passed.
+
+The importer also gains regression coverage for preserving current workflow labels. Original `status:*` defaults apply only to newly created issues; reruns cannot silently restore planned status after triage. This does not change issue state or acceptance.
+
+## Engineering review corrections
+
+- Unique collection/decision associations prevent a second batch from counting an existing observation again. Duplicate observation IDs within a batch are rejected; exact retries preserve the terminal result.
+- Ordinary immutable-scope/admission conflicts are distinct from a STOP/generation fence. Persisting the wrong diagnosis would obscure an implementation or input error.
+- Public digest fields consistently use the declared `sha256:` prefix. A Rust regression verifies the independent Python-generated export fixture's canonical hash.
+- Invalid collection cursors fail at the HTTP boundary. Collection UUIDv7 IDs support ordinary forward pagination; the live page still does not claim a frozen history.
+- Export admission is capped independently from the ordinary request budget. Source counts and predecode byte limits refuse excess work without partial output.
+- Paper command/attempt pseudonyms and removed freeform reasons retain exact journal replay; original source payload hashes distinguish the accounting projection from original evidence.
+- The isolated TypeScript-client smoke uses a clearly synthetic OBSERVE configuration with its provider environment reference deliberately unset. It creates a RECOVERING session without starting a worker and checks telemetry/export interoperability. This fixture does not qualify a pool or issue market requests.
+
+These are agent-assisted engineering reviews, not an independent security audit.
+
+## Remaining acceptance
+
+- ARB-013: measured stage percentiles on a named host, bounded overload and slow-analytics isolation evidence, and the remaining prerequisite gates.
+- ARB-023: coherent recorded market state and a complete observation schedule remain unqualified. Persisted attempt outcomes improve the denominator without establishing those claims.
+- ARB-041: wider comparison/cost summaries and complete independently verified replay-input availability remain separate from a frozen database bundle.
+- ARB-042: measured alert thresholds, alert delivery and failure handling, complete queue/storage/chain-freshness diagnostics and their original dependencies remain open.
+- Market-data qualification, full atomic transaction simulation and scenario-driven paper settlement are required before research can support an economic comparison. This cohort does not establish profitability.
+
+Railway remains the selected deployment target. Container builds and deployment source are reviewable; an authenticated target environment, provider configuration and actual backup/restore and deployment evidence are still required.

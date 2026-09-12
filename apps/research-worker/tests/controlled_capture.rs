@@ -260,6 +260,17 @@ async fn controlled_process(mode: &str) {
     )
     .await;
     wait_until(async || rounds.load(Ordering::SeqCst) >= 2, 10).await;
+    let pool = sqlx::PgPool::connect(&database).await.unwrap();
+    let collection_id: String = sqlx::query_scalar(
+        "SELECT attempt_id FROM collection_attempts WHERE session_id=$1 AND purpose='RESEARCH' AND outcome='IN_PROGRESS'",
+    ).bind(&id).fetch_one(&pool).await.unwrap();
+    let readiness: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM collection_attempts WHERE session_id=$1 AND purpose='READINESS' AND outcome='READINESS_COMPLETED' AND decision_rows=0",
+    ).bind(&id).fetch_one(&pool).await.unwrap();
+    assert_eq!(
+        readiness, 1,
+        "readiness is durable and separate from the research denominator"
+    );
     let before = Instant::now();
     let stop = store
         .issue_command(
@@ -303,7 +314,28 @@ async fn controlled_process(mode: &str) {
         5,
     )
     .await;
-    let pool = sqlx::PgPool::connect(&database).await.unwrap();
+    wait_until(
+        async || {
+            sqlx::query_scalar::<_, String>(
+                "SELECT outcome FROM collection_attempts WHERE attempt_id=$1",
+            )
+            .bind(&collection_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap()
+                == "SUPPRESSED"
+        },
+        5,
+    )
+    .await;
+    let terminal: (String, i32, i64) = sqlx::query_as(
+        "SELECT reason,captured_pools,decision_rows FROM collection_attempts WHERE attempt_id=$1",
+    )
+    .bind(&collection_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(terminal, ("GENERATION_FENCED".into(), 1, 0));
     let count: i64 =
         sqlx::query_scalar("SELECT count(*) FROM capture_admissions WHERE session_id=$1")
             .bind(&id)
@@ -902,6 +934,14 @@ async fn two_pool_worker_quotes_are_durable_and_visible_through_authenticated_ht
         .connect(&database)
         .await
         .unwrap();
+    let collections: (i64, i64, i64) = sqlx::query_as(
+        "SELECT count(*),COALESCE(sum(decision_rows),0)::bigint,COALESCE(sum(captured_pools),0)::bigint FROM collection_attempts WHERE session_id=$1 AND purpose='RESEARCH' AND outcome='DECISIONS_RECORDED'",
+    ).bind(&id).fetch_one(&query_pool).await.unwrap();
+    assert_eq!(
+        collections,
+        (1, 2, 2),
+        "one collection batch records exactly two decisions and two captures atomically"
+    );
     let stopped_generation: i64 = sqlx::query_scalar(
         "SELECT generation FROM research_sessions WHERE operator_id=$1 AND session_id=$2",
     )
@@ -1098,5 +1138,360 @@ async fn two_pool_worker_quotes_are_durable_and_visible_through_authenticated_ht
             .unwrap()
             .contains(&secret)
     );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
+async fn provider_failure_is_redacted_and_killed_collection_stays_unresolved() {
+    let database = std::env::var("TEST_DATABASE_URL")
+        .expect("TEST_DATABASE_URL required; collection process evidence must not silently skip");
+    let store = Store::connect(&database).await.unwrap();
+    store.migrate().await.unwrap();
+    let pool = sqlx::PgPool::connect(&database).await.unwrap();
+    let root = std::env::temp_dir().join(format!("arb-failed-collection-{}", Uuid::new_v4()));
+    let capture_root = root.join("captures");
+    fs::create_dir_all(&capture_root).unwrap();
+    let registry = include_bytes!("../../../crates/arb-evm/tests/fixtures/registry.json");
+    let config = test_config(capture_root.to_str().unwrap(), registry, "OBSERVE");
+    let validated = ValidatedConfig::from_toml(&config).unwrap();
+    let config_path = root.join("config.toml");
+    let registry_path = root.join("registry.json");
+    fs::write(&config_path, &config).unwrap();
+    fs::write(&registry_path, registry).unwrap();
+    let operator = format!("failed-collection-{}", Uuid::new_v4());
+    store
+        .save_configuration(
+            &operator,
+            validated.digest(),
+            serde_json::from_str(validated.effective_json()).unwrap(),
+        )
+        .await
+        .unwrap();
+    let session = store
+        .create_session(
+            &operator,
+            "session",
+            NewSession {
+                network_id: "base-mainnet".into(),
+                mode: "OBSERVE".into(),
+                configuration_digest: validated.digest().into(),
+                experiment_id: "synthetic-provider-outage".into(),
+                strategy_ids: validated.strategy_ids().to_vec(),
+            },
+        )
+        .await
+        .unwrap();
+    let id = session.session_id;
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let endpoint = format!(
+        "http://{}/provider-secret-sentinel",
+        listener.local_addr().unwrap()
+    );
+    let requests = Arc::new(AtomicUsize::new(0));
+    let release_error = Arc::new(AtomicBool::new(false));
+    let done = Arc::new(AtomicBool::new(false));
+    let (server_requests, server_release, server_done) = (
+        Arc::clone(&requests),
+        Arc::clone(&release_error),
+        Arc::clone(&done),
+    );
+    let server = std::thread::spawn(move || {
+        while !server_done.load(Ordering::SeqCst) {
+            let Ok((mut stream, _)) = listener.accept() else {
+                std::thread::sleep(Duration::from_millis(5));
+                continue;
+            };
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            assert!(line.starts_with("POST /provider-secret-sentinel "));
+            let mut length = 0;
+            let mut total = line.len();
+            loop {
+                line.clear();
+                assert!(reader.read_line(&mut line).unwrap() > 0);
+                total += line.len();
+                assert!(total <= 16384);
+                if line == "\r\n" {
+                    break;
+                }
+                if let Some((name, value)) = line.split_once(':')
+                    && name.eq_ignore_ascii_case("content-length")
+                {
+                    length = value.trim().parse::<usize>().unwrap();
+                }
+            }
+            assert!(length > 0 && length <= 65536);
+            let mut body = vec![0; length];
+            reader.read_exact(&mut body).unwrap();
+            let request: Value = serde_json::from_slice(&body).unwrap();
+            assert_eq!(request["method"], "eth_chainId");
+            let round = server_requests.fetch_add(1, Ordering::SeqCst) + 1;
+            let deadline = Instant::now() + Duration::from_secs(10);
+            while !server_done.load(Ordering::SeqCst)
+                && (round != 1 || !server_release.load(Ordering::SeqCst))
+                && Instant::now() < deadline
+            {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            if round == 1 && !server_done.load(Ordering::SeqCst) {
+                let body = "provider-response-secret-sentinel";
+                write!(stream,"HTTP/1.1 503 Service Unavailable\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()).unwrap();
+            }
+        }
+    });
+    let log = fs::File::create(root.join("worker.log")).unwrap();
+    let mut worker = ChildGuard(
+        Command::new(env!("CARGO_BIN_EXE_research-worker"))
+            .env("ARB_WORKER_CONFIG", &config_path)
+            .env("ARB_POOL_REGISTRY", &registry_path)
+            .env("ARB_OPERATOR_ID", &operator)
+            .env("ARB_SESSION_ID", &id)
+            .env("TEST_DATABASE_URL", &database)
+            .env("TEST_WORKER_RPC", &endpoint)
+            .stdout(Stdio::from(log.try_clone().unwrap()))
+            .stderr(Stdio::from(log))
+            .spawn()
+            .unwrap(),
+    );
+    wait_until(async || requests.load(Ordering::SeqCst) == 1, 10).await;
+    let first: String = sqlx::query_scalar("SELECT attempt_id FROM collection_attempts WHERE session_id=$1 AND purpose='READINESS' AND outcome='IN_PROGRESS'")
+        .bind(&id).fetch_one(&pool).await.unwrap();
+    release_error.store(true, Ordering::SeqCst);
+    wait_until(
+        async || {
+            sqlx::query_scalar::<_, String>(
+                "SELECT outcome FROM collection_attempts WHERE attempt_id=$1",
+            )
+            .bind(&first)
+            .fetch_one(&pool)
+            .await
+            .unwrap()
+                == "ACQUISITION_FAILED"
+        },
+        5,
+    )
+    .await;
+    let failed: (String,i32,i64,bool) = sqlx::query_as("SELECT reason,captured_pools,decision_rows,finished_at IS NOT NULL FROM collection_attempts WHERE attempt_id=$1")
+        .bind(&first).fetch_one(&pool).await.unwrap();
+    assert_eq!(failed, ("PROVIDER_UNAVAILABLE".into(), 0, 0, true));
+    wait_until(async || requests.load(Ordering::SeqCst) == 2, 10).await;
+    let unfinished: String = sqlx::query_scalar(
+        "SELECT attempt_id FROM collection_attempts WHERE session_id=$1 AND outcome='IN_PROGRESS'",
+    )
+    .bind(&id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_ne!(unfinished, first);
+    worker.0.kill().unwrap();
+    worker.0.wait().unwrap();
+    done.store(true, Ordering::SeqCst);
+    server.join().unwrap();
+    let unresolved: (String,bool,bool,i64) = sqlx::query_as("SELECT outcome,finished_at IS NULL,reason IS NULL,decision_rows FROM collection_attempts WHERE attempt_id=$1")
+        .bind(&unfinished).fetch_one(&pool).await.unwrap();
+    assert_eq!(
+        unresolved,
+        ("IN_PROGRESS".into(), true, true, 0),
+        "killed collection is unresolved evidence, not an inferred provider failure"
+    );
+    let persisted: Vec<String> = sqlx::query_scalar(
+        "SELECT row_to_json(c)::text FROM collection_attempts c WHERE session_id=$1",
+    )
+    .bind(&id)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    let log = fs::read_to_string(root.join("worker.log")).unwrap();
+    for text in persisted
+        .iter()
+        .map(String::as_str)
+        .chain(std::iter::once(log.as_str()))
+    {
+        for secret in [
+            &endpoint,
+            &database,
+            "provider-secret-sentinel",
+            "provider-response-secret-sentinel",
+        ] {
+            assert!(
+                !text.contains(secret),
+                "collection evidence must not copy provider secrets"
+            );
+        }
+    }
+    let admitted: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM decision_traces WHERE session_id=$1")
+            .bind(&id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(admitted, 0);
+    assert_eq!(fs::read_dir(&capture_root).unwrap().count(), 0);
+    drop(worker);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
+async fn independently_valid_different_contexts_record_evaluation_failure_without_decisions() {
+    let database = std::env::var("TEST_DATABASE_URL")
+        .expect("TEST_DATABASE_URL required; worker evaluation failures must not silently skip");
+    let store = Store::connect(&database).await.unwrap();
+    store.migrate().await.unwrap();
+    let pool = sqlx::PgPool::connect(&database).await.unwrap();
+    let root = std::env::temp_dir().join(format!("arb-context-failure-{}", Uuid::new_v4()));
+    let capture_root = root.join("captures");
+    fs::create_dir_all(&capture_root).unwrap();
+    let (registry, mut transcripts) = two_pool_fixture();
+    let block: Value = serde_json::from_str(
+        &transcripts[1]
+            .iter()
+            .find(|record| record.method == arb_adapter_api::ReadMethod::EthGetBlockByNumber)
+            .unwrap()
+            .response,
+    )
+    .unwrap();
+    let old_hash = block["result"]["hash"].as_str().unwrap();
+    let different_hash = format!("0x{}", "ab".repeat(32));
+    assert_ne!(old_hash, different_hash);
+    for record in &mut transcripts[1] {
+        *record = serde_json::from_str(
+            &serde_json::to_string(record)
+                .unwrap()
+                .replace(old_hash, &different_hash),
+        )
+        .unwrap();
+    }
+    // Both independent captures validate, but their immutable contexts differ.
+    // This fixture establishes an engine precondition failure, not provider outage.
+    let config = two_pool_config(capture_root.to_str().unwrap(), &registry);
+    let validated = ValidatedConfig::from_toml(&config).unwrap();
+    let config_path = root.join("config.toml");
+    let registry_path = root.join("registry.json");
+    fs::write(&config_path, &config).unwrap();
+    fs::write(&registry_path, &registry).unwrap();
+    let operator = format!("context-failure-{}", Uuid::new_v4());
+    store
+        .save_configuration(
+            &operator,
+            validated.digest(),
+            serde_json::from_str(validated.effective_json()).unwrap(),
+        )
+        .await
+        .unwrap();
+    let session = store
+        .create_session(
+            &operator,
+            "session",
+            NewSession {
+                network_id: "base-mainnet".into(),
+                mode: "OBSERVE".into(),
+                configuration_digest: validated.digest().into(),
+                experiment_id: "manual-different-block-contexts".into(),
+                strategy_ids: validated.strategy_ids().to_vec(),
+            },
+        )
+        .await
+        .unwrap();
+    let id = session.session_id;
+    let mut rpc = PairRpcGuard::start(transcripts);
+    let log = fs::File::create(root.join("worker.log")).unwrap();
+    let worker = ChildGuard(
+        Command::new(env!("CARGO_BIN_EXE_research-worker"))
+            .env("ARB_WORKER_CONFIG", &config_path)
+            .env("ARB_POOL_REGISTRY", &registry_path)
+            .env("ARB_OPERATOR_ID", &operator)
+            .env("ARB_SESSION_ID", &id)
+            .env("TEST_DATABASE_URL", &database)
+            .env("TEST_WORKER_RPC", &rpc.endpoint)
+            .stdout(Stdio::from(log.try_clone().unwrap()))
+            .stderr(Stdio::from(log))
+            .spawn()
+            .unwrap(),
+    );
+    wait_until(
+        async || {
+            store
+                .get_session(&operator, &id)
+                .await
+                .unwrap()
+                .observed_state
+                == "STOPPED"
+        },
+        10,
+    )
+    .await;
+    store
+        .issue_command(
+            &operator,
+            &id,
+            "start",
+            NewCommand {
+                action: "START".into(),
+                expected_revision: "0".into(),
+                reason: None,
+            },
+        )
+        .await
+        .unwrap();
+    wait_until(async || {
+        sqlx::query_scalar::<_,i64>("SELECT count(*) FROM collection_attempts WHERE session_id=$1 AND purpose='RESEARCH' AND outcome='EVALUATION_FAILED' AND reason='EVALUATION_REJECTED' AND captured_pools=2 AND decision_rows=0")
+            .bind(&id).fetch_one(&pool).await.unwrap() == 1
+    },20).await;
+    let session = store.get_session(&operator, &id).await.unwrap();
+    let stop = store
+        .issue_command(
+            &operator,
+            &id,
+            "stop",
+            NewCommand {
+                action: "STOP".into(),
+                expected_revision: session.desired_revision,
+                reason: None,
+            },
+        )
+        .await
+        .unwrap();
+    wait_until(
+        async || {
+            store
+                .get_command(&operator, &stop.command_id)
+                .await
+                .unwrap()
+                .status
+                == "APPLIED"
+        },
+        5,
+    )
+    .await;
+    let captures: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM capture_admissions WHERE session_id=$1")
+            .bind(&id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        captures, 2,
+        "both captures committed before engine rejected their different contexts"
+    );
+    let decisions: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM decision_traces WHERE session_id=$1")
+            .bind(&id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        decisions, 0,
+        "engine failure is separate durable evidence, never a fabricated decision"
+    );
+    let provider_failures: i64 = sqlx::query_scalar("SELECT count(*) FROM collection_attempts WHERE session_id=$1 AND outcome='ACQUISITION_FAILED'")
+        .bind(&id).fetch_one(&pool).await.unwrap();
+    assert_eq!(provider_failures, 0);
+    rpc.finish();
+    drop(worker);
     fs::remove_dir_all(root).unwrap();
 }

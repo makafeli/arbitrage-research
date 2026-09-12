@@ -55,6 +55,8 @@ pub struct SessionPage {
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
+    #[error("complete session export exceeds bounded limits")]
+    ExportLimitExceeded,
     #[error("record not found")]
     NotFound,
     #[error("conflict: {0}")]

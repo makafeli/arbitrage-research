@@ -343,11 +343,14 @@ class Bootstrap:
             print(f"Issue {key}: {issue['html_url']}", flush=True)
         # Second pass resolves all dependency URLs. Comments, state, assignees and
         # labels added by operators remain intact; only managed content is updated.
+        # Workflow status is initialized on creation only. Reapplying the original
+        # planned backlog must not restore a status deliberately removed by triage.
         for item in self.items:
             old = self.issues[item["id"]]
             desired = managed_body(item, self.issues, self.args.repo, self.branch)
             body = merge_body(old.get("body") or "", desired)
-            labels = sorted({x["name"] for x in old.get("labels", [])} | set(item["labels"]))
+            labels = sorted({x["name"] for x in old.get("labels", [])} |
+                            {label for label in item["labels"] if not label.startswith("status:")})
             milestone = self.milestones[item["milestone"]]["number"]
             if body != old.get("body") or issue_title(item) != old["title"] or set(labels) != {x["name"] for x in old.get("labels", [])} or (old.get("milestone") or {}).get("number") != milestone:
                 self.issues[item["id"]] = self.api(self.base + f"/issues/{old['number']}", "PATCH", {

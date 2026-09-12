@@ -313,6 +313,7 @@ struct Inner {
     auth: Mutex<AuthState>,
     sequence: AtomicU64,
     inflight: Arc<Semaphore>,
+    exports: Semaphore,
 }
 #[derive(Default)]
 struct AuthState {
@@ -346,6 +347,7 @@ impl AppState {
             auth: Mutex::new(AuthState::default()),
             sequence: AtomicU64::new(1),
             inflight: Arc::new(Semaphore::new(MAX_INFLIGHT_REQUESTS)),
+            exports: Semaphore::new(2),
         }))
     }
 }
@@ -360,6 +362,9 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/capabilities", get(capabilities))
         .route("/v1/sessions", get(list_sessions).post(create_session))
         .route("/v1/sessions/{session_id}", get(get_session))
+        .route("/v1/sessions/{session_id}/export", get(research::export_session))
+        .route("/v1/sessions/{session_id}/collection-coverage", get(research::collection_coverage))
+        .route("/v1/sessions/{session_id}/collection-attempts", get(research::collection_attempts))
         .route("/v1/sessions/{session_id}/commands", post(issue_command))
         .route("/v1/commands/{command_id}", get(get_command))
         .route("/v1/opportunities", get(list_opportunities))
@@ -431,6 +436,12 @@ impl ApiError {
                 id,
             ),
             StoreError::InvalidInput(_) => Self::invalid(id),
+            StoreError::ExportLimitExceeded => Self::new(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "EXPORT_LIMIT_EXCEEDED",
+                "Complete session export exceeds 10000 source rows or 8 MiB; no partial export was produced",
+                id,
+            ),
             StoreError::CapabilityUnavailable => Self::new(
                 StatusCode::FORBIDDEN,
                 "CAPABILITY_UNAVAILABLE",
@@ -741,7 +752,7 @@ async fn health(
 }
 async fn capabilities(State(state): State<AppState>) -> Json<serde_json::Value> {
     Json(
-        serde_json::json!({"modes":["OBSERVE","PAPER","REPLAY"], "live_execution":false, "market_data":false, "opportunity_capture":false, "decision_history":true, "paper_ledger":true, "paper_run_creation":true, "command_application":"WORKER_ACK_REQUIRED", "registered_configurations":state.0.config.configurations}),
+        serde_json::json!({"modes":["OBSERVE","PAPER","REPLAY"], "live_execution":false, "market_data":false, "opportunity_capture":false, "decision_history":true, "collection_telemetry":true, "session_export":true, "paper_ledger":true, "paper_run_creation":true, "command_application":"WORKER_ACK_REQUIRED", "registered_configurations":state.0.config.configurations}),
     )
 }
 fn idempotency(headers: &HeaderMap, id: &RequestId) -> Result<String, ApiError> {

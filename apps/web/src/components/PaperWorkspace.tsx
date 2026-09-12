@@ -6,6 +6,7 @@ import type { InitialBalance, PaperRunRecord } from '../api/research';
 import { unsigned } from '../api/research';
 import { useResearchPagination, useResearchResource } from '../hooks/useResearchResource';
 import { EmptyResearch, Exact, ExportButton, Pagination, ResourceStatus } from './ResearchShared';
+import { FrozenSessionExport } from './FrozenSessionExport';
 
 interface Props { active: boolean; api: ControlApi; capabilities: Capabilities; sessions: Session[]; filter: Network | 'all'; disabled: boolean; canRetry: boolean; onPendingChange: (value: boolean) => void }
 export function PaperWorkspace({ active, api, capabilities, sessions, filter, disabled, canRetry, onPendingChange }: Props) {
@@ -35,6 +36,7 @@ export function PaperWorkspace({ active, api, capabilities, sessions, filter, di
       <div className="panel research-toolbar"><div className="research-field"><label htmlFor="paper-session">Paper session</label><select id="paper-session" value={sessionId} disabled={creationLocked} onChange={event => { setChosen(sessions.find(session => session.session_id === event.target.value) ?? null); setRunId(''); }}><option value="">Choose a PAPER session</option>{options.map(session => <option key={session.session_id} value={session.session_id}>{session.session_id} · {session.network_id} · {session.observed_state}</option>)}</select></div><button disabled={!enabled || runs.loading || run.loading || journal.loading || reservations.loading} onClick={refresh}>Refresh paper records</button></div>
       {!selected ? <EmptyResearch>Select a PAPER session to inspect retained runs and hypothetical accounting.</EmptyResearch> : <>
         <p className="tiny space-top">Session scope: {sessionId}. The chain selector filters choices only. Existing runs and their original balances remain retained when a new run is created.</p>
+        <FrozenSessionExport key={sessionId} api={api} sessionId={sessionId} active={enabled} available={capabilities.session_export === true} />
         {creationLocked && <p className="notice" role="status">Paper creation scope is locked while delivery is unresolved. Retries use the original session, amounts and idempotency key.</p>}
         <PaperCreation key={sessionId} api={api} session={selected} configuration={configuration} allowed={capabilities.paper_run_creation === true} disabled={disabled || !active || !currentSession} canRetry={canRetry && active} onCreated={onCreated} onLock={value => { setCreationLocked(value); onPendingChange(value); }} />
         <div className="sectionhead space-top"><div><h3>Retained paper runs</h3><p>Up to 25 runs per page. A new run does not reset a previous ledger.</p></div></div><ResourceStatus resource={runs} />

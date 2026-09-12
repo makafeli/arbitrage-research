@@ -4,6 +4,8 @@
 
 Migration `0001_control.sql` creates immutable configuration snapshots, research sessions, creation idempotency keys, revisioned command receipts, and append-only audit events. Research modes are constrained in PostgreSQL; LIVE cannot be inserted. Session mode/network/config/experiment/strategy identity is immutable. SQLx migration checksums detect edited applied migration files. Add a new migration for changes; do not edit a migration already applied outside a disposable test database.
 
+Migration `0002_decisions_and_paper.sql` adds immutable decision traces and bounded virtual-accounting journals. Migration `0003_collection_attempts.sql` adds durable pre-I/O collection batch starts, immutable terminal telemetry and unique decision-to-batch associations. Earlier migration checksums remain unchanged. Collection IN_PROGRESS rows survive restart and restoration as unknown outcomes; never erase or auto-resolve them to improve coverage statistics. Collection telemetry is independent of financial/drain attempts and must not block or fabricate their reconciliation.
+
 ## Backup, rollback, and restore
 
 1. Stop API writes and fence/stop all cooperating research workers. A browser outage does not prove that a worker stopped. Preserve unresolved attempts and retain the journal.

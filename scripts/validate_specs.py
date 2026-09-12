@@ -6,7 +6,7 @@ not a general JSON Schema or OpenAPI conformance validator.
 Requires Python 3.11+ and PyYAML.
 """
 from pathlib import Path
-import copy,json,re,tomllib,yaml,datetime
+import copy,json,re,tomllib,yaml,datetime,hashlib
 root=Path(__file__).resolve().parents[1]
 api=yaml.safe_load((root/'specs/openapi.yaml').read_text())
 def check(s,x,path='$'):
@@ -33,6 +33,7 @@ def check(s,x,path='$'):
    if k in x:check(v,x[k],path+'.'+k)
  if isinstance(x,list):
   if len(x)<s.get('minItems',0) or len(x)>s.get('maxItems',float('inf')):fail('array bounds')
+  if s.get('uniqueItems') and len({json.dumps(v,sort_keys=True) for v in x})!=len(x):fail('duplicate array values')
   for i,y in enumerate(x):check(s.get('items',{}),y,path+f'[{i}]')
  if isinstance(x,str):
   if len(x)<s.get('minLength',0) or len(x)>s.get('maxLength',float('inf')):fail('string bounds')
@@ -41,6 +42,14 @@ def check(s,x,path='$'):
  if isinstance(x,(int,float)) and not isinstance(x,bool):
   if x<s.get('minimum',float('-inf')) or x>s.get('maximum',float('inf')):fail('numeric bounds')
  for child in s.get('allOf',[]):check(child,x,path)
+ for keyword in ('oneOf','anyOf'):
+  if keyword in s:
+   matches=0
+   for child in s[keyword]:
+    try:check(child,x,path)
+    except AssertionError:pass
+    else:matches+=1
+   if (keyword=='oneOf' and matches!=1) or (keyword=='anyOf' and matches==0):fail(keyword)
  if 'if' in s:
   try:check(s['if'],x,path); valid=True
   except AssertionError:valid=False
@@ -127,6 +136,27 @@ valid_estimated_v11['net_after_explicit_costs_minor']=None
 try:check(s,valid_estimated_v11)
 except AssertionError:negatives.append('v1.1-fully-qualified-estimated-null-net')
 else:raise AssertionError('fully qualified estimated example accepted null net')
+collection=json.loads((root/'specs/collection.example.json').read_text())
+export=json.loads((root/'specs/research-export.example.json').read_text())
+for name,value in [('CollectionAttempt',collection['attempt']),('CollectionCoverage',collection['coverage']),('ResearchExport',export)]:check(api['components']['schemas'][name],value)
+canonical=json.dumps({k:export[k] for k in ['snapshot','methodology','data']},sort_keys=True,separators=(',',':'),ensure_ascii=False).encode('utf-8')
+assert export['content_sha256']=='sha256:'+hashlib.sha256(canonical).hexdigest()
+for name,label,source,mutate in [
+ ('CollectionAttempt','collection-numeric-generation',collection['attempt'],lambda x:x.update(generation=1)),
+ ('CollectionAttempt','collection-in-progress-success-count',collection['attempt'],lambda x:x.update(decision_rows='1')),
+ ('CollectionAttempt','collection-error-raw-provider-text',collection['attempt'],lambda x:x.update(reason='https://credential.invalid/token')),
+ ('CollectionAttempt','collection-terminal-without-evidence',collection['attempt'],lambda x:x.update(outcome='DECISIONS_RECORDED')),
+ ('CollectionCoverage','collection-false-completeness',collection['coverage'],lambda x:x.update(collection_completeness='COMPLETE')),
+ ('CollectionCoverage','collection-numeric-count',collection['coverage'],lambda x:x.update(attempts_started=1)),
+ ('ResearchExport','export-false-execution',export,lambda x:x['methodology'].update(execution_authorized=True)),
+ ('ResearchExport','export-numeric-source-count',export,lambda x:x['snapshot']['source_counts'].update(decisions=0)),
+ ('ResearchExport','export-unknown-secret-field',export,lambda x:x['data'].update(provider_api_key='REJECTED_FIXTURE_FIELD')),
+ ('ResearchExport','export-raw-artifact-overclaim',export,lambda x:x['methodology'].update(raw_artifacts='ALL_VERIFIED')),
+]:
+ bad=copy.deepcopy(source);mutate(bad)
+ try:check(api['components']['schemas'][name],bad)
+ except AssertionError:negatives.append(label)
+ else:raise AssertionError('negative example accepted: '+label)
 assert e['route'][0]['asset_in']==e['start_asset_id']
 for first,second in zip(e['route'],e['route'][1:]):assert first['asset_out']==second['asset_in']
 assert e['route'][-1]['asset_out']==e['start_asset_id']

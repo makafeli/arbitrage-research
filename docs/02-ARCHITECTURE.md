@@ -1,6 +1,6 @@
 # Architecture
 
-Status: v0.3 architecture and implementation map, 12 September 2026. Bounded capture, candidate route math, durable decisions/virtual accounts, a controlled OBSERVE/PAPER worker, offline replay and a connected dashboard are implemented in source. The execution, simulation and signer branches below remain TARGET architecture. The [integration verification record](17-RESEARCH-INTEGRATION-VERIFICATION.md) owns the pending CI checkpoint; [implementation status](12-IMPLEMENTATION-STATUS.md) separates implemented scope from qualification and release gates.
+Status: v0.4 architecture and implementation map, 12 September 2026. Bounded capture, candidate route math, durable decisions/virtual accounts, a controlled OBSERVE/PAPER worker, offline replay and a connected dashboard are implemented in source. The execution, simulation and signer branches below remain TARGET architecture. The [collection/export verification record](18-COLLECTION-AND-EXPORT-VERIFICATION.md) owns the latest cohort checkpoint; [implementation status](12-IMPLEMENTATION-STATUS.md) separates implemented scope from qualification and release gates.
 
 ## 1. Architectural decision
 
@@ -136,3 +136,9 @@ Signer IPC adds measurable latency and operational work; keep it local initially
 Trace observation-to-decision, simulation, journal, signing, submission and inclusion separately. Publish percentiles, queue depth, state age, dropped/coalesced events, unresolved attempts, fee spend and inventory. Benchmark targets are provisional until hardware, fixture set, route count and provider are fixed; CPU timings never stand in for end-to-end chain latency.
 
 Backups include configuration, journal and encrypted recovery material under separate access controls. Restore tests must reconcile against current chain state before allowing a start. Dependencies, compiler, Solidity version and images are pinned in the implementation repository, with reproducible fixtures and an explicit upgrade review.
+
+## Collection attempts and snapshot exports
+
+A durable collection start precedes every controlled acquisition batch. Collection attempts are operational telemetry, separate from research admission/drain identities and paper reservations. Their immutable scope includes operator, session, network, configuration, experiment, generation and worker epoch. A terminal result can record a late failure or suppression without opening the current gate. Successful decision admission and completion are transactional, with unique observation associations preventing duplicate denominators. Unfinished starts remain unresolved evidence after process loss.
+
+The API reads exports in a read-only REPEATABLE READ transaction with finite row/byte bounds and a two-request export semaphore. Source counts, decision rows, paper projections, journals and capture references share that snapshot. JSON and CSV use the same frozen response. Redacted journal IDs/reasons preserve exact financial joins and source hashes; local paths, configuration secrets and raw bundles are excluded. The database snapshot is complete only for its named source datasets; observation schedule completeness and raw-file availability remain separate unknowns. The contract and remaining qualification are in [data/API contracts](08-DATA-AND-API-CONTRACTS.md).

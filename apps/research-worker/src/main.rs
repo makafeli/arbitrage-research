@@ -6,7 +6,9 @@ use arb_config::ValidatedConfig;
 use arb_control::{ControlWorker, WorkGeneration};
 use arb_domain::{Mode, NetworkId};
 use arb_registry::{PoolRegistry, RegistryDocument};
-use arb_storage::{Store, StoreError};
+use arb_storage::{
+    CollectionFinish, CollectionOutcome, CollectionPurpose, CollectionReason, Store, StoreError,
+};
 use serde_json::{Value, json};
 use std::{
     error::Error,
@@ -25,6 +27,99 @@ const POLL_INTERVAL: Duration = Duration::from_millis(250);
 const CAPTURE_INTERVAL: Duration = Duration::from_secs(5);
 const CAPTURE_READY_AGE: Duration = Duration::from_secs(90);
 const EVALUATION_DEADLINE: Duration = Duration::from_secs(65);
+
+/// Only bounded public codes cross the acquisition/evaluation boundary. A raw
+/// provider response, endpoint or operating-system error is never persisted.
+#[derive(Clone, Copy, Debug)]
+struct AttemptFailure {
+    outcome: CollectionOutcome,
+    reason: CollectionReason,
+    captured_pools: u32,
+}
+impl AttemptFailure {
+    fn acquisition(reason: CollectionReason, captured_pools: usize) -> Self {
+        Self {
+            outcome: if reason == CollectionReason::AcquisitionDeadline {
+                CollectionOutcome::DeadlineExceeded
+            } else {
+                CollectionOutcome::AcquisitionFailed
+            },
+            reason,
+            captured_pools: captured_pools as u32,
+        }
+    }
+    fn evaluation(reason: arb_scheduler::DropReason, captured_pools: u32) -> Self {
+        use arb_scheduler::DropReason;
+        let (outcome, reason) = match reason {
+            DropReason::GateClosed | DropReason::GenerationChanged | DropReason::Cancelled => (
+                CollectionOutcome::Suppressed,
+                CollectionReason::GenerationFenced,
+            ),
+            DropReason::DeadlineExpired => (
+                CollectionOutcome::DeadlineExceeded,
+                CollectionReason::EvaluationDeadline,
+            ),
+            DropReason::QueueFull => (
+                CollectionOutcome::EvaluationFailed,
+                CollectionReason::ResourceLimit,
+            ),
+            DropReason::FutureTimestamp | DropReason::Abandoned => (
+                CollectionOutcome::EvaluationFailed,
+                CollectionReason::EvaluationRejected,
+            ),
+        };
+        Self {
+            outcome,
+            reason,
+            captured_pools,
+        }
+    }
+}
+
+struct CollectionWork {
+    id: String,
+    generation: Option<WorkGeneration>,
+    started: Instant,
+    captured_pools: u32,
+}
+impl CollectionWork {
+    fn finish(
+        &self,
+        outcome: CollectionOutcome,
+        reason: Option<CollectionReason>,
+    ) -> CollectionFinish {
+        CollectionFinish {
+            outcome,
+            reason,
+            captured_pools: self.captured_pools,
+            elapsed_ms: u64::try_from(self.started.elapsed().as_millis()).unwrap_or(u64::MAX),
+        }
+    }
+}
+
+/// Remember whether the adapter failed inside a provider call or while validating
+/// successful input. The wrapped transport already has request/byte/deadline bounds.
+struct AcquisitionRpc {
+    inner: HttpReadRpc,
+    failure: Option<CollectionReason>,
+}
+impl ReadRpc for AcquisitionRpc {
+    fn call(
+        &mut self,
+        method: arb_adapter_api::ReadMethod,
+        params: Value,
+    ) -> arb_adapter_api::Result<Value> {
+        self.inner.call(method, params).inspect_err(|error| {
+            self.failure = Some(match error.0 {
+                "capture RPC deadline exceeded" => CollectionReason::AcquisitionDeadline,
+                "RPC request quota exhausted" | "RPC response or capture exceeds byte quota" => {
+                    CollectionReason::ResourceLimit
+                }
+                _ => CollectionReason::ProviderUnavailable,
+            });
+        })
+    }
+}
 
 struct EvaluationPayload {
     pools: Vec<arb_engine::CapturedPool>,
@@ -54,19 +149,23 @@ fn evaluate_blocking(
     session_id: String,
     experiment_id: String,
     strategy_id: String,
-) -> Result<Vec<arb_domain::DecisionTrace>, AnyError> {
+) -> Result<Vec<arb_domain::DecisionTrace>, AttemptFailure> {
     let item = permit.item();
     let gate = ResearchGate {
         cancellation: permit.cancellation(),
         started: item.observed_at,
         generation: item.generation.generation(),
     };
-    let origin = item
-        .payload
-        .pools
-        .first()
-        .ok_or("empty captured batch")?
-        .origin;
+    let captured_pools = item.payload.pools.len() as u32;
+    let rejected = || AttemptFailure {
+        outcome: CollectionOutcome::EvaluationFailed,
+        reason: CollectionReason::EvaluationRejected,
+        captured_pools,
+    };
+    if let Err(reason) = gate.cancellation.check(Instant::now()) {
+        return Err(AttemptFailure::evaluation(reason, captured_pools));
+    }
+    let origin = item.payload.pools.first().ok_or_else(rejected)?.origin;
     let request = arb_engine::EvaluationRequest {
         session_id: &session_id,
         experiment_id: &experiment_id,
@@ -80,11 +179,23 @@ fn evaluate_blocking(
         deadline_monotonic_ms: EVALUATION_DEADLINE.as_millis() as u64,
         pools: &item.payload.pools,
     };
-    let traces = arb_engine::evaluate(&request, &gate)?;
-    if permit.finish(Instant::now())?.is_err() {
-        return Err("evaluation fenced or expired before persistence".into());
+    let traces = arb_engine::evaluate(&request, &gate).map_err(|error| {
+        // The engine's generic admission gate also closes on deadline. Preserve
+        // the scheduler's exact reason instead of labelling expiry as STOP.
+        if let Err(reason) = gate.cancellation.check(Instant::now()) {
+            AttemptFailure::evaluation(reason, captured_pools)
+        } else if error.code == "DEADLINE_EXPIRED" {
+            AttemptFailure::evaluation(arb_scheduler::DropReason::DeadlineExpired, captured_pools)
+        } else if error.code == "WORK_GENERATION_CANCELLED" {
+            AttemptFailure::evaluation(arb_scheduler::DropReason::GenerationChanged, captured_pools)
+        } else {
+            rejected()
+        }
+    })?;
+    match permit.finish(Instant::now()).map_err(|_| rejected())? {
+        Ok(_) => Ok(traces),
+        Err(rejected) => Err(AttemptFailure::evaluation(rejected.reason, captured_pools)),
     }
-    Ok(traces)
 }
 
 #[derive(Clone)]
@@ -222,116 +333,182 @@ fn directory_bytes(root: &Path) -> Result<u64, AnyError> {
     Ok(total)
 }
 
-fn capture_blocking(plan: &CapturePlan) -> Result<CompletedBatch, AnyError> {
+fn capture_blocking(plan: &CapturePlan) -> Result<CompletedBatch, AttemptFailure> {
     let started = Instant::now();
-    let observed = now_ms()?;
+    let observed = now_ms()
+        .map_err(|_| AttemptFailure::acquisition(CollectionReason::AcquisitionUnavailable, 0))?;
     // At most one blocking capture exists. Transport enforces a 60-second total
     // deadline as well as per-request timeout, response bytes and request count.
-    let mut rpc = HttpReadRpc::new(
-        &plan.endpoint,
-        Duration::from_secs(5),
-        8 * 1024 * 1024,
-        4096,
-    )?;
+    let mut rpc = AcquisitionRpc {
+        inner: HttpReadRpc::new(
+            &plan.endpoint,
+            Duration::from_secs(5),
+            8 * 1024 * 1024,
+            4096,
+        )
+        .map_err(|_| AttemptFailure::acquisition(CollectionReason::AcquisitionUnavailable, 0))?,
+        failure: None,
+    };
     let mut captures = Vec::new();
     for selected in plan.registry.pools() {
         let registry = match selected {
             PoolRegistry::Base(r) => Registry::Base(r.clone()),
             PoolRegistry::Solana(r) => Registry::Solana(r.clone()),
         };
-        let pool_observed = now_ms()?;
-        let (snapshot, context, coherent) = registry.capture(&mut rpc, pool_observed)?;
-        let records: Vec<RpcRecord> = rpc.take_records();
+        let pool_observed = now_ms().map_err(|_| {
+            AttemptFailure::acquisition(CollectionReason::AcquisitionUnavailable, captures.len())
+        })?;
+        let (snapshot, context, coherent) =
+            registry.capture(&mut rpc, pool_observed).map_err(|_| {
+                AttemptFailure::acquisition(
+                    rpc.failure
+                        .unwrap_or(CollectionReason::InputValidationFailed),
+                    captures.len(),
+                )
+            })?;
+        let records: Vec<RpcRecord> = rpc.inner.take_records();
         if records.is_empty() {
-            return Err("capture returned no recorded inputs".into());
+            return Err(AttemptFailure::acquisition(
+                CollectionReason::InputValidationFailed,
+                captures.len(),
+            ));
         }
-        let capture_id = Uuid::new_v4().to_string();
-        let path = plan.root.join(&capture_id);
-        let remaining = plan
-            .quota_bytes
-            .checked_sub(directory_bytes(&plan.root)?)
-            .filter(|q| *q > 0)
-            .ok_or("capture volume quota exhausted")?;
-        let manifest = CaptureManifest {
-            schema_version: 1,
-            capture_id: capture_id.clone(),
-            origin: plan.origin.clone(),
-            network: registry.chain(),
-            provider_alias: plan.provider_alias.clone(),
-            adapter_version: plan.registry.adapter_version().into(),
-            adapter_source_commit: registry.source().into(),
-            build_digest: plan.build_digest.clone(),
-            config_digest: plan.config_digest.clone(),
-            created_at_ms: pool_observed,
-            raw_expires_at_ms: Some(
-                observed
-                    .checked_add(u64::from(plan.retention_days) * 86_400_000)
-                    .ok_or("retention overflow")?,
-            ),
-            context,
-            first_sequence: 0,
-            last_sequence: records.len() as u64 - 1,
-            required_inputs: vec![
-                "pool-state".into(),
-                "qualified-quote-range".into(),
-                "qualified-quote-math".into(),
-            ],
-            missing_inputs: vec![
-                "qualified-quote-range".into(),
-                "qualified-quote-math".into(),
-            ],
-            coherent,
-            complete_for_quote: false,
-            objects: vec![],
-        };
-        let manifest_digest = write_bundle(
-            &path,
-            manifest,
-            vec![
-                ("rpc.json".into(), serde_json::to_vec(&records)?),
-                ("snapshot.json".into(), serde_json::to_vec(&snapshot)?),
-                ("registry.json".into(), plan.registry_bytes.clone()),
-                ("effective-config.json".into(), plan.config_bytes.clone()),
-            ],
-            remaining.min(MAX_BUNDLE_BYTES),
-        )?;
-        let state = match selected {
-            PoolRegistry::Base(r) => arb_engine::PoolState::Base {
-                snapshot: serde_json::from_value(snapshot)?,
-                registry: r.clone(),
-            },
-            PoolRegistry::Solana(r) => arb_engine::PoolState::Solana {
-                snapshot: serde_json::from_value(snapshot)?,
-                registry: r.clone(),
-            },
-        };
-        let origin = match plan.origin {
-            Origin::Synthetic => arb_domain::DatasetOrigin::Synthetic,
-            Origin::ManuallyConstructed => arb_domain::DatasetOrigin::ManuallyConstructed,
-            Origin::RecordedLive => arb_domain::DatasetOrigin::RecordedLive,
-        };
-        let pool = arb_engine::CapturedPool {
-            capture: arb_domain::DecisionCaptureRef {
+        let mut artifact_reason = CollectionReason::CaptureStorageUnavailable;
+        let result = (|| -> Result<CompletedCapture, AnyError> {
+            let capture_id = Uuid::new_v4().to_string();
+            let path = plan.root.join(&capture_id);
+            let used = directory_bytes(&plan.root)?;
+            let remaining = plan
+                .quota_bytes
+                .checked_sub(used)
+                .filter(|q| *q > 0)
+                .ok_or_else(|| {
+                    artifact_reason = CollectionReason::ResourceLimit;
+                    "capture volume quota exhausted"
+                })?;
+            let manifest = CaptureManifest {
+                schema_version: 1,
                 capture_id: capture_id.clone(),
-                manifest_digest: manifest_digest.clone(),
-                snapshot_id: manifest_digest.clone(),
-            },
-            origin,
-            configuration_digest: plan.config_digest.clone(),
-            state,
-        };
-        captures.push(CompletedCapture {
-            capture_id,
-            manifest_digest,
-            path,
-            pool,
-        });
+                origin: plan.origin.clone(),
+                network: registry.chain(),
+                provider_alias: plan.provider_alias.clone(),
+                adapter_version: plan.registry.adapter_version().into(),
+                adapter_source_commit: registry.source().into(),
+                build_digest: plan.build_digest.clone(),
+                config_digest: plan.config_digest.clone(),
+                created_at_ms: pool_observed,
+                raw_expires_at_ms: Some(
+                    observed
+                        .checked_add(u64::from(plan.retention_days) * 86_400_000)
+                        .ok_or("retention overflow")?,
+                ),
+                context,
+                first_sequence: 0,
+                last_sequence: records.len() as u64 - 1,
+                required_inputs: vec![
+                    "pool-state".into(),
+                    "qualified-quote-range".into(),
+                    "qualified-quote-math".into(),
+                ],
+                missing_inputs: vec![
+                    "qualified-quote-range".into(),
+                    "qualified-quote-math".into(),
+                ],
+                coherent,
+                complete_for_quote: false,
+                objects: vec![],
+            };
+            let manifest_digest = write_bundle(
+                &path,
+                manifest,
+                vec![
+                    ("rpc.json".into(), serde_json::to_vec(&records)?),
+                    ("snapshot.json".into(), serde_json::to_vec(&snapshot)?),
+                    ("registry.json".into(), plan.registry_bytes.clone()),
+                    ("effective-config.json".into(), plan.config_bytes.clone()),
+                ],
+                remaining.min(MAX_BUNDLE_BYTES),
+            )
+            .inspect_err(|error| {
+                if matches!(
+                    error.0,
+                    "invalid capture quota"
+                        | "capture byte quota exceeded"
+                        | "missing objects or object quota exceeded"
+                ) {
+                    artifact_reason = CollectionReason::ResourceLimit;
+                }
+            })?;
+            let state = match selected {
+                PoolRegistry::Base(r) => arb_engine::PoolState::Base {
+                    snapshot: serde_json::from_value(snapshot)?,
+                    registry: r.clone(),
+                },
+                PoolRegistry::Solana(r) => arb_engine::PoolState::Solana {
+                    snapshot: serde_json::from_value(snapshot)?,
+                    registry: r.clone(),
+                },
+            };
+            let origin = match plan.origin {
+                Origin::Synthetic => arb_domain::DatasetOrigin::Synthetic,
+                Origin::ManuallyConstructed => arb_domain::DatasetOrigin::ManuallyConstructed,
+                Origin::RecordedLive => arb_domain::DatasetOrigin::RecordedLive,
+            };
+            let pool = arb_engine::CapturedPool {
+                capture: arb_domain::DecisionCaptureRef {
+                    capture_id: capture_id.clone(),
+                    manifest_digest: manifest_digest.clone(),
+                    snapshot_id: manifest_digest.clone(),
+                },
+                origin,
+                configuration_digest: plan.config_digest.clone(),
+                state,
+            };
+            Ok(CompletedCapture {
+                capture_id,
+                manifest_digest,
+                path,
+                pool,
+            })
+        })();
+        captures.push(
+            result.map_err(|_| AttemptFailure::acquisition(artifact_reason, captures.len()))?,
+        );
     }
     Ok(CompletedBatch {
         captures,
         started,
         observed_at_ms: observed,
     })
+}
+
+fn is_generation_fence(error: &StoreError) -> bool {
+    matches!(
+        error,
+        StoreError::Conflict(
+            "stale or fenced collection decisions"
+                | "decision generation is fenced"
+                | "stale or fenced capture"
+                | "capture generation is fenced"
+                | "worker lease lost"
+        )
+    )
+}
+
+async fn finish_collection(
+    worker: &ControlWorker,
+    collection: &CollectionWork,
+    outcome: CollectionOutcome,
+    reason: Option<CollectionReason>,
+) -> Result<(), StoreError> {
+    worker
+        .finish_collection_attempt(&collection.id, collection.finish(outcome, reason))
+        .await?;
+    println!(
+        "{}",
+        json!({"event":"collection-finished","collection_attempt_id":collection.id,"outcome":outcome,"reason":reason,"captured_pools":collection.captured_pools})
+    );
+    Ok(())
 }
 
 async fn run() -> Result<(), AnyError> {
@@ -423,12 +600,12 @@ async fn run() -> Result<(), AnyError> {
         },
     )?;
     let configuration = Arc::new(config);
-    let mut evaluation: Option<JoinHandle<Result<Vec<arb_domain::DecisionTrace>, AnyError>>> = None;
-    let mut evaluation_generation: Option<WorkGeneration> = None;
+    let mut evaluation: Option<JoinHandle<Result<Vec<arb_domain::DecisionTrace>, AttemptFailure>>> =
+        None;
+    let mut active_collection: Option<CollectionWork> = None;
     let mut poll = tokio::time::interval(POLL_INTERVAL);
     poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    let mut job: Option<JoinHandle<Result<CompletedBatch, AnyError>>> = None;
-    let mut queued_generation: Option<WorkGeneration> = None;
+    let mut job: Option<JoinHandle<Result<CompletedBatch, AttemptFailure>>> = None;
     let mut last_good_capture: Option<Instant> = None;
     let mut next_capture = Instant::now();
     let mut stopping = false;
@@ -447,66 +624,124 @@ async fn run() -> Result<(), AnyError> {
             }
             _ = poll.tick() => {
                 if evaluation.as_ref().is_some_and(JoinHandle::is_finished) {
-                    let result = evaluation.take().expect("finished evaluation exists").await?;
-                    let generation = evaluation_generation.take().expect("evaluation has generation");
+                    let result = evaluation.take().expect("finished evaluation exists").await;
+                    let collection = active_collection.take().expect("evaluation has durable collection");
+                    let generation = collection.generation.expect("evaluation has generation");
                     match result {
-                        Ok(traces) if !stopping => {
-                            let admitted = match worker.admit_decision_traces(generation, &traces).await {
+                        Ok(Ok(traces)) if !stopping => {
+                            let finish = collection.finish(CollectionOutcome::DecisionsRecorded, None);
+                            let admitted = match worker.admit_collection_decision_traces(generation, &collection.id, &traces, finish).await {
                                 Ok(_) => true,
-                                Err(StoreError::Conflict(_)) => false,
+                                Err(error) if is_generation_fence(&error) => {
+                                    finish_collection(&worker, &collection, CollectionOutcome::Suppressed, Some(CollectionReason::GenerationFenced)).await?;
+                                    false
+                                }
+                                Err(error @ (StoreError::Conflict(_) | StoreError::InvalidInput(_))) => {
+                                    finish_collection(&worker, &collection, CollectionOutcome::EvaluationFailed, Some(CollectionReason::EvaluationRejected)).await?;
+                                    return Err(error.into());
+                                }
                                 Err(error) => return Err(error.into()),
                             };
-                            println!("{}", json!({"event":"decision-batch","count":traces.len(),"admitted":admitted,"evidence_ceiling":"CANDIDATE","full_transaction_simulation":false}));
+                            println!("{}", json!({"event":"decision-batch","collection_attempt_id":collection.id,"count":traces.len(),"admitted":admitted,"evidence_ceiling":"CANDIDATE","full_transaction_simulation":false}));
                         }
-                        _ => println!("{}",json!({"event":"decision-batch-discarded","reason":"FENCED_EXPIRED_OR_UNAVAILABLE"})),
+                        Ok(Ok(_)) => {
+                            finish_collection(&worker, &collection, CollectionOutcome::WorkerCancelled, Some(CollectionReason::WorkerShutdown)).await?;
+                        }
+                        Ok(Err(_)) if stopping => {
+                            finish_collection(&worker, &collection, CollectionOutcome::WorkerCancelled, Some(CollectionReason::WorkerShutdown)).await?;
+                        }
+                        Ok(Err(failure)) => {
+                            finish_collection(&worker, &collection, failure.outcome, Some(failure.reason)).await?;
+                        }
+                        Err(_) => {
+                            finish_collection(&worker, &collection, CollectionOutcome::EvaluationFailed, Some(CollectionReason::TaskFailed)).await?;
+                            return Err("evaluation task failed; typed terminal collection evidence retained".into());
+                        }
                     }
                 }
                 if job.as_ref().is_some_and(JoinHandle::is_finished) {
-                    let completed = job.take().expect("finished job exists").await?;
+                    let completed = job.take().expect("finished job exists").await;
+                    let mut collection = active_collection.take().expect("capture has durable collection");
                     match completed {
-                        Ok(batch) => {
+                        Ok(Ok(batch)) => {
                             last_good_capture=Some(Instant::now());
-                            let generation=queued_generation.take();
+                            collection.captured_pools = batch.captures.len() as u32;
+                            let generation=collection.generation;
                             let mut all_admitted=!stopping && generation.is_some();
                             for capture in &batch.captures {
                                 let admission = if stopping { None } else if let Some(generation)=generation {
                                     match worker.admit_capture_manifest(generation,&capture.capture_id,&capture.manifest_digest,capture.path.to_str().ok_or("capture path is not UTF-8")?).await {
                                         Ok(update)=>update.attempt_id,
-                                        Err(StoreError::Conflict(_))=>None,
+                                        Err(error) if is_generation_fence(&error)=>None,
+                                        Err(error @ (StoreError::Conflict(_) | StoreError::InvalidInput(_)))=>{
+                                            finish_collection(&worker, &collection, CollectionOutcome::AcquisitionFailed, Some(CollectionReason::TaskFailed)).await?;
+                                            return Err(error.into());
+                                        }
                                         Err(error)=>return Err(error.into()),
                                     }
                                 } else { None };
                                 all_admitted &= admission.is_some();
-                                println!("{}",json!({"event":"capture-written","capture_id":capture.capture_id,"manifest_digest":capture.manifest_digest,"admission":if admission.is_some(){"ADMITTED_RAW_CAPTURE"}else{"UNADMITTED_RAW_CAPTURE"},"research_attempt_id":admission,"quote_ready":false}));
+                                println!("{}",json!({"event":"capture-written","collection_attempt_id":collection.id,"capture_id":capture.capture_id,"manifest_digest":capture.manifest_digest,"admission":if admission.is_some(){"ADMITTED_RAW_CAPTURE"}else{"UNADMITTED_RAW_CAPTURE"},"research_attempt_id":admission,"quote_ready":false}));
                             }
                             scheduler.set_gate(network, worker.generation().await.ok())?;
                             if all_admitted {
                                 let generation=generation.expect("admitted capture has generation");
                                 let item=arb_scheduler::WorkItem {
                                     network, stage:arb_scheduler::Stage::Quote, generation,
-                                    correlation_id:arb_scheduler::CorrelationId::new(&Uuid::new_v4().to_string())?,
+                                    correlation_id:arb_scheduler::CorrelationId::new(&collection.id)?,
                                     observed_at:batch.started,
                                     payload:EvaluationPayload {
                                         pools:batch.captures.into_iter().map(|c|c.pool).collect(),
                                         observed_at_ms:batch.observed_at_ms,
                                     },
                                 };
-                                if scheduler.try_enqueue(item,Instant::now())?.is_ok()
-                                    && let Some(permit)=scheduler.dispatch(Instant::now())? {
-                                    let config=Arc::clone(&configuration);
-                                    let session_id=session_id.clone();
-                                    let experiment_id=experiment_id.clone();
-                                    let strategy=configuration.strategy_ids()[0].clone();
-                                    evaluation_generation=Some(generation);
-                                    evaluation=Some(tokio::task::spawn_blocking(move||evaluate_blocking(permit,config,session_id,experiment_id,strategy)));
+                                let unavailable = || AttemptFailure {
+                                    outcome:CollectionOutcome::EvaluationFailed,
+                                    reason:CollectionReason::TaskFailed,
+                                    captured_pools:collection.captured_pools,
+                                };
+                                let scheduled = match scheduler.try_enqueue(item,Instant::now()) {
+                                    Ok(Ok(())) => match scheduler.dispatch(Instant::now()) {
+                                        Ok(Some(permit)) => Ok(permit),
+                                        Ok(None) => Err(AttemptFailure::evaluation(
+                                            if batch.started.elapsed() >= EVALUATION_DEADLINE { arb_scheduler::DropReason::DeadlineExpired } else { arb_scheduler::DropReason::QueueFull },
+                                            collection.captured_pools,
+                                        )),
+                                        Err(_) => Err(unavailable()),
+                                    },
+                                    Ok(Err(rejected)) => Err(AttemptFailure::evaluation(rejected.reason,collection.captured_pools)),
+                                    Err(_) => Err(unavailable()),
+                                };
+                                match scheduled {
+                                    Ok(permit) => {
+                                        let config=Arc::clone(&configuration);
+                                        let session_id=session_id.clone();
+                                        let experiment_id=experiment_id.clone();
+                                        let strategy=configuration.strategy_ids()[0].clone();
+                                        active_collection=Some(collection);
+                                        evaluation=Some(tokio::task::spawn_blocking(move||evaluate_blocking(permit,config,session_id,experiment_id,strategy)));
+                                    }
+                                    Err(failure) => {
+                                        scheduler.fence(network)?;
+                                        finish_collection(&worker, &collection, failure.outcome, Some(failure.reason)).await?;
+                                    }
                                 }
+                            } else if stopping {
+                                finish_collection(&worker, &collection, CollectionOutcome::WorkerCancelled, Some(CollectionReason::WorkerShutdown)).await?;
+                            } else if generation.is_none() {
+                                finish_collection(&worker, &collection, CollectionOutcome::ReadinessCompleted, None).await?;
+                            } else {
+                                finish_collection(&worker, &collection, CollectionOutcome::Suppressed, Some(CollectionReason::GenerationFenced)).await?;
                             }
                         }
-                        Err(_) => {
-                            // Transport details are intentionally absent; endpoint/credentials
-                            // are never copied into logs. Full validation remains fail-closed.
+                        Ok(Err(failure)) => {
                             last_good_capture=None;
-                            println!("{}",json!({"event":"capture-failed","details":"capture unavailable or validation/quota failed","quote_ready":false}));
+                            collection.captured_pools=failure.captured_pools;
+                            finish_collection(&worker, &collection, failure.outcome, Some(failure.reason)).await?;
+                        }
+                        Err(_) => {
+                            finish_collection(&worker, &collection, CollectionOutcome::AcquisitionFailed, Some(CollectionReason::TaskFailed)).await?;
+                            return Err("capture task failed; typed terminal collection evidence retained".into());
                         }
                     }
                     next_capture=Instant::now()+CAPTURE_INTERVAL;
@@ -528,7 +763,13 @@ async fn run() -> Result<(), AnyError> {
                     return Err("capture readiness lost; worker faulted and requires explicit recovery".into());
                 }
                 if job.is_none() && evaluation.is_none() && Instant::now()>=next_capture {
-                    queued_generation=worker.generation().await.ok();
+                    let generation=worker.generation().await.ok();
+                    let purpose=if generation.is_some() { CollectionPurpose::Research } else { CollectionPurpose::Readiness };
+                    let id=Uuid::now_v7().to_string();
+                    // Commit before scheduling blocking work. A failed start writes no
+                    // acquisition evidence and performs no external provider request.
+                    worker.begin_collection_attempt(&id, update.generation, purpose).await?;
+                    active_collection=Some(CollectionWork { id, generation, started:Instant::now(), captured_pools:0 });
                     let task_plan=Arc::clone(&plan);
                     job=Some(tokio::task::spawn_blocking(move||capture_blocking(&task_plan)));
                 }
@@ -579,6 +820,32 @@ fn main() -> ExitCode {
 mod tests {
     use super::*;
     use arb_adapter_api::{RpcRecord, TranscriptRpc};
+
+    #[test]
+    fn admission_invariant_conflicts_are_not_misreported_as_operator_suppression() {
+        for message in [
+            "stale or fenced collection decisions",
+            "decision generation is fenced",
+            "stale or fenced capture",
+            "capture generation is fenced",
+            "worker lease lost",
+        ] {
+            assert!(is_generation_fence(&StoreError::Conflict(message)));
+        }
+        for message in [
+            "decision scope differs from immutable session",
+            "decision identity payload changed",
+            "decision capture is not admitted in this generation",
+            "capture admission payload changed",
+            "collection terminal evidence changed",
+            "decision already belongs to another collection attempt",
+        ] {
+            assert!(!is_generation_fence(&StoreError::Conflict(message)));
+        }
+        assert!(!is_generation_fence(&StoreError::InvalidInput(
+            "invalid sealed decision trace"
+        )));
+    }
 
     #[test]
     fn disabled_config_cannot_qualify_worker_or_registry() {

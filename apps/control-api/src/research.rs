@@ -3,9 +3,9 @@
 use super::*;
 use arb_paper::AccountingAsset;
 use arb_storage::{
-    DecisionCoverage, DecisionGroupPage, DecisionTracePage, NewPaperRun, OpportunityFilter,
-    OpportunityPage, PaperJournalPage, PaperReservationPage, PaperRunPage, PaperRunRecord,
-    StoredDecisionTrace,
+    CollectionAttemptPage, CollectionCoverage, DecisionCoverage, DecisionGroupPage,
+    DecisionTracePage, NewPaperRun, OpportunityFilter, OpportunityPage, PaperJournalPage,
+    PaperReservationPage, PaperRunPage, PaperRunRecord, ResearchExport, StoredDecisionTrace,
 };
 
 #[derive(Clone, Serialize)]
@@ -16,6 +16,23 @@ pub struct PaperAssetChoice {
 
 #[async_trait]
 pub(crate) trait ResearchStore: Send + Sync {
+    async fn export_session(
+        &self,
+        operator: &str,
+        session: &str,
+    ) -> Result<ResearchExport, StoreError>;
+    async fn collection_coverage(
+        &self,
+        operator: &str,
+        session: &str,
+    ) -> Result<CollectionCoverage, StoreError>;
+    async fn collection_attempts(
+        &self,
+        operator: &str,
+        session: &str,
+        cursor: Option<&str>,
+        limit: u32,
+    ) -> Result<CollectionAttemptPage, StoreError>;
     async fn list_decisions(
         &self,
         operator: &str,
@@ -87,6 +104,29 @@ pub(crate) trait ResearchStore: Send + Sync {
 
 #[async_trait]
 impl ResearchStore for Store {
+    async fn export_session(
+        &self,
+        operator: &str,
+        session: &str,
+    ) -> Result<ResearchExport, StoreError> {
+        Store::export_session(self, operator, session).await
+    }
+    async fn collection_coverage(
+        &self,
+        operator: &str,
+        session: &str,
+    ) -> Result<CollectionCoverage, StoreError> {
+        Store::collection_coverage(self, operator, session).await
+    }
+    async fn collection_attempts(
+        &self,
+        operator: &str,
+        session: &str,
+        cursor: Option<&str>,
+        limit: u32,
+    ) -> Result<CollectionAttemptPage, StoreError> {
+        Store::list_collection_attempts(self, operator, session, cursor, limit).await
+    }
     async fn list_decisions(
         &self,
         operator: &str,
@@ -176,6 +216,94 @@ impl ResearchStore for Store {
     ) -> Result<PaperReservationPage, StoreError> {
         Store::list_paper_reservations(self, operator, run, cursor, limit).await
     }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct EmptyQuery {}
+
+fn validate_session_path(session: &str, id: &RequestId) -> Result<(), ApiError> {
+    if session.is_empty() || session.len() > 128 {
+        return Err(ApiError::invalid(id));
+    }
+    Ok(())
+}
+
+pub(super) async fn export_session(
+    State(state): State<AppState>,
+    Extension(id): Extension<RequestId>,
+    path: Result<Path<String>, PathRejection>,
+    query: Result<Query<EmptyQuery>, QueryRejection>,
+) -> Result<Json<ResearchExport>, ApiError> {
+    let Path(session) = path.map_err(|_| ApiError::invalid(&id))?;
+    query.map_err(|_| ApiError::invalid(&id))?;
+    validate_session_path(&session, &id)?;
+    // Heavy analytical reads may use at most two connections per API process.
+    // Refuse immediately rather than queue ahead of lifecycle/control requests.
+    let _permit = state.0.exports.try_acquire().map_err(|_| {
+        ApiError::new(
+            StatusCode::TOO_MANY_REQUESTS,
+            "EXPORT_BUSY",
+            "Two session exports are already running",
+            &id,
+        )
+    })?;
+    state
+        .0
+        .store
+        .export_session("operator", &session)
+        .await
+        .map(Json)
+        .map_err(|error| ApiError::store(error, &id))
+}
+
+pub(super) async fn collection_coverage(
+    State(state): State<AppState>,
+    Extension(id): Extension<RequestId>,
+    path: Result<Path<String>, PathRejection>,
+    query: Result<Query<EmptyQuery>, QueryRejection>,
+) -> Result<Json<CollectionCoverage>, ApiError> {
+    let Path(session) = path.map_err(|_| ApiError::invalid(&id))?;
+    query.map_err(|_| ApiError::invalid(&id))?;
+    validate_session_path(&session, &id)?;
+    state
+        .0
+        .store
+        .collection_coverage("operator", &session)
+        .await
+        .map(Json)
+        .map_err(|error| ApiError::store(error, &id))
+}
+
+pub(super) async fn collection_attempts(
+    State(state): State<AppState>,
+    Extension(id): Extension<RequestId>,
+    path: Result<Path<String>, PathRejection>,
+    query: Result<Query<Pagination>, QueryRejection>,
+) -> Result<Json<CollectionAttemptPage>, ApiError> {
+    let Path(session) = path.map_err(|_| ApiError::invalid(&id))?;
+    let Query(query) = query.map_err(|_| ApiError::invalid(&id))?;
+    validate_session_path(&session, &id)?;
+    let limit = validate_page(&query, &id)?;
+    if let Some(cursor) = &query.cursor
+        && (cursor.len() != 36
+            || !cursor.bytes().enumerate().all(|(position, byte)| {
+                if matches!(position, 8 | 13 | 18 | 23) {
+                    byte == b'-'
+                } else {
+                    byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)
+                }
+            }))
+    {
+        return Err(ApiError::invalid(&id));
+    }
+    state
+        .0
+        .store
+        .collection_attempts("operator", &session, query.cursor.as_deref(), limit)
+        .await
+        .map(Json)
+        .map_err(|error| ApiError::store(error, &id))
 }
 
 #[derive(Deserialize)]

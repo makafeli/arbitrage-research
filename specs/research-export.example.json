@@ -1,0 +1,87 @@
+{
+  "schema_version": "1.0.0",
+  "export_id": "00000000-0000-0000-0000-000000000002",
+  "exported_at": "2026-09-12T12:00:00Z",
+  "content_sha256": "sha256:8af0152eb6a9f84d89d3b6e58d25fa138f77ba27cb24580ed69b9628fadf9f61",
+  "snapshot": {
+    "isolation": "REPEATABLE_READ",
+    "scope": "COMPLETE_STORED_SESSION",
+    "collection_completeness": "UNKNOWN",
+    "source_counts": {
+      "decisions": "0",
+      "paper_runs": "0",
+      "paper_journal_events": "0",
+      "capture_catalog_entries": "0",
+      "collection_attempts": "1"
+    }
+  },
+  "methodology": {
+    "amounts": "BASE_UNIT_INTEGER_STRINGS",
+    "asset_decimals": "NOT_RETAINED_IN_DATABASE",
+    "costs": "UNKNOWN_COSTS_REMAIN_NULL",
+    "configuration_snapshot": "DIGEST_ONLY",
+    "raw_artifacts": "REFERENCED_NOT_INCLUDED_OR_VERIFIED",
+    "hash_format": "SHA256_SORTED_KEY_COMPACT_JSON_SNAPSHOT_METHODOLOGY_DATA_V1",
+    "journal_projection": "REDACTED_REPLAYABLE_ACCOUNTING_PROJECTION",
+    "execution_authorized": false,
+    "max_source_rows": "10000",
+    "max_bytes": "8388608"
+  },
+  "data": {
+    "session": {
+      "session_id": "fixture-session",
+      "network_id": "base-mainnet",
+      "mode": "OBSERVE",
+      "observed_state": "RUNNING",
+      "health": "HEALTHY",
+      "desired_revision": "1",
+      "applied_revision": "1",
+      "outstanding_attempts": 0,
+      "execution_authorized": false,
+      "last_heartbeat_at": "2026-09-12T12:00:00Z",
+      "configuration_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "experiment_id": "fixture-experiment",
+    "strategy_ids": [
+      "fixture-strategy"
+    ],
+    "decision_coverage": {
+      "session_id": "fixture-session",
+      "raw_observations": "0",
+      "quoted_candidates": "0",
+      "rejected": "0",
+      "no_route": "0",
+      "data_unavailable": "0",
+      "unique_opportunity_groups": "0",
+      "eligible_attempts": null,
+      "reconciled_transactions": null,
+      "execution_accounting_available": false,
+      "collection_completeness": "UNKNOWN",
+      "coverage_window_start_ms": null,
+      "coverage_window_end_ms": null
+    },
+    "decisions": [],
+    "paper_runs": [],
+    "capture_dependencies": [],
+    "collection_attempts": [
+      {
+        "attempt_id": "00000000-0000-0000-0000-000000000001",
+        "session_id": "fixture-session",
+        "network_id": "base-mainnet",
+        "configuration_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "experiment_id": "fixture-experiment",
+        "generation": "1",
+        "worker_epoch": "1",
+        "purpose": "RESEARCH",
+        "outcome": "IN_PROGRESS",
+        "reason": null,
+        "captured_pools": 0,
+        "decision_rows": "0",
+        "decision_observation_ids": [],
+        "elapsed_ms": null,
+        "started_at": "2026-09-12T12:00:00Z",
+        "finished_at": null
+      }
+    ]
+  }
+}

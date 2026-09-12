@@ -33,13 +33,37 @@ try {
   assert.equal(caps.live_execution, false);
   assert.equal(caps.opportunity_capture, false);
   assert.ok(caps.registered_configurations.length > 0);
-  assert.ok(caps.registered_configurations.every(config => config.enabled_networks.length === 0), 'Smoke service must use disabled research configurations.');
+  const researchSmoke = process.env.ARB_HTTP_SMOKE_RESEARCH === 'true';
+  const enabled = caps.registered_configurations.filter(config => config.enabled_networks.length > 0);
+  if (researchSmoke) {
+    assert.equal(enabled.length, 1, 'Research smoke requires exactly one dedicated enabled configuration.');
+    assert.equal(enabled[0].mode, 'OBSERVE'); assert.deepEqual(enabled[0].enabled_networks, ['base-mainnet']);
+    assert.equal(caps.collection_telemetry, true); assert.equal(caps.session_export, true);
+  } else assert.equal(enabled.length, 0, 'Smoke service must use disabled research configurations.');
   assert.equal(sessions.items.length, 0, 'Smoke service must use an isolated empty database.');
   assert.equal(opportunities.items.length, 0);
   await assert.rejects(api.create({ network_id: 'base-mainnet', mode: 'PAPER', configuration_digest: 'unregistered-smoke-config', experiment_id: 'denied-smoke-experiment', strategy_ids: ['not-enabled'] }, crypto.randomUUID()), e => e instanceof ApiError && [400, 403].includes(e.status));
+  if (researchSmoke) {
+    const created = await api.create({ network_id: 'base-mainnet', mode: 'OBSERVE', configuration_digest: enabled[0].configuration_digest,
+      experiment_id: 'isolated-http-smoke', strategy_ids: enabled[0].strategy_ids }, crypto.randomUUID());
+    assert.equal(created.observed_state, 'RECOVERING'); assert.equal(created.execution_authorized, false);
+    const [coverage, attempts] = await Promise.all([api.collectionCoverage(created.session_id), api.collectionAttempts(created.session_id)]);
+    assert.equal(coverage.session_id, created.session_id); assert.equal(coverage.attempts_started, '0');
+    assert.equal(coverage.collection_completeness, 'UNKNOWN'); assert.equal(coverage.denominator, 'RECORDED_COLLECTION_ATTEMPTS');
+    assert.deepEqual(attempts, { items: [], next_cursor: null });
+    // This uses the shipped client parser and browser-compatible SHA-256 verifier.
+    const frozen = await api.frozenExport(created.session_id), second = await api.frozenExport(created.session_id);
+    assert.equal(frozen.data.session.session_id, created.session_id); assert.equal(frozen.data.experiment_id, 'isolated-http-smoke');
+    assert.deepEqual(frozen.snapshot.source_counts, { decisions: '0', paper_runs: '0', paper_journal_events: '0', capture_catalog_entries: '0', collection_attempts: '0' });
+    assert.equal(frozen.snapshot.collection_completeness, 'UNKNOWN'); assert.equal(frozen.content_sha256, second.content_sha256);
+    assert.notEqual(frozen.export_id, second.export_id); assert.equal(frozen.data.decision_coverage.raw_observations, '0');
+    assert.deepEqual(frozen.data.collection_attempts, []); assert.deepEqual(frozen.data.capture_dependencies, []);
+    assert.equal(frozen.methodology.configuration_snapshot, 'DIGEST_ONLY'); assert.equal(frozen.methodology.execution_authorized, false);
+    await assert.rejects(api.frozenExport('missing-smoke-session'), e => e instanceof ApiError && e.status === 404);
+  }
   await api.logout();
   await assert.rejects(api.auth(), e => e instanceof ApiError && e.status === 401);
-  process.stdout.write('UI client / control API interoperability: PASS (auth, CSRF session, capabilities, empty records, rejected configuration, logout).\n');
+  process.stdout.write('UI client / control API interoperability: PASS (auth, CSRF session, capabilities, empty records, rejected configuration' + (researchSmoke ? ', isolated OBSERVE creation without worker start, scoped collection telemetry, frozen export counts and repeated content digest' : '') + ', logout).\n');
 } finally {
   // Best-effort cleanup if an assertion failed before the explicit logout.
   if (cookie && cookie !== 'arb_session=') await api.logout().catch(() => {});

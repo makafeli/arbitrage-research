@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Emit three explicitly named synthetic Playwright PNGs for visual review."""
+"""Emit nine explicitly named synthetic Playwright PNGs for visual review."""
 import base64
 import hashlib
 import json
@@ -8,19 +8,20 @@ import struct
 
 ROOT = Path(__file__).resolve().parent.parent
 WIDTHS = (320, 390, 1440)
+VIEWS = ("research-dashboard", "frozen-export", "collection-health")
 MAX_FILE = 1024 * 1024
 CHUNK_BYTES = 2250
 
 
 def main():
     selected = []
-    for width in WIDTHS:
+    for view, width in ((view, width) for view in VIEWS for width in WIDTHS):
         candidates = sorted(ROOT.glob(
-            f"apps/web/test-results/**/research-dashboard-{width}.png"
+            f"apps/web/test-results/**/{view}-{width}.png"
         ))
         if len(candidates) != 1:
             raise RuntimeError(
-                f"expected exactly one synthetic review PNG at width {width}; "
+                f"expected exactly one synthetic {view} review PNG at width {width}; "
                 f"found {len(candidates)}"
             )
         path = candidates[0]
@@ -32,7 +33,7 @@ def main():
         if content[:8] != b"\x89PNG\r\n\x1a\n" or content[12:16] != b"IHDR":
             raise RuntimeError("review screenshot must be PNG")
         actual_width, height = struct.unpack(">II", content[16:24])
-        if actual_width != width or not 1 <= height <= 8192:
+        if actual_width != width or not 1 <= height <= 16384:
             raise RuntimeError("PNG dimensions do not match the declared CSS viewport")
         selected.append((path.relative_to(ROOT).as_posix(), content, width, height))
     for name, content, width, height in selected:
