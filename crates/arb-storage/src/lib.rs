@@ -1,9 +1,9 @@
 //! Durable research sessions and revisioned operator intent. No signing or broadcast.
-mod types;
-mod paper;
 mod decisions;
-pub use paper::*;
+mod paper;
+mod types;
 pub use decisions::*;
+pub use paper::*;
 mod worker;
 
 pub use types::*;
@@ -161,6 +161,22 @@ impl Store {
                 .await?
                 .ok_or(StoreError::NotFound)?;
         session_record(&row)
+    }
+
+    /// Internal worker lookup of the immutable, operator-scoped experiment binding.
+    pub async fn get_session_experiment_id(
+        &self,
+        operator: &str,
+        session_id: &str,
+    ) -> Result<String, StoreError> {
+        sqlx::query_scalar(
+            "SELECT experiment_id FROM research_sessions WHERE operator_id=$1 AND session_id=$2",
+        )
+        .bind(operator)
+        .bind(session_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or(StoreError::NotFound)
     }
 
     /// Stable, bounded keyset pagination. New sessions may appear before an existing cursor.

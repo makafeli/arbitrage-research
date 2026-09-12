@@ -1,5 +1,6 @@
 use crate::{
-    AssetId, AtomicAmount, DatasetOrigin, Decimals, Evidence, FixtureId, Mode, NetworkId, PoolId, SignedAmount,
+    AssetId, AtomicAmount, DatasetOrigin, Decimals, Evidence, FixtureId, Mode, NetworkId, PoolId,
+    SignedAmount,
 };
 use serde::{Deserialize, Serialize};
 use std::{collections::HashSet, fmt};
@@ -187,14 +188,37 @@ impl OpportunityRecord {
             return Err(err("schema_version", "unsupported opportunity version"));
         }
         if self.schema_version == "1.0.0" && self.net_after_explicit_costs_minor.is_none() {
-            return Err(err("net_after_explicit_costs_minor", "legacy schema requires numeric net"));
+            return Err(err(
+                "net_after_explicit_costs_minor",
+                "legacy schema requires numeric net",
+            ));
+        }
+        if self
+            .dataset_origin
+            .is_some_and(|origin| origin.source_kind() != self.source_kind)
+        {
+            return Err(err(
+                "dataset_origin",
+                "explicit origin and source kind disagree",
+            ));
         }
         if self.schema_version == "1.1.0" {
-            if self.dataset_origin.is_none_or(|origin| origin.source_kind() != self.source_kind) {
-                return Err(err("dataset_origin", "version 1.1 requires explicit matching origin"));
+            if self
+                .dataset_origin
+                .is_none_or(|origin| origin.source_kind() != self.source_kind)
+            {
+                return Err(err(
+                    "dataset_origin",
+                    "version 1.1 requires explicit matching origin",
+                ));
             }
-            if self.eligibility_checks.costs_complete != self.net_after_explicit_costs_minor.is_some() {
-                return Err(err("net_after_explicit_costs_minor", "unknown costs require null net; complete costs require exact net"));
+            if self.eligibility_checks.costs_complete
+                != self.net_after_explicit_costs_minor.is_some()
+            {
+                return Err(err(
+                    "net_after_explicit_costs_minor",
+                    "unknown costs require null net; complete costs require exact net",
+                ));
             }
         }
         if self.mode != Mode::Live
@@ -300,7 +324,11 @@ impl OpportunityRecord {
                 .checked_sub_cost(&cost.in_start_asset_minor)
                 .map_err(|_| err("costs", "net result overflows supported signed magnitude"))?;
         }
-        if self.net_after_explicit_costs_minor.as_ref().is_some_and(|provided| provided != &net) {
+        if self
+            .net_after_explicit_costs_minor
+            .as_ref()
+            .is_some_and(|provided| provided != &net)
+        {
             return Err(err(
                 "net_after_explicit_costs_minor",
                 "net must equal quoted output minus input minus explicit costs exactly",

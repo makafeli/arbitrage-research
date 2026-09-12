@@ -60,6 +60,55 @@ pub trait ReadRpc {
     fn call(&mut self, method: ReadMethod, params: Value) -> Result<Value>;
 }
 
+/// Transport location only. Neither variant attests provider or market-data authenticity.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum EndpointKind {
+    LoopbackFixture,
+    HttpsRemote,
+}
+
+/// Classify with the same normalized URL and admission policy used by HttpReadRpc.
+/// HTTPS on a loopback host is still fixture input, not recorded market evidence.
+pub fn endpoint_kind(endpoint: &str) -> Result<EndpointKind> {
+    parse_endpoint(endpoint).map(|(_, kind)| kind)
+}
+
+fn parse_endpoint(endpoint: &str) -> Result<(reqwest::Url, EndpointKind)> {
+    let url = reqwest::Url::parse(endpoint).map_err(|_| AdapterError("invalid RPC endpoint"))?;
+    let host = url.host_str().unwrap_or("");
+    // Preserve the existing HTTP allowlist. URL parsing normalizes scheme/host
+    // case and IPv4 forms before either validation or provenance classification.
+    let http_loopback = matches!(host, "localhost" | "127.0.0.1" | "[::1]");
+    if !(url.scheme() == "https" || (url.scheme() == "http" && http_loopback))
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.fragment().is_some()
+    {
+        return Err(AdapterError("unsafe endpoint or unbounded RPC limits"));
+    }
+    let ip_host = host
+        .strip_prefix('[')
+        .and_then(|s| s.strip_suffix(']'))
+        .unwrap_or(host);
+    let loopback_ip = match ip_host.parse::<std::net::IpAddr>() {
+        Ok(std::net::IpAddr::V4(ip)) => ip.is_loopback(),
+        Ok(std::net::IpAddr::V6(ip)) => {
+            ip.is_loopback()
+                || ip
+                    .to_ipv4_mapped()
+                    .is_some_and(|mapped| mapped.is_loopback())
+        }
+        Err(_) => false,
+    };
+    let local_name = host.trim_end_matches('.');
+    let kind = if loopback_ip || local_name == "localhost" || local_name.ends_with(".localhost") {
+        EndpointKind::LoopbackFixture
+    } else {
+        EndpointKind::HttpsRemote
+    };
+    Ok((url, kind))
+}
+
 /// Synchronous, one-request-at-a-time capture transport. Not a latency-critical worker runtime.
 /// HTTP is allowed only for loopback fixture servers; production RPC requires HTTPS.
 pub struct HttpReadRpc {
@@ -81,14 +130,8 @@ impl HttpReadRpc {
         max_response_bytes: usize,
         max_requests: usize,
     ) -> Result<Self> {
-        let url =
-            reqwest::Url::parse(endpoint).map_err(|_| AdapterError("invalid RPC endpoint"))?;
-        let loopback = matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"));
-        if !(url.scheme() == "https" || (url.scheme() == "http" && loopback))
-            || !url.username().is_empty()
-            || url.password().is_some()
-            || url.fragment().is_some()
-            || timeout.is_zero()
+        let (url, _) = parse_endpoint(endpoint)?;
+        if timeout.is_zero()
             || timeout > Duration::from_secs(60)
             || !(1024..=8 * 1024 * 1024).contains(&max_response_bytes)
             || !(1..=4096).contains(&max_requests)
@@ -285,19 +328,68 @@ impl SnapshotQuality {
 mod tests {
     use super::*;
     #[test]
+    fn endpoint_origin_uses_normalized_scheme_and_loopback_host() {
+        for url in [
+            "http://127.0.0.1:9000",
+            "HTTP://127.0.0.1:9000",
+            "HtTp://LOCALHOST:9000",
+            "http://[::1]:9000",
+            "https://localhost:9000",
+            "HTTPS://LOCALHOST:9000",
+            "https://127.0.0.2:9000",
+            "https://[::1]:9000",
+            "https://[::ffff:127.0.0.1]:9000",
+            "https://localhost.:9000",
+            "https://fixture.localhost:9000",
+        ] {
+            assert_eq!(endpoint_kind(url).unwrap(), EndpointKind::LoopbackFixture);
+            assert!(HttpReadRpc::new(url, Duration::from_secs(1), 1024, 1).is_ok());
+        }
+        for url in ["https://rpc.example.com", "HTTPS://RPC.EXAMPLE.COM/v1"] {
+            assert_eq!(endpoint_kind(url).unwrap(), EndpointKind::HttpsRemote);
+            assert!(HttpReadRpc::new(url, Duration::from_secs(1), 1024, 1).is_ok());
+        }
+    }
+
+    #[test]
+    fn endpoint_classifier_and_transport_share_rejection_policy() {
+        for url in [
+            "http://example.com",
+            "HTTP://example.com",
+            "http://127.0.0.2",
+            "https://name:placeholder@example.com",
+            "https://name@example.com",
+            "https://example.com/#fragment",
+            "http://localhost/#fragment",
+            "file:///tmp/rpc",
+            "not a URL",
+        ] {
+            assert!(endpoint_kind(url).is_err());
+            assert!(HttpReadRpc::new(url, Duration::from_secs(1), 1024, 1).is_err());
+        }
+    }
+
+    #[test]
     fn draining_records_preserves_transport_budgets_and_deadline() {
-        let mut rpc = HttpReadRpc::new("http://127.0.0.1:9", Duration::from_secs(1), 1024, 1).unwrap();
+        let mut rpc =
+            HttpReadRpc::new("http://127.0.0.1:9", Duration::from_secs(1), 1024, 1).unwrap();
         rpc.requests_sent = 1;
         rpc.retained_bytes = 123;
         let started = rpc.started;
         assert!(rpc.take_records().is_empty());
         assert_eq!(rpc.started, started);
         assert_eq!(rpc.retained_bytes, 123);
-        assert_eq!(rpc.call(ReadMethod::EthChainId, json!([])).unwrap_err().0, "RPC request quota exhausted");
+        assert_eq!(
+            rpc.call(ReadMethod::EthChainId, json!([])).unwrap_err().0,
+            "RPC request quota exhausted"
+        );
         rpc.requests_sent = 0;
         rpc.started = Instant::now().checked_sub(Duration::from_secs(61)).unwrap();
         assert!(rpc.take_records().is_empty());
-        assert_eq!(rpc.call(ReadMethod::EthChainId, json!([])).unwrap_err().0, "capture RPC deadline exceeded");
+        assert_eq!(
+            rpc.call(ReadMethod::EthChainId, json!([])).unwrap_err().0,
+            "capture RPC deadline exceeded"
+        );
     }
     #[test]
     fn wire_enum_cannot_deserialize_broadcast() {

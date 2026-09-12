@@ -81,6 +81,7 @@ valid_estimated['eligibility_checks']={k:True for k in valid_estimated['eligibil
 check(s,valid_estimated)
 negatives=[]
 for label,mutation in [
+ ('legacy-provided-origin-source-mismatch',lambda x:x.update(dataset_origin='RECORDED_LIVE')),
  ('paper-realized',lambda x:x.update(evidence_label='REALIZED',transaction_id='fakehash',finality_status='FINALIZED')),
  ('numeric-token-amount',lambda x:x.update(amount_in_minor=100)),
  ('negative-input',lambda x:x.update(amount_in_minor='-1')),

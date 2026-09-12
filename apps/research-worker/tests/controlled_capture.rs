@@ -277,9 +277,16 @@ async fn controlled_process(mode: &str) {
             .await
             .unwrap();
     assert_eq!(count, 0, "fenced capture must remain unadmitted");
-    let decisions: i64=sqlx::query_scalar("SELECT count(*) FROM decision_traces WHERE session_id=$1")
-        .bind(&id).fetch_one(&pool).await.unwrap();
-    assert_eq!(decisions,0,"late capture must not create a research decision");
+    let decisions: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM decision_traces WHERE session_id=$1")
+            .bind(&id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        decisions, 0,
+        "late capture must not create a research decision"
+    );
     store
         .issue_command(
             &operator,
@@ -315,13 +322,24 @@ async fn controlled_process(mode: &str) {
             .outstanding_attempts,
         0
     );
-    wait_until(async || {
-        sqlx::query_scalar::<_,i64>("SELECT count(*) FROM decision_traces WHERE session_id=$1")
-            .bind(&id).fetch_one(&pool).await.unwrap()>0
-    },5).await;
+    wait_until(
+        async || {
+            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM decision_traces WHERE session_id=$1")
+                .bind(&id)
+                .fetch_one(&pool)
+                .await
+                .unwrap()
+                > 0
+        },
+        5,
+    )
+    .await;
     let invalid:i64=sqlx::query_scalar("SELECT count(*) FROM decision_traces WHERE session_id=$1 AND (result_status='QUOTED' OR payload->>'dataset_origin'!='MANUALLY_CONSTRUCTED')")
         .bind(&id).fetch_one(&pool).await.unwrap();
-    assert_eq!(invalid,0,"single-pool loopback data cannot become a market opportunity");
+    assert_eq!(
+        invalid, 0,
+        "single-pool loopback data cannot become a market opportunity"
+    );
     let log = fs::read_to_string(root.join("worker.log")).unwrap();
     assert!(log.contains("UNADMITTED_RAW_CAPTURE"));
     assert!(log.contains("ADMITTED_RAW_CAPTURE"));

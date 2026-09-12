@@ -141,15 +141,27 @@ impl ServerConfig {
 }
 
 fn paper_asset_choices(config: &arb_config::ValidatedConfig) -> Vec<PaperAssetChoice> {
-    [arb_domain::NetworkId::BaseMainnet, arb_domain::NetworkId::SolanaMainnet]
-        .into_iter()
-        .filter(|network| config.network_enabled(*network))
-        .flat_map(|network| {
-            std::iter::once(arb_paper::AccountingAsset::Native(network))
-                .chain(config.verified_assets(network).iter().cloned().map(arb_paper::AccountingAsset::Token))
-                .map(move |asset| PaperAssetChoice { network_id: network.to_string(), asset })
-        })
-        .collect()
+    [
+        arb_domain::NetworkId::BaseMainnet,
+        arb_domain::NetworkId::SolanaMainnet,
+    ]
+    .into_iter()
+    .filter(|network| config.network_enabled(*network))
+    .flat_map(|network| {
+        std::iter::once(arb_paper::AccountingAsset::Native(network))
+            .chain(
+                config
+                    .verified_assets(network)
+                    .iter()
+                    .cloned()
+                    .map(arb_paper::AccountingAsset::Token),
+            )
+            .map(move |asset| PaperAssetChoice {
+                network_id: network.to_string(),
+                asset,
+            })
+    })
+    .collect()
 }
 
 fn validate_listener(
@@ -912,14 +924,37 @@ async fn list_opportunities(
     query: Result<Query<OpportunityQuery>, QueryRejection>,
 ) -> Result<Json<arb_storage::OpportunityPage>, ApiError> {
     let Query(query) = query.map_err(|_| ApiError::invalid(&id))?;
-    let limit = validate_page(&Pagination { cursor: query.cursor.clone(), limit: query.limit }, &id)?;
-    if query.session_id.as_ref().is_some_and(|id| id.is_empty() || id.len() > 128) {
+    let limit = validate_page(
+        &Pagination {
+            cursor: query.cursor.clone(),
+            limit: query.limit,
+        },
+        &id,
+    )?;
+    if query
+        .session_id
+        .as_ref()
+        .is_some_and(|id| id.is_empty() || id.len() > 128)
+    {
         return Err(ApiError::invalid(&id));
     }
-    state.0.store.opportunities("operator", arb_storage::OpportunityFilter {
-        session_id: query.session_id, network_id: query.network_id,
-        evidence_label: query.evidence_label, source_kind: query.source_kind,
-    }, query.cursor.as_deref(), limit).await.map(Json).map_err(|error| ApiError::store(error, &id))
+    state
+        .0
+        .store
+        .opportunities(
+            "operator",
+            arb_storage::OpportunityFilter {
+                session_id: query.session_id,
+                network_id: query.network_id,
+                evidence_label: query.evidence_label,
+                source_kind: query.source_kind,
+            },
+            query.cursor.as_deref(),
+            limit,
+        )
+        .await
+        .map(Json)
+        .map_err(|error| ApiError::store(error, &id))
 }
 async fn method_not_allowed(Extension(id): Extension<RequestId>) -> ApiError {
     ApiError::new(

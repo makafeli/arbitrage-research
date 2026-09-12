@@ -251,7 +251,7 @@ impl Store {
         let mut tx = self.pool.begin().await?;
         let row = locked_worker(&mut tx, claim).await?;
         let current = lifecycle(&row)?;
-        if current.mode() != Mode::Observe {
+        if !matches!(current.mode(), Mode::Observe | Mode::Paper) {
             return Err(StoreError::CapabilityUnavailable);
         }
         if !current.allows_evaluation() || generation != current.generation() {

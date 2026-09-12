@@ -34,8 +34,12 @@ impl PoolRegistry {
     }
     fn validate(&self) -> Result<(), RegistryError> {
         match self {
-            Self::Base(r) => r.validate().map_err(|_| RegistryError("invalid Base pool registry")),
-            Self::Solana(r) => r.validate().map_err(|_| RegistryError("invalid Solana pool registry")),
+            Self::Base(r) => r
+                .validate()
+                .map_err(|_| RegistryError("invalid Base pool registry")),
+            Self::Solana(r) => r
+                .validate()
+                .map_err(|_| RegistryError("invalid Solana pool registry")),
         }
     }
 }
@@ -75,36 +79,66 @@ impl RegistryDocument {
         if bytes.is_empty() || bytes.len() > MAX_REGISTRY_BYTES {
             return Err(RegistryError("registry document exceeds byte bounds"));
         }
-        let shape: serde_json::Value = serde_json::from_slice(bytes)
-            .map_err(|_| RegistryError("invalid registry JSON"))?;
+        let shape: serde_json::Value =
+            serde_json::from_slice(bytes).map_err(|_| RegistryError("invalid registry JSON"))?;
         let is_set = shape.get("pools").is_some();
         // Deserialize original bytes again to reject duplicate struct fields.
         let (format, version, declared_network, pools) = match (network, is_set) {
             (NetworkId::BaseMainnet, true) => {
                 let set: PoolSet<arb_evm::PoolRegistry> = serde_json::from_slice(bytes)
                     .map_err(|_| RegistryError("invalid Base pool set"))?;
-                (DocumentFormat::PoolSetV1, set.schema_version, set.network_id,
-                    set.pools.into_iter().map(PoolRegistry::Base).collect::<Vec<_>>())
+                (
+                    DocumentFormat::PoolSetV1,
+                    set.schema_version,
+                    set.network_id,
+                    set.pools
+                        .into_iter()
+                        .map(PoolRegistry::Base)
+                        .collect::<Vec<_>>(),
+                )
             }
             (NetworkId::SolanaMainnet, true) => {
                 let set: PoolSet<arb_solana::PoolRegistry> = serde_json::from_slice(bytes)
                     .map_err(|_| RegistryError("invalid Solana pool set"))?;
-                (DocumentFormat::PoolSetV1, set.schema_version, set.network_id,
-                    set.pools.into_iter().map(PoolRegistry::Solana).collect::<Vec<_>>())
+                (
+                    DocumentFormat::PoolSetV1,
+                    set.schema_version,
+                    set.network_id,
+                    set.pools
+                        .into_iter()
+                        .map(PoolRegistry::Solana)
+                        .collect::<Vec<_>>(),
+                )
             }
             (NetworkId::BaseMainnet, false) => {
                 let pool = serde_json::from_slice(bytes)
                     .map_err(|_| RegistryError("invalid legacy Base registry"))?;
-                (DocumentFormat::LegacySinglePool, 1, network, vec![PoolRegistry::Base(pool)])
+                (
+                    DocumentFormat::LegacySinglePool,
+                    1,
+                    network,
+                    vec![PoolRegistry::Base(pool)],
+                )
             }
             (NetworkId::SolanaMainnet, false) => {
                 let pool = serde_json::from_slice(bytes)
                     .map_err(|_| RegistryError("invalid legacy Solana registry"))?;
-                (DocumentFormat::LegacySinglePool, 1, network, vec![PoolRegistry::Solana(pool)])
+                (
+                    DocumentFormat::LegacySinglePool,
+                    1,
+                    network,
+                    vec![PoolRegistry::Solana(pool)],
+                )
             }
         };
-        if version != 1 || declared_network != network || pools.is_empty() || pools.len() > MAX_POOLS {
-            return Err(RegistryError("unsupported registry version, network or pool count"));
+        if version != 1
+            || declared_network != network
+            || pools.is_empty()
+            || pools.len() > MAX_POOLS
+        {
+            return Err(RegistryError(
+                "unsupported registry version, network or pool count",
+            ));
         }
         let mut unique = BTreeSet::new();
         for pool in &pools {
@@ -113,16 +147,33 @@ impl RegistryDocument {
                 return Err(RegistryError("duplicate pool in registry document"));
             }
         }
-        Ok(Self { network, format, digest: arb_capture::digest(bytes), pools })
+        Ok(Self {
+            network,
+            format,
+            digest: arb_capture::digest(bytes),
+            pools,
+        })
     }
-    pub fn network(&self) -> NetworkId { self.network }
-    pub fn format(&self) -> DocumentFormat { self.format }
-    pub fn digest(&self) -> &str { &self.digest }
-    pub fn pools(&self) -> &[PoolRegistry] { &self.pools }
+    pub fn network(&self) -> NetworkId {
+        self.network
+    }
+    pub fn format(&self) -> DocumentFormat {
+        self.format
+    }
+    pub fn digest(&self) -> &str {
+        &self.digest
+    }
+    pub fn pools(&self) -> &[PoolRegistry] {
+        &self.pools
+    }
     pub fn select(&self, address: &str) -> Result<&PoolRegistry, RegistryError> {
         let key = canonical(self.network, address);
-        self.pools.iter().find(|p| canonical(self.network, p.pool()) == key)
-            .ok_or(RegistryError("snapshot pool is absent from registry document"))
+        self.pools
+            .iter()
+            .find(|p| canonical(self.network, p.pool()) == key)
+            .ok_or(RegistryError(
+                "snapshot pool is absent from registry document",
+            ))
     }
     pub fn adapter_version(&self) -> &'static str {
         match (self.network, self.format) {
@@ -136,20 +187,28 @@ impl RegistryDocument {
         if !config.network_enabled(self.network)
             || config.registry_qualification_digest(self.network) != Some(self.digest())
         {
-            return Err(RegistryError("registry differs from enabled immutable configuration"));
+            return Err(RegistryError(
+                "registry differs from enabled immutable configuration",
+            ));
         }
         for pool in &self.pools {
-            if !config.verified_pools(self.network).iter().any(|allowed|
-                canonical(self.network, allowed.address()) == canonical(self.network, pool.pool()))
-                || pool.assets().iter().any(|asset| !config.verified_assets(self.network)
-                    .iter().any(|allowed| canonical(self.network, allowed.address()) == canonical(self.network, asset)))
-            {
-                return Err(RegistryError("registry pool or asset is outside immutable allowlists"));
+            if !config.verified_pools(self.network).iter().any(|allowed| {
+                canonical(self.network, allowed.address()) == canonical(self.network, pool.pool())
+            }) || pool.assets().iter().any(|asset| {
+                !config.verified_assets(self.network).iter().any(|allowed| {
+                    canonical(self.network, allowed.address()) == canonical(self.network, asset)
+                })
+            }) {
+                return Err(RegistryError(
+                    "registry pool or asset is outside immutable allowlists",
+                ));
             }
             if let PoolRegistry::Solana(r) = pool
                 && r.expected_genesis_hash != config.expected_genesis_identity()
             {
-                return Err(RegistryError("registry genesis differs from immutable configuration"));
+                return Err(RegistryError(
+                    "registry genesis differs from immutable configuration",
+                ));
             }
         }
         Ok(())
@@ -170,12 +229,15 @@ mod tests {
         serde_json::from_str(include_str!("../../arb-evm/tests/fixtures/registry.json")).unwrap()
     }
     fn document(pools: Vec<Value>) -> Vec<u8> {
-        serde_json::to_vec(&json!({"schema_version":1,"network_id":"base-mainnet","pools":pools})).unwrap()
+        serde_json::to_vec(&json!({"schema_version":1,"network_id":"base-mainnet","pools":pools}))
+            .unwrap()
     }
     #[test]
     fn legacy_and_pool_set_are_distinct_and_exactly_addressed() {
         let p = pool();
-        let legacy = RegistryDocument::from_bytes(&serde_json::to_vec(&p).unwrap(), NetworkId::BaseMainnet).unwrap();
+        let legacy =
+            RegistryDocument::from_bytes(&serde_json::to_vec(&p).unwrap(), NetworkId::BaseMainnet)
+                .unwrap();
         assert_eq!(legacy.format(), DocumentFormat::LegacySinglePool);
         assert_eq!(legacy.adapter_version(), "arb_evm-v1");
         let mut second = p.clone();
@@ -186,27 +248,50 @@ mod tests {
         assert_eq!(set.digest(), arb_capture::digest(&bytes));
         assert_ne!(set.adapter_version(), legacy.adapter_version());
         assert_eq!(set.pools().len(), 2);
-        assert_eq!(set.select(second["pool"].as_str().unwrap()).unwrap().pool(), second["pool"].as_str().unwrap());
-        assert!(set.select("0x8888888888888888888888888888888888888888").is_err());
+        assert_eq!(
+            set.select(second["pool"].as_str().unwrap()).unwrap().pool(),
+            second["pool"].as_str().unwrap()
+        );
+        assert!(
+            set.select("0x8888888888888888888888888888888888888888")
+                .is_err()
+        );
     }
     #[test]
     fn duplicate_unknown_or_unbounded_documents_are_rejected() {
         let p = pool();
-        for pools in [vec![], vec![p.clone(),p.clone()], vec![p.clone();9]] {
-            assert!(RegistryDocument::from_bytes(&document(pools), NetworkId::BaseMainnet).is_err());
+        for pools in [vec![], vec![p.clone(), p.clone()], vec![p.clone(); 9]] {
+            assert!(
+                RegistryDocument::from_bytes(&document(pools), NetworkId::BaseMainnet).is_err()
+            );
         }
         let mut set = json!({"schema_version":1,"network_id":"base-mainnet","pools":[p]});
         set["extra"] = json!(true);
-        assert!(RegistryDocument::from_bytes(&serde_json::to_vec(&set).unwrap(), NetworkId::BaseMainnet).is_err());
+        assert!(
+            RegistryDocument::from_bytes(
+                &serde_json::to_vec(&set).unwrap(),
+                NetworkId::BaseMainnet
+            )
+            .is_err()
+        );
         let bytes = document(vec![pool()]);
         assert!(RegistryDocument::from_bytes(&bytes, NetworkId::SolanaMainnet).is_err());
-        let duplicate = String::from_utf8(bytes).unwrap().replacen("\"schema_version\":1", "\"schema_version\":1,\"schema_version\":1", 1);
-        assert!(RegistryDocument::from_bytes(duplicate.as_bytes(), NetworkId::BaseMainnet).is_err());
+        let duplicate = String::from_utf8(bytes).unwrap().replacen(
+            "\"schema_version\":1",
+            "\"schema_version\":1,\"schema_version\":1",
+            1,
+        );
+        assert!(
+            RegistryDocument::from_bytes(duplicate.as_bytes(), NetworkId::BaseMainnet).is_err()
+        );
     }
     #[test]
     fn structural_validation_never_enables_disabled_configuration() {
-        let config = ValidatedConfig::from_toml(include_str!("../../../config/research.example.toml")).unwrap();
-        let registry = RegistryDocument::from_bytes(&document(vec![pool()]), NetworkId::BaseMainnet).unwrap();
+        let config =
+            ValidatedConfig::from_toml(include_str!("../../../config/research.example.toml"))
+                .unwrap();
+        let registry =
+            RegistryDocument::from_bytes(&document(vec![pool()]), NetworkId::BaseMainnet).unwrap();
         assert!(registry.authorize(&config).is_err());
     }
 }

@@ -60,9 +60,15 @@ fn integer(value: &str) -> U256 {
 fn exact_quotes_match_pinned_official_sdk_differential_vectors() {
     let reference: Reference = serde_json::from_str(include_str!("reference/golden.json")).unwrap();
     assert_eq!(reference.schema_version, 1);
-    assert_eq!(reference.source_commit, "4e16fe8e56c8c26541545f138c89133794c7ce72");
+    assert_eq!(
+        reference.source_commit,
+        "4e16fe8e56c8c26541545f138c89133794c7ce72"
+    );
     assert_eq!(reference.fixture_origin, "synthetic");
-    assert!(!reference.cases.is_empty(), "reference vectors must not be empty");
+    assert!(
+        !reference.cases.is_empty(),
+        "reference vectors must not be empty"
+    );
     for case in reference.cases {
         let minimum = case.words.iter().map(|word| word.index).min().unwrap();
         let maximum = case.words.iter().map(|word| word.index).max().unwrap();
@@ -79,14 +85,25 @@ fn exact_quotes_match_pinned_official_sdk_differential_vectors() {
             bitmap_word_min: minimum,
             bitmap_word_max: maximum,
         };
-        let words: BTreeMap<_, _> = case.words.iter()
+        let words: BTreeMap<_, _> = case
+            .words
+            .iter()
             .map(|word| (word.index, format!("0x{:064x}", integer(&word.bitmap))))
             .collect();
         assert_eq!(words.len(), case.words.len(), "duplicate reference word");
-        let ticks: BTreeMap<_, _> = case.ticks.iter().map(|tick| (tick.index, TickState {
-            liquidity_gross: tick.liquidity_gross.clone(),
-            liquidity_net: tick.liquidity_net.clone(),
-        })).collect();
+        let ticks: BTreeMap<_, _> = case
+            .ticks
+            .iter()
+            .map(|tick| {
+                (
+                    tick.index,
+                    TickState {
+                        liquidity_gross: tick.liquidity_gross.clone(),
+                        liquidity_net: tick.liquidity_net.clone(),
+                    },
+                )
+            })
+            .collect();
         assert_eq!(ticks.len(), case.ticks.len(), "duplicate reference tick");
         let snapshot = PoolSnapshot {
             pool: registry.pool.clone(),
@@ -111,20 +128,54 @@ fn exact_quotes_match_pinned_official_sdk_differential_vectors() {
                 reasons: vec!["synthetic official-SDK differential fixture".into()],
             },
         };
-        let result = quote_exact_input_math(&snapshot, &registry, case.amount_in, case.zero_for_one);
+        let result =
+            quote_exact_input_math(&snapshot, &registry, case.amount_in, case.zero_for_one);
         if let Some(rejection) = case.expected_rejection {
             assert_eq!(rejection, "zero-output", "{}: unknown rejection", case.name);
-            assert!(case.expected.amount_out.is_zero(), "{}: reference output", case.name);
-            assert_eq!(case.expected.fee, case.expected.amount_in, "{}: input consumed as fee", case.name);
-            assert_eq!(result.unwrap_err().0, "Uniswap V3 quote output rounds to zero", "{}", case.name);
+            assert!(
+                case.expected.amount_out.is_zero(),
+                "{}: reference output",
+                case.name
+            );
+            assert_eq!(
+                case.expected.fee, case.expected.amount_in,
+                "{}: input consumed as fee",
+                case.name
+            );
+            assert_eq!(
+                result.unwrap_err().0,
+                "Uniswap V3 quote output rounds to zero",
+                "{}",
+                case.name
+            );
             continue;
         }
         let actual = result.unwrap_or_else(|error| panic!("{}: {}", case.name, error.0));
-        assert_eq!(actual.amount_in, case.expected.amount_in, "{}: full input", case.name);
-        assert_eq!(actual.amount_out, case.expected.amount_out, "{}: output", case.name);
-        assert_eq!(actual.pool_fee_in_input_asset, case.expected.fee, "{}: fee included", case.name);
-        assert_eq!(actual.ending_sqrt_price_x96, case.expected.ending_sqrt_price, "{}: price", case.name);
-        assert_eq!(actual.ticks_crossed, case.expected.initialized_ticks_crossed, "{}: crossings", case.name);
+        assert_eq!(
+            actual.amount_in, case.expected.amount_in,
+            "{}: full input",
+            case.name
+        );
+        assert_eq!(
+            actual.amount_out, case.expected.amount_out,
+            "{}: output",
+            case.name
+        );
+        assert_eq!(
+            actual.pool_fee_in_input_asset, case.expected.fee,
+            "{}: fee included",
+            case.name
+        );
+        assert_eq!(
+            actual.ending_sqrt_price_x96, case.expected.ending_sqrt_price,
+            "{}: price",
+            case.name
+        );
+        assert_eq!(
+            actual.ticks_crossed, case.expected.initialized_ticks_crossed,
+            "{}: crossings",
+            case.name
+        );
         assert_eq!(actual.evidence, "CANDIDATE");
         assert!(!snapshot.quality.quote_implementation_qualified);
     }

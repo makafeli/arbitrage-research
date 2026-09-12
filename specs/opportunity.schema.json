@@ -570,6 +570,36 @@
           }
         }
       }
+    },
+    {
+      "if": {
+        "required": [
+          "dataset_origin"
+        ]
+      },
+      "then": {
+        "if": {
+          "properties": {
+            "dataset_origin": {
+              "const": "RECORDED_LIVE"
+            }
+          }
+        },
+        "then": {
+          "properties": {
+            "source_kind": {
+              "const": "CAPTURED_MARKET_DATA"
+            }
+          }
+        },
+        "else": {
+          "properties": {
+            "source_kind": {
+              "const": "SYNTHETIC_FIXTURE"
+            }
+          }
+        }
+      }
     }
   ]
 }

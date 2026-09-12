@@ -136,6 +136,9 @@ jobs:
       - run: npm run build
       - run: npx playwright install --with-deps chromium
       - run: npm run test:browser
+      - name: Emit three synthetic dashboard screenshots for visual review
+        if: always()
+        run: python ../../scripts/emit_ui_review.py
       - name: Preserve dashboard browser evidence and lockfile
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

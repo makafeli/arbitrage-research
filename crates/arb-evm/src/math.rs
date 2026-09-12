@@ -94,16 +94,26 @@ fn sqrt_at_tick(tick: i32) -> Result<U256> {
         return Err(AdapterError("Uniswap V3 tick out of bounds"));
     }
     const FACTORS: [&str; 20] = [
-        "fffcb933bd6fad37aa2d162d1a594001", "fff97272373d413259a46990580e213a",
-        "fff2e50f5f656932ef12357cf3c7fdcc", "ffe5caca7e10e4e61c3624eaa0941cd0",
-        "ffcb9843d60f6159c9db58835c926644", "ff973b41fa98c081472e6896dfb254c0",
-        "ff2ea16466c96a3843ec78b326b52861", "fe5dee046a99a2a811c461f1969c3053",
-        "fcbe86c7900a88aedcffc83b479aa3a4", "f987a7253ac413176f2b074cf7815e54",
-        "f3392b0822b70005940c7a398e4b70f3", "e7159475a2c29b7443b29c7fa6e889d9",
-        "d097f3bdfd2022b8845ad8f792aa5825", "a9f746462d870fdf8a65dc1f90e061e5",
-        "70d869a156d2a1b890bb3df62baf32f7", "31be135f97d08fd981231505542fcfa6",
-        "9aa508b5b7a84e1c677de54f3e99bc9", "5d6af8dedb81196699c329225ee604",
-        "2216e584f5fa1ea926041bedfe98", "48a170391f7dc42444e8fa2",
+        "fffcb933bd6fad37aa2d162d1a594001",
+        "fff97272373d413259a46990580e213a",
+        "fff2e50f5f656932ef12357cf3c7fdcc",
+        "ffe5caca7e10e4e61c3624eaa0941cd0",
+        "ffcb9843d60f6159c9db58835c926644",
+        "ff973b41fa98c081472e6896dfb254c0",
+        "ff2ea16466c96a3843ec78b326b52861",
+        "fe5dee046a99a2a811c461f1969c3053",
+        "fcbe86c7900a88aedcffc83b479aa3a4",
+        "f987a7253ac413176f2b074cf7815e54",
+        "f3392b0822b70005940c7a398e4b70f3",
+        "e7159475a2c29b7443b29c7fa6e889d9",
+        "d097f3bdfd2022b8845ad8f792aa5825",
+        "a9f746462d870fdf8a65dc1f90e061e5",
+        "70d869a156d2a1b890bb3df62baf32f7",
+        "31be135f97d08fd981231505542fcfa6",
+        "9aa508b5b7a84e1c677de54f3e99bc9",
+        "5d6af8dedb81196699c329225ee604",
+        "2216e584f5fa1ea926041bedfe98",
+        "48a170391f7dc42444e8fa2",
     ];
     let mut ratio = U256::one() << 128;
     for (bit, factor) in FACTORS.iter().enumerate() {
@@ -147,7 +157,12 @@ fn amount0_delta(a: U256, b: U256, liquidity: u128, round_up: bool) -> Result<U2
     mul_div(first, U256::one(), a, round_up)
 }
 fn amount1_delta(a: U256, b: U256, liquidity: u128, round_up: bool) -> Result<U256> {
-    mul_div(U256::from(liquidity), sub(a.max(b), a.min(b))?, q96(), round_up)
+    mul_div(
+        U256::from(liquidity),
+        sub(a.max(b), a.min(b))?,
+        q96(),
+        round_up,
+    )
 }
 fn next_sqrt_from_input(
     price: U256,
@@ -230,9 +245,19 @@ fn compute_step(
     let fee = if price != target {
         sub(remaining, amount_in)?
     } else {
-        mul_div(amount_in, U256::from(fee), U256::from(FEE_DENOMINATOR - fee), true)?
+        mul_div(
+            amount_in,
+            U256::from(fee),
+            U256::from(FEE_DENOMINATOR - fee),
+            true,
+        )?
     };
-    Ok(SwapStep { price, amount_in, amount_out, fee })
+    Ok(SwapStep {
+        price,
+        amount_in,
+        amount_out,
+        fee,
+    })
 }
 
 struct ValidatedState {
@@ -248,7 +273,9 @@ fn validate(snapshot: &PoolSnapshot, registry: &PoolRegistry) -> Result<Validate
         || !(MIN_TICK..=MAX_TICK).contains(&snapshot.tick)
         || registry.tick_spacing >= 16384
     {
-        return Err(AdapterError("unsupported or inconsistent Uniswap V3 quote identity"));
+        return Err(AdapterError(
+            "unsupported or inconsistent Uniswap V3 quote identity",
+        ));
     }
     let bytes = crate::hex_bytes(&snapshot.sqrt_price_x96_hex)?;
     if bytes.len() != 20 {
@@ -259,13 +286,16 @@ fn validate(snapshot: &PoolSnapshot, registry: &PoolRegistry) -> Result<Validate
     if calculated_tick != snapshot.tick
         && !(calculated_tick == snapshot.tick + 1 && sqrt_at_tick(calculated_tick)? == price)
     {
-        return Err(AdapterError("Uniswap V3 tick and square-root price disagree"));
+        return Err(AdapterError(
+            "Uniswap V3 tick and square-root price disagree",
+        ));
     }
     let liquidity = unsigned(&snapshot.liquidity)?;
     if liquidity == 0 {
         return Err(AdapterError("empty initial Uniswap V3 liquidity"));
     }
-    let expected_words = i32::from(registry.bitmap_word_max) - i32::from(registry.bitmap_word_min) + 1;
+    let expected_words =
+        i32::from(registry.bitmap_word_max) - i32::from(registry.bitmap_word_min) + 1;
     if snapshot.bitmap_words.len() != expected_words as usize {
         return Err(AdapterError("incomplete Uniswap V3 captured bitmap window"));
     }
@@ -277,22 +307,33 @@ fn validate(snapshot: &PoolSnapshot, registry: &PoolRegistry) -> Result<Validate
     let mut words = BTreeMap::new();
     let mut ticks = BTreeMap::new();
     for word_index in registry.bitmap_word_min..=registry.bitmap_word_max {
-        let bytes = crate::hex_bytes(snapshot.bitmap_words.get(&word_index)
-            .ok_or(AdapterError("missing Uniswap V3 captured bitmap word"))?)?;
+        let bytes = crate::hex_bytes(
+            snapshot
+                .bitmap_words
+                .get(&word_index)
+                .ok_or(AdapterError("missing Uniswap V3 captured bitmap word"))?,
+        )?;
         if bytes.len() != 32 {
-            return Err(AdapterError("Uniswap V3 bitmap must be exact uint256 bytes"));
+            return Err(AdapterError(
+                "Uniswap V3 bitmap must be exact uint256 bytes",
+            ));
         }
         let bitmap = U256::from_big_endian(&bytes);
         for bit in 0..256 {
             if !bitmap.bit(bit) {
                 continue;
             }
-            let index = (i64::from(word_index) * 256 + bit as i64) * i64::from(registry.tick_spacing);
+            let index =
+                (i64::from(word_index) * 256 + bit as i64) * i64::from(registry.tick_spacing);
             if !(i64::from(MIN_TICK)..=i64::from(MAX_TICK)).contains(&index) {
-                return Err(AdapterError("initialized Uniswap V3 tick outside protocol bounds"));
+                return Err(AdapterError(
+                    "initialized Uniswap V3 tick outside protocol bounds",
+                ));
             }
             let index = index as i32;
-            let state = snapshot.initialized_ticks.get(&index)
+            let state = snapshot
+                .initialized_ticks
+                .get(&index)
                 .ok_or(AdapterError("missing initialized Uniswap V3 tick state"))?;
             let gross = unsigned(&state.liquidity_gross)?;
             let net = signed(&state.liquidity_net)?;
@@ -306,7 +347,12 @@ fn validate(snapshot: &PoolSnapshot, registry: &PoolRegistry) -> Result<Validate
     if ticks.len() != snapshot.initialized_ticks.len() {
         return Err(AdapterError("Uniswap V3 tick absent from captured bitmap"));
     }
-    Ok(ValidatedState { price, liquidity, words, ticks })
+    Ok(ValidatedState {
+        price,
+        liquidity,
+        words,
+        ticks,
+    })
 }
 
 // Word boundaries are real swap steps, even when uninitialized. Skipping empty
@@ -320,8 +366,9 @@ fn next_tick(
     let compressed = tick.div_euclid(spacing) + i32::from(!zero_for_one);
     let word_index = i16::try_from(compressed.div_euclid(256)).map_err(|_| overflow())?;
     let bit = compressed.rem_euclid(256) as usize;
-    let word = words.get(&word_index)
-        .ok_or(AdapterError("input exceeds captured Uniswap V3 tick coverage"))?;
+    let word = words.get(&word_index).ok_or(AdapterError(
+        "input exceeds captured Uniswap V3 tick coverage",
+    ))?;
     let found = if zero_for_one {
         (0..=bit).rev().find(|position| word.bit(*position))
     } else {
@@ -338,7 +385,10 @@ fn cross_liquidity(liquidity: u128, net: i128, zero_for_one: bool) -> Result<u12
         liquidity.checked_sub(net.unsigned_abs())
     } else {
         liquidity.checked_add(net.unsigned_abs())
-    }.ok_or(AdapterError("Uniswap V3 liquidity crossing overflows or underflows"))
+    }
+    .ok_or(AdapterError(
+        "Uniswap V3 liquidity crossing overflows or underflows",
+    ))
 }
 
 /// Computes a full exact-input quote within the captured V3 bitmap window.
@@ -354,13 +404,16 @@ pub fn quote_exact_input_math(
     let input = U256::from_dec_str(amount_in.as_str()).map_err(|_| overflow())?;
     let max_signed = U256::MAX >> 1;
     if input.is_zero() || input > max_signed {
-        return Err(AdapterError("Uniswap V3 exact input must fit positive int256"));
+        return Err(AdapterError(
+            "Uniswap V3 exact input must fit positive int256",
+        ));
     }
     let edge_tick = if zero_for_one {
         i64::from(registry.bitmap_word_min) * 256 * i64::from(registry.tick_spacing)
     } else {
         (i64::from(registry.bitmap_word_max) * 256 + 255) * i64::from(registry.tick_spacing)
-    }.clamp(i64::from(MIN_TICK), i64::from(MAX_TICK)) as i32;
+    }
+    .clamp(i64::from(MIN_TICK), i64::from(MAX_TICK)) as i32;
     let captured_limit = sqrt_at_tick(edge_tick)?;
     let limit = if zero_for_one {
         captured_limit.max(add(sqrt_at_tick(MIN_TICK)?, U256::one())?)
@@ -368,7 +421,9 @@ pub fn quote_exact_input_math(
         captured_limit.min(sub(sqrt_at_tick(MAX_TICK)?, U256::one())?)
     };
     if (zero_for_one && limit >= state.price) || (!zero_for_one && limit <= state.price) {
-        return Err(AdapterError("no captured Uniswap V3 price range in quote direction"));
+        return Err(AdapterError(
+            "no captured Uniswap V3 price range in quote direction",
+        ));
     }
     let mut tick = snapshot.tick;
     let mut remaining = input;
@@ -381,8 +436,18 @@ pub fn quote_exact_input_math(
                 return Err(AdapterError("Uniswap V3 quote output rounds to zero"));
             }
             return Ok(ExactInputMathQuote {
-                input_asset: if zero_for_one { &registry.token0 } else { &registry.token1 }.to_lowercase(),
-                output_asset: if zero_for_one { &registry.token1 } else { &registry.token0 }.to_lowercase(),
+                input_asset: if zero_for_one {
+                    &registry.token0
+                } else {
+                    &registry.token1
+                }
+                .to_lowercase(),
+                output_asset: if zero_for_one {
+                    &registry.token1
+                } else {
+                    &registry.token0
+                }
+                .to_lowercase(),
                 amount_in,
                 amount_out: atomic(output)?,
                 pool_fee_in_input_asset: atomic(fees)?,
@@ -393,31 +458,54 @@ pub fn quote_exact_input_math(
             });
         }
         if state.price == limit {
-            return Err(AdapterError("input exceeds captured Uniswap V3 price limit"));
+            return Err(AdapterError(
+                "input exceeds captured Uniswap V3 price limit",
+            ));
         }
-        let (next_tick_index, initialized) = next_tick(&state.words, tick, registry.tick_spacing, zero_for_one)?;
+        let (next_tick_index, initialized) =
+            next_tick(&state.words, tick, registry.tick_spacing, zero_for_one)?;
         let next_price = sqrt_at_tick(next_tick_index)?;
-        let target = if zero_for_one { next_price.max(limit) } else { next_price.min(limit) };
+        let target = if zero_for_one {
+            next_price.max(limit)
+        } else {
+            next_price.min(limit)
+        };
         if (zero_for_one && target > state.price) || (!zero_for_one && target < state.price) {
-            return Err(AdapterError("Uniswap V3 next tick moves in wrong direction"));
+            return Err(AdapterError(
+                "Uniswap V3 next tick moves in wrong direction",
+            ));
         }
         let previous = (remaining, state.price, tick);
-        let step = compute_step(state.price, target, state.liquidity, remaining, registry.fee)?;
+        let step = compute_step(
+            state.price,
+            target,
+            state.liquidity,
+            remaining,
+            registry.fee,
+        )?;
         remaining = sub(remaining, add(step.amount_in, step.fee)?)?;
         output = add(output, step.amount_out)?;
         if output > max_signed {
-            return Err(AdapterError("Uniswap V3 output exceeds signed accounting bound"));
+            return Err(AdapterError(
+                "Uniswap V3 output exceeds signed accounting bound",
+            ));
         }
         fees = add(fees, step.fee)?;
         state.price = step.price;
         if state.price == next_price {
             if initialized {
-                let net = *state.ticks.get(&next_tick_index)
+                let net = *state
+                    .ticks
+                    .get(&next_tick_index)
                     .ok_or(AdapterError("missing Uniswap V3 liquidity crossing"))?;
                 state.liquidity = cross_liquidity(state.liquidity, net, zero_for_one)?;
                 ticks_crossed += 1;
             }
-            tick = if zero_for_one { next_tick_index - 1 } else { next_tick_index };
+            tick = if zero_for_one {
+                next_tick_index - 1
+            } else {
+                next_tick_index
+            };
         } else if state.price != previous.1 {
             tick = tick_at_sqrt(state.price)?;
         }
@@ -425,7 +513,9 @@ pub fn quote_exact_input_math(
             return Err(AdapterError("Uniswap V3 quote step made no progress"));
         }
     }
-    Err(AdapterError("Uniswap V3 captured-window step budget exhausted"))
+    Err(AdapterError(
+        "Uniswap V3 captured-window step budget exhausted",
+    ))
 }
 
 #[cfg(test)]

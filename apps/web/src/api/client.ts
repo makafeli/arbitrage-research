@@ -1,3 +1,5 @@
+import { parseAsset, parseCoverage, parseDecision, parseGroup, parseJournal, parsePaperRun, parseReservation } from './research.ts';
+import type { AccountingAsset, InitialBalance } from './research.ts';
 export type Network = 'base-mainnet' | 'solana-mainnet';
 export type ResearchMode = 'OBSERVE' | 'PAPER' | 'REPLAY';
 export type SessionState = 'RECOVERING' | 'STOPPED' | 'RUNNING' | 'PAUSING' | 'PAUSED' | 'DRAINING' | 'FAULTED';
@@ -15,19 +17,21 @@ export interface CommandReceipt {
 }
 export interface Configuration {
   configuration_digest: string; mode: ResearchMode; enabled_networks: Network[]; strategy_ids: string[];
+  paper_assets?: { network_id: Network; asset: AccountingAsset }[];
 }
 export interface Capabilities {
   modes: ResearchMode[]; live_execution: boolean; market_data: boolean; opportunity_capture: boolean;
   registered_configurations: Configuration[]; command_application?: string;
+  decision_history?: boolean; paper_ledger?: boolean; paper_run_creation?: boolean;
 }
 export interface CreateSession {
   network_id: Network; mode: ResearchMode; configuration_digest: string; experiment_id: string; strategy_ids: string[];
 }
 export interface Opportunity {
-  schema_version: string; source_kind: 'CAPTURED_MARKET_DATA'; opportunity_id: string; session_id: string;
+  schema_version: string; source_kind: 'CAPTURED_MARKET_DATA'; dataset_origin?: 'RECORDED_LIVE'; opportunity_id: string; session_id: string;
   experiment_id: string; network_id: Network; mode: ResearchMode | 'LIVE'; evidence_label: 'CANDIDATE' | 'SIMULATED' | 'ESTIMATED_EXECUTABLE' | 'REALIZED';
   observed_at: string; snapshot: { snapshot_id: string; state_reference: string; source: string; consistent: boolean; complete: boolean; finality_label: string; age_ms: number };
-  start_asset_id: string; amount_in_minor: string; quoted_output_minor: string; net_after_explicit_costs_minor: string;
+  start_asset_id: string; amount_in_minor: string; quoted_output_minor: string; net_after_explicit_costs_minor: string | null;
   route: { pool_id: string; venue_family: string; asset_in: string; asset_out: string }[];
   costs: { kind: string; native_amount: { asset_id: string; amount_minor: string; decimals: number }; in_start_asset_minor: string; valuation_reference: string }[];
   simulation_status: 'NOT_RUN' | 'PASSED' | 'FAILED' | 'UNSUPPORTED'; inclusion_scenario_id: string | null;
@@ -79,10 +83,13 @@ export function parseReceipt(value: unknown): CommandReceipt {
 export function parseOpportunity(value: unknown): Opportunity {
   const v = object(value);
   assert(v.source_kind === 'CAPTURED_MARKET_DATA', 'Synthetic records are rejected in Connected mode.');
-  assert(v.schema_version === '1.0.0' && string(v.opportunity_id) && string(v.session_id) && string(v.experiment_id));
+  assert(oneOf(v.schema_version, ['1.0.0', '1.1.0']) && string(v.opportunity_id) && string(v.session_id) && string(v.experiment_id));
   assert(oneOf(v.network_id, networks) && oneOf(v.mode, modes) && date(v.observed_at));
   assert(oneOf(v.evidence_label, ['CANDIDATE', 'SIMULATED', 'ESTIMATED_EXECUTABLE', 'REALIZED']));
-  assert(uint(v.amount_in_minor) && uint(v.quoted_output_minor) && typeof v.net_after_explicit_costs_minor === 'string' && /^-?(0|[1-9][0-9]*)$/.test(v.net_after_explicit_costs_minor));
+  assert(uint(v.amount_in_minor) && uint(v.quoted_output_minor));
+  assert(v.net_after_explicit_costs_minor === null ? v.schema_version === '1.1.0' : typeof v.net_after_explicit_costs_minor === 'string' && /^-?(0|[1-9][0-9]*)$/.test(v.net_after_explicit_costs_minor));
+  assert(v.schema_version !== '1.1.0' || v.dataset_origin === 'RECORDED_LIVE');
+  assert(v.dataset_origin === undefined || v.dataset_origin === 'RECORDED_LIVE', 'Captured opportunity origin and source provenance disagree.');
   assert(string(v.start_asset_id) && Array.isArray(v.reason_codes) && v.reason_codes.every(string));
   assert(oneOf(v.simulation_status, ['NOT_RUN', 'PASSED', 'FAILED', 'UNSUPPORTED']));
   assert(oneOf(v.finality_status, ['NOT_APPLICABLE', 'PROVISIONAL', 'FINALIZED']));
@@ -92,6 +99,7 @@ export function parseOpportunity(value: unknown): Opportunity {
   assert(typeof snap.consistent === 'boolean' && typeof snap.complete === 'boolean');
   const checks = object(v.eligibility_checks);
   assert(['state_fresh_and_coherent', 'atomic_route_supported', 'final_balance_guard_present', 'costs_complete', 'principal_and_fee_reservations_valid', 'simulation_matches_exact_plan'].every(k => typeof checks[k] === 'boolean'));
+  assert(v.schema_version !== '1.1.0' || (checks.costs_complete ? v.net_after_explicit_costs_minor !== null : v.net_after_explicit_costs_minor === null), 'Incomplete external costs require unknown net; complete costs require numeric net.');
   assert(Array.isArray(v.route) && v.route.length >= 2 && v.route.length <= 3);
   for (const leg of v.route) { const l = object(leg); assert(['pool_id', 'venue_family', 'asset_in', 'asset_out'].every(k => string(l[k]))); }
   assert(Array.isArray(v.costs));
@@ -102,19 +110,24 @@ export function parseOpportunity(value: unknown): Opportunity {
   }
   assert(v.evidence_label !== 'REALIZED' || (v.mode === 'LIVE' && string(v.transaction_id) && v.finality_status !== 'NOT_APPLICABLE'));
   assert(!['SIMULATED', 'ESTIMATED_EXECUTABLE'].includes(v.evidence_label as string) || (v.simulation_status === 'PASSED' && checks.simulation_matches_exact_plan && checks.atomic_route_supported && checks.final_balance_guard_present && string(v.execution_plan_digest)));
-  assert(v.evidence_label !== 'ESTIMATED_EXECUTABLE' || (Object.values(checks).every(x => x === true) && snap.consistent && snap.complete && string(v.inclusion_scenario_id)));
+  assert(v.evidence_label !== 'ESTIMATED_EXECUTABLE' || (v.net_after_explicit_costs_minor !== null && Object.values(checks).every(x => x === true) && snap.consistent && snap.complete && string(v.inclusion_scenario_id)));
   return v as unknown as Opportunity;
 }
 function parseCapabilities(value: unknown): Capabilities {
   const v = object(value);
   assert(Array.isArray(v.modes) && v.modes.every(mode => oneOf(mode, modes.slice(0, 3))));
   assert(['live_execution', 'market_data', 'opportunity_capture'].every(k => typeof v[k] === 'boolean'));
+  assert(['decision_history', 'paper_ledger', 'paper_run_creation'].every(k => v[k] === undefined || typeof v[k] === 'boolean'));
   assert(Array.isArray(v.registered_configurations));
   for (const config of v.registered_configurations) {
     const c = object(config);
     assert(string(c.configuration_digest) && oneOf(c.mode, modes.slice(0, 3)));
     assert(Array.isArray(c.enabled_networks) && c.enabled_networks.every(n => oneOf(n, networks)));
     assert(Array.isArray(c.strategy_ids) && c.strategy_ids.every(string));
+    if (c.paper_assets !== undefined) {
+      assert(Array.isArray(c.paper_assets) && c.paper_assets.length <= 128);
+      for (const value of c.paper_assets) { const p = object(value); assert(oneOf(p.network_id, networks)); parseAsset(p.asset, p.network_id as string); }
+    }
   }
   return v as unknown as Capabilities;
 }
@@ -123,7 +136,7 @@ function parseAuth(value: unknown): AuthSession {
   return v as unknown as AuthSession;
 }
 function parsePage<T>(value: unknown, parse: (v: unknown) => T): Page<T> {
-  const v = object(value); assert(Array.isArray(v.items) && (v.next_cursor === null || string(v.next_cursor)));
+  const v = object(value); assert(Array.isArray(v.items) && v.items.length <= 100 && (v.next_cursor === null || string(v.next_cursor)));
   return { items: v.items.map(parse), next_cursor: v.next_cursor as string | null };
 }
 
@@ -155,7 +168,49 @@ export class ControlApi {
   async logout() { await this.request('/auth/logout', { method: 'POST' }); this.clearAuth(); }
   async capabilities(signal?: AbortSignal) { return parseCapabilities(await this.request('/capabilities', { signal })); }
   async sessions(signal?: AbortSignal, cursor?: string) { return parsePage(await this.request(`/sessions?limit=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`, { signal }), parseSession); }
-  async opportunities(signal?: AbortSignal) { return parsePage(await this.request('/opportunities?limit=100', { signal }), parseOpportunity); }
+  async opportunities(signal?: AbortSignal) { return parsePage(await this.request('/opportunities?limit=100&source_kind=CAPTURED_MARKET_DATA', { signal }), parseOpportunity); }
+  async decisions(sessionId: string, cursor?: string, signal?: AbortSignal) {
+    const page = parsePage(await this.request('/decisions?' + this.query(cursor, sessionId), { signal }), parseDecision);
+    assert(page.items.every(item => item.trace.session_id === sessionId), 'Decision response has the wrong session scope.'); return page;
+  }
+  async decision(observationId: string, signal?: AbortSignal) {
+    const item = parseDecision(await this.request('/decisions/' + encodeURIComponent(observationId), { signal }));
+    assert(item.trace.observation_id === observationId, 'Decision response has the wrong observation.'); return item;
+  }
+  async decisionGroups(sessionId: string, cursor?: string, signal?: AbortSignal) {
+    return parsePage(await this.request('/decision-groups?' + this.query(cursor, sessionId), { signal }), parseGroup);
+  }
+  async coverage(sessionId: string, signal?: AbortSignal) {
+    const coverage = parseCoverage(await this.request('/decision-coverage?session_id=' + encodeURIComponent(sessionId), { signal }));
+    assert(coverage.session_id === sessionId, 'Coverage response has the wrong session scope.'); return coverage;
+  }
+  async paperRuns(sessionId: string, cursor?: string, signal?: AbortSignal) {
+    const page = parsePage(await this.request('/sessions/' + encodeURIComponent(sessionId) + '/paper-runs?' + this.query(cursor), { signal }), parsePaperRun);
+    assert(page.items.every(item => item.session_id === sessionId), 'Paper runs response has the wrong session scope.'); return page;
+  }
+  async paperRun(runId: string, signal?: AbortSignal) {
+    const run = parsePaperRun(await this.request('/paper-runs/' + encodeURIComponent(runId), { signal }));
+    assert(run.run_id === runId, 'Paper run response has the wrong run scope.'); return run;
+  }
+  async createPaperRun(sessionId: string, body: { initial_balances: InitialBalance[] }, key: string) {
+    const run = parsePaperRun(await this.request('/sessions/' + encodeURIComponent(sessionId) + '/paper-runs', { method: 'POST', body, key }));
+    assert(run.session_id === sessionId, 'Paper creation response has the wrong session scope.');
+    assert(run.initial_balances.length === body.initial_balances.length && body.initial_balances.every(expected => run.initial_balances.some(actual => actual.asset.kind === expected.asset.kind && actual.asset.identity === expected.asset.identity && actual.amount === expected.amount)), 'Paper creation response does not preserve the requested initial balances.'); return run;
+  }
+  async journal(runId: string, cursor?: string, signal?: AbortSignal) {
+    const page = parsePage(await this.request('/paper-runs/' + encodeURIComponent(runId) + '/journal?' + this.query(cursor), { signal }), parseJournal);
+    assert(page.items.every(item => item.event.run_id === runId), 'Journal response has the wrong run scope.'); return page;
+  }
+  async reservations(runId: string, cursor?: string, signal?: AbortSignal) {
+    return parsePage(await this.request('/paper-runs/' + encodeURIComponent(runId) + '/reservations?' + this.query(cursor), { signal }), parseReservation);
+  }
+  private query(cursor?: string, sessionId?: string) {
+    const params = new URLSearchParams({ limit: '25' });
+    if (cursor) params.set('cursor', cursor);
+    if (sessionId) params.set('session_id', sessionId);
+    return params.toString();
+  }
+
   async create(body: CreateSession, key: string) { return parseSession(await this.request('/sessions', { method: 'POST', body, key })); }
   async command(sessionId: string, body: CommandRequest, key: string) {
     const receipt = parseReceipt(await this.request(`/sessions/${encodeURIComponent(sessionId)}/commands`, { method: 'POST', body, key }));
@@ -171,7 +226,7 @@ export class ControlApi {
 
 export function availableActions(session: Session): CommandAction[] {
   if (session.mode === 'LIVE') return [];
-  if (session.observed_state === 'STOPPED' && session.desired_revision !== session.applied_revision) return ['STOP'];
+  if (session.observed_state === 'STOPPED' && session.desired_revision !== session.applied_revision) return ['START', 'STOP'];
   switch (session.observed_state) {
     case 'STOPPED': return ['START'];
     case 'RUNNING': return ['PAUSE', 'STOP'];

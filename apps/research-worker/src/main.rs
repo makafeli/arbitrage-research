@@ -5,12 +5,13 @@ use arb_capture::{CaptureManifest, MAX_BUNDLE_BYTES, Origin, file_digest, write_
 use arb_config::ValidatedConfig;
 use arb_control::{ControlWorker, WorkGeneration};
 use arb_domain::{Mode, NetworkId};
-use arb_registry::{RegistryDocument, PoolRegistry};
+use arb_registry::{PoolRegistry, RegistryDocument};
 use arb_storage::{Store, StoreError};
 use serde_json::{Value, json};
 use std::{
     error::Error,
     fs,
+    io::Read,
     path::{Path, PathBuf},
     process::ExitCode,
     sync::Arc,
@@ -40,7 +41,10 @@ impl arb_engine::EvaluationGate for ResearchGate {
         arb_engine::GateState {
             generation: self.generation,
             admission_open: self.cancellation.check(now).is_ok(),
-            now_monotonic_ms: u64::try_from(now.saturating_duration_since(self.started).as_millis()).unwrap_or(u64::MAX),
+            now_monotonic_ms: u64::try_from(
+                now.saturating_duration_since(self.started).as_millis(),
+            )
+            .unwrap_or(u64::MAX),
         }
     }
 }
@@ -57,7 +61,12 @@ fn evaluate_blocking(
         started: item.observed_at,
         generation: item.generation.generation(),
     };
-    let origin = item.payload.pools.first().ok_or("empty captured batch")?.origin;
+    let origin = item
+        .payload
+        .pools
+        .first()
+        .ok_or("empty captured batch")?
+        .origin;
     let request = arb_engine::EvaluationRequest {
         session_id: &session_id,
         experiment_id: &experiment_id,
@@ -120,7 +129,6 @@ impl Registry {
             Self::Solana(_) => arb_solana::SOURCE_COMMIT,
         }
     }
-
 }
 
 struct CapturePlan {
@@ -158,7 +166,14 @@ fn read_small(path: &str) -> Result<Vec<u8>, AnyError> {
     if !meta.file_type().is_file() || meta.len() > 1024 * 1024 {
         return Err("configuration/registry must be a regular file at most 1 MiB".into());
     }
-    Ok(fs::read(path)?)
+    let mut bytes = Vec::new();
+    fs::File::open(path)?
+        .take(1024 * 1024 + 1)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() > 1024 * 1024 {
+        return Err("configuration/registry exceeds 1 MiB".into());
+    }
+    Ok(bytes)
 }
 fn required_env(name: &str) -> Result<String, AnyError> {
     std::env::var(name)
@@ -227,65 +242,67 @@ fn capture_blocking(plan: &CapturePlan) -> Result<CompletedBatch, AnyError> {
         let pool_observed = now_ms()?;
         let (snapshot, context, coherent) = registry.capture(&mut rpc, pool_observed)?;
         let records: Vec<RpcRecord> = rpc.take_records();
-    if records.is_empty() {
-        return Err("capture returned no recorded inputs".into());
-    }
-    let capture_id = Uuid::new_v4().to_string();
-    let path = plan.root.join(&capture_id);
-    let remaining = plan
-        .quota_bytes
-        .checked_sub(directory_bytes(&plan.root)?)
-        .filter(|q| *q > 0)
-        .ok_or("capture volume quota exhausted")?;
-    let manifest = CaptureManifest {
-        schema_version: 1,
-        capture_id: capture_id.clone(),
-        origin: plan.origin.clone(),
-        network: registry.chain(),
-        provider_alias: plan.provider_alias.clone(),
-        adapter_version: plan.registry.adapter_version().into(),
-        adapter_source_commit: registry.source().into(),
-        build_digest: plan.build_digest.clone(),
-        config_digest: plan.config_digest.clone(),
-        created_at_ms: pool_observed,
-        raw_expires_at_ms: Some(
-            observed
-                .checked_add(u64::from(plan.retention_days) * 86_400_000)
-                .ok_or("retention overflow")?,
-        ),
-        context,
-        first_sequence: 0,
-        last_sequence: records.len() as u64 - 1,
-        required_inputs: vec![
-            "pool-state".into(),
-            "qualified-quote-range".into(),
-            "qualified-quote-math".into(),
-        ],
-        missing_inputs: vec![
-            "qualified-quote-range".into(),
-            "qualified-quote-math".into(),
-        ],
-        coherent,
-        complete_for_quote: false,
-        objects: vec![],
-    };
-    let manifest_digest = write_bundle(
-        &path,
-        manifest,
-        vec![
-            ("rpc.json".into(), serde_json::to_vec(&records)?),
-            ("snapshot.json".into(), serde_json::to_vec(&snapshot)?),
-            ("registry.json".into(), plan.registry_bytes.clone()),
-            ("effective-config.json".into(), plan.config_bytes.clone()),
-        ],
-        remaining.min(MAX_BUNDLE_BYTES),
-    )?;
+        if records.is_empty() {
+            return Err("capture returned no recorded inputs".into());
+        }
+        let capture_id = Uuid::new_v4().to_string();
+        let path = plan.root.join(&capture_id);
+        let remaining = plan
+            .quota_bytes
+            .checked_sub(directory_bytes(&plan.root)?)
+            .filter(|q| *q > 0)
+            .ok_or("capture volume quota exhausted")?;
+        let manifest = CaptureManifest {
+            schema_version: 1,
+            capture_id: capture_id.clone(),
+            origin: plan.origin.clone(),
+            network: registry.chain(),
+            provider_alias: plan.provider_alias.clone(),
+            adapter_version: plan.registry.adapter_version().into(),
+            adapter_source_commit: registry.source().into(),
+            build_digest: plan.build_digest.clone(),
+            config_digest: plan.config_digest.clone(),
+            created_at_ms: pool_observed,
+            raw_expires_at_ms: Some(
+                observed
+                    .checked_add(u64::from(plan.retention_days) * 86_400_000)
+                    .ok_or("retention overflow")?,
+            ),
+            context,
+            first_sequence: 0,
+            last_sequence: records.len() as u64 - 1,
+            required_inputs: vec![
+                "pool-state".into(),
+                "qualified-quote-range".into(),
+                "qualified-quote-math".into(),
+            ],
+            missing_inputs: vec![
+                "qualified-quote-range".into(),
+                "qualified-quote-math".into(),
+            ],
+            coherent,
+            complete_for_quote: false,
+            objects: vec![],
+        };
+        let manifest_digest = write_bundle(
+            &path,
+            manifest,
+            vec![
+                ("rpc.json".into(), serde_json::to_vec(&records)?),
+                ("snapshot.json".into(), serde_json::to_vec(&snapshot)?),
+                ("registry.json".into(), plan.registry_bytes.clone()),
+                ("effective-config.json".into(), plan.config_bytes.clone()),
+            ],
+            remaining.min(MAX_BUNDLE_BYTES),
+        )?;
         let state = match selected {
             PoolRegistry::Base(r) => arb_engine::PoolState::Base {
-                snapshot: serde_json::from_value(snapshot)?, registry: r.clone(),
+                snapshot: serde_json::from_value(snapshot)?,
+                registry: r.clone(),
             },
             PoolRegistry::Solana(r) => arb_engine::PoolState::Solana {
-                snapshot: serde_json::from_value(snapshot)?, registry: r.clone(),
+                snapshot: serde_json::from_value(snapshot)?,
+                registry: r.clone(),
             },
         };
         let origin = match plan.origin {
@@ -303,9 +320,18 @@ fn capture_blocking(plan: &CapturePlan) -> Result<CompletedBatch, AnyError> {
             configuration_digest: plan.config_digest.clone(),
             state,
         };
-        captures.push(CompletedCapture { capture_id, manifest_digest, path, pool });
+        captures.push(CompletedCapture {
+            capture_id,
+            manifest_digest,
+            path,
+            pool,
+        });
     }
-    Ok(CompletedBatch { captures, started, observed_at_ms: observed })
+    Ok(CompletedBatch {
+        captures,
+        started,
+        observed_at_ms: observed,
+    })
 }
 
 async fn run() -> Result<(), AnyError> {
@@ -323,6 +349,9 @@ async fn run() -> Result<(), AnyError> {
     .await?;
     store.migrate().await?;
     let session = store.get_session(&operator, &session_id).await?;
+    let experiment_id = store
+        .get_session_experiment_id(&operator, &session_id)
+        .await?;
     let expected_mode = match config.mode() {
         Mode::Observe => "OBSERVE",
         Mode::Paper => "PAPER",
@@ -352,10 +381,9 @@ async fn run() -> Result<(), AnyError> {
     }
     // HTTP transport is accepted only for loopback fixtures by HttpReadRpc.
     // Such captures must never be labelled recorded market input.
-    let origin = if endpoint.starts_with("http://") {
-        Origin::ManuallyConstructed
-    } else {
-        Origin::RecordedLive
+    let origin = match arb_adapter_api::endpoint_kind(&endpoint)? {
+        arb_adapter_api::EndpointKind::LoopbackFixture => Origin::ManuallyConstructed,
+        arb_adapter_api::EndpointKind::HttpsRemote => Origin::RecordedLive,
     };
     let plan = Arc::new(CapturePlan {
         registry,
@@ -386,12 +414,14 @@ async fn run() -> Result<(), AnyError> {
     );
     // This process owns one network and one capture/evaluation at a time.
     // Host-wide resource isolation across Railway services is a deployment concern.
-    let scheduler = arb_scheduler::Scheduler::<EvaluationPayload, WorkGeneration>::new(arb_scheduler::Limits {
-        queue_per_network: 1,
-        in_flight_per_network: 1,
-        global_in_flight: 2,
-        stage_deadlines: [EVALUATION_DEADLINE; 6],
-    })?;
+    let scheduler = arb_scheduler::Scheduler::<EvaluationPayload, WorkGeneration>::new(
+        arb_scheduler::Limits {
+            queue_per_network: 1,
+            in_flight_per_network: 1,
+            global_in_flight: 2,
+            stage_deadlines: [EVALUATION_DEADLINE; 6],
+        },
+    )?;
     let configuration = Arc::new(config);
     let mut evaluation: Option<JoinHandle<Result<Vec<arb_domain::DecisionTrace>, AnyError>>> = None;
     let mut evaluation_generation: Option<WorkGeneration> = None;
@@ -465,7 +495,7 @@ async fn run() -> Result<(), AnyError> {
                                     && let Some(permit)=scheduler.dispatch(Instant::now())? {
                                     let config=Arc::clone(&configuration);
                                     let session_id=session_id.clone();
-                                    let experiment_id=session.experiment_id.clone();
+                                    let experiment_id=experiment_id.clone();
                                     let strategy=configuration.strategy_ids()[0].clone();
                                     evaluation_generation=Some(generation);
                                     evaluation=Some(tokio::task::spawn_blocking(move||evaluate_blocking(permit,config,session_id,experiment_id,strategy)));
