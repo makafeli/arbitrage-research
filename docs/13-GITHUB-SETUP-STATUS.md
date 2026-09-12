@@ -24,7 +24,7 @@ Ticket creation does not complete the implementation acceptance criteria. Ticket
 
 The connected GitHub tools can publish repository files and issues, but they do not expose owner Project administration or native Wiki Git pushes. The repository-scoped Actions token does not supply the separate owner Project access. Those features were not claimed or silently approximated as completed.
 
-The reviewed importer and [Project definition](../planning/github-project.json) are ready to create one private owner Project, link it to this repository, populate all issues, initialize Delivery status/Priority/Stage fields and create four saved views. Nine Wiki source pages are ready for publication to the separate native Wiki repository.
+The reviewed importer and [Project definition](../planning/github-project.json) are ready to create one private owner Project, link it to this repository, populate all issues, initialize Delivery status/Priority/Stage/Role/Release gate/Dependency IDs fields and create four saved views. Nine Wiki source pages are ready for publication to the separate native Wiki repository.
 
 From an authenticated clone on a workstation with Python 3.11+, Git and GitHub CLI:
 

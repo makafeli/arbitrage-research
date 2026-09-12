@@ -63,3 +63,17 @@ test('unauthorized responses remove the in-memory CSRF token', async () => {
   await api.command('s', { action: 'STOP', expected_revision: '1' }, 'key');
   assert.equal(finalHeaders['X-CSRF-Token'], undefined);
 });
+
+test('default transport invokes native fetch with its global receiver', async () => {
+  const original = globalThis.fetch;
+  let called = false;
+  globalThis.fetch = async function (this: unknown) {
+    // Browser fetch is a Web API method; Node fetch does not enforce its
+    // receiver, so ordinary injected transport tests do not catch this bug.
+    assert.equal(this, globalThis, 'Native fetch lost its Window/global receiver');
+    called = true;
+    return Response.json({ operator_id: 'operator', csrf_token: 'csrf-test', expires_at: '2000000000' });
+  };
+  try { await new ControlApi().auth(); assert.equal(called, true); }
+  finally { globalThis.fetch = original; }
+});

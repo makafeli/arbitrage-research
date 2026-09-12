@@ -85,6 +85,61 @@ def load_backlog(path):
     return data, items
 
 
+def project_defaults(item):
+    role = item.get("role", "").split(" / ")[0].strip()
+    if not role:
+        raise SetupError(f"{item['id']} has no responsible role for Project metadata")
+    gate = f"{item['milestone']} exit gate" if item["id"].startswith("EPIC-") else item.get("release_gate")
+    if not gate:
+        raise SetupError(f"{item['id']} has no release gate for Project metadata")
+    return {"Delivery status": "Deferred" if item["milestone"] in ("M6", "M7") else "Backlog",
+            "Priority": item.get("priority", "P2"), "Stage": item["milestone"],
+            "Role": role, "Release gate": gate,
+            "Dependency IDs": ", ".join(item.get("deps", item.get("dependencies", []))) or "None"}
+
+
+def validate_project_spec(spec, items):
+    fields = {field["name"]: field for field in spec["fields"]}
+    if len(fields) != len(spec["fields"]):
+        raise SetupError("Duplicate Project field definitions")
+    for field in fields.values():
+        if field["type"] not in ("TEXT", "SINGLE_SELECT"):
+            raise SetupError("Unsupported Project field type in specification")
+        if field["type"] == "SINGLE_SELECT":
+            options = field.get("options", [])
+            if not 1 <= len(options) <= 50 or len(set(options)) != len(options) or any(not option or "," in option for option in options):
+                raise SetupError("Select fields require 1..50 unique nonempty options without commas")
+    for item in items:
+        for name, value in project_defaults(item).items():
+            field = fields.get(name)
+            if not field or field["type"] == "SINGLE_SELECT" and value not in field["options"]:
+                raise SetupError(f"Project field {name} does not cover {item['id']} metadata")
+    return fields
+
+
+def missing_project_updates(item, existing_row, known, definitions):
+    # Both supported union members must be queried; omitting text values would
+    # overwrite an operator's existing dependency display on every rerun.
+    assigned = {value["field"]["name"] for value in ((existing_row or {}).get("fieldValues") or {}).get("nodes", [])
+                if isinstance(value, dict) and value.get("field") and ("name" in value or "text" in value)}
+    updates = []
+    for name, value in project_defaults(item).items():
+        field = known.get(name)
+        if not field or field.get("dataType") != definitions[name]["type"]:
+            raise SetupError(f"Project field {name} has an incompatible type; reconcile it without overwriting operator data")
+        if name in assigned:
+            continue
+        if field["dataType"] == "TEXT":
+            encoded = {"text": value}
+        else:
+            option = next((option for option in field.get("options", []) if option["name"] == value), None)
+            if option is None:
+                raise SetupError(f"Project field {name} lacks option {value}; preserve existing values and reconcile field manually")
+            encoded = {"singleSelectOptionId": option["id"]}
+        updates.append((field["id"], encoded))
+    return updates
+
+
 def issue_index(issues):
     indexed = {}
     for issue in issues:
@@ -330,6 +385,7 @@ class Bootstrap:
         if any(item["id"] not in self.issues for item in self.items):
             raise SetupError("Import all issues before the project phase")
         spec = read_json(ROOT / "planning/github-project.json")
+        definitions = validate_project_spec(spec, self.items)
         title = spec["title"] + " · " + self.name
         owner = self.api("users/" + self.owner)
         kind = "organization" if owner["type"] == "Organization" else "user"
@@ -358,8 +414,10 @@ class Bootstrap:
         run(["gh", "project", "link", str(project["number"]), "--owner", self.owner, "--repo", self.args.repo])
         # Project is private even when the selected code repository is public.
         self.graphql('''mutation($id:ID!,$readme:String!){updateProjectV2(input:{projectId:$id,public:false,readme:$readme}){projectV2{id}}}''', {"id": project["id"], "readme": spec["readme"]})
-        fields = json.loads(run(["gh", "project", "field-list", str(project["number"]), "--owner", self.owner, "--limit", "100", "--format", "json"]))["fields"]
-        known = {field["name"]: field for field in fields}
+        fields = self.graphql('query($id:ID!){node(id:$id){... on ProjectV2{fields(first:100){nodes{... on ProjectV2Field{id name dataType} ... on ProjectV2SingleSelectField{id name dataType options{id name}} ... on ProjectV2IterationField{id name dataType}}}}}}', {"id": project["id"]})["node"]["fields"]["nodes"]
+        known = {field["name"]: field for field in fields if field.get("name")}
+        if len(known) != len([field for field in fields if field.get("name")]):
+            raise SetupError("Duplicate native Project field names; reconcile before importing")
         for field in spec["fields"]:
             if field["name"] in known:
                 self.state["pending"].pop("field:" + field["name"], None)
@@ -373,12 +431,13 @@ class Bootstrap:
                 if field.get("options"):
                     args += ["--single-select-options", ",".join(field["options"])]
                 known[field["name"]] = json.loads(run(args))
+                known[field["name"]]["dataType"] = field["type"]
                 self.state["pending"].pop(pending, None)
                 self.save()
         current_items = {}
         cursor = None
         while True:
-            result = self.graphql('''query($id:ID!,$cursor:String){node(id:$id){... on ProjectV2{items(first:100,after:$cursor){nodes{id content{... on Issue{id}} fieldValues(first:100){nodes{... on ProjectV2ItemFieldSingleSelectValue{name field{name}}}}} pageInfo{hasNextPage endCursor}}}}}''', {"id": project["id"], "cursor": cursor})["node"]["items"]
+            result = self.graphql('''query($id:ID!,$cursor:String){node(id:$id){... on ProjectV2{items(first:100,after:$cursor){nodes{id content{... on Issue{id}} fieldValues(first:100){nodes{... on ProjectV2ItemFieldSingleSelectValue{name field{... on ProjectV2FieldCommon{name}}} ... on ProjectV2ItemFieldTextValue{text field{... on ProjectV2FieldCommon{name}}}}}} pageInfo{hasNextPage endCursor}}}}}''', {"id": project["id"], "cursor": cursor})["node"]["items"]
             for row in result["nodes"]:
                 content = (row.get("content") or {}).get("id")
                 if content:
@@ -389,17 +448,10 @@ class Bootstrap:
         for item in self.items:
             issue = self.issues[item["id"]]
             existing_row = current_items.get(issue["node_id"])
-            assigned = {value["field"]["name"] for value in existing_row["fieldValues"]["nodes"] if value.get("field")} if existing_row else set()
+            updates = missing_project_updates(item, existing_row, known, definitions)
             row = existing_row["id"] if existing_row else self.graphql('''mutation($project:ID!,$content:ID!){addProjectV2ItemById(input:{projectId:$project,contentId:$content}){item{id}}}''', {"project": project["id"], "content": issue["node_id"]})["addProjectV2ItemById"]["item"]["id"]
-            defaults = {"Delivery status": "Deferred" if item["milestone"] in ("M6", "M7") else "Backlog", "Priority": item.get("priority", "P2"), "Stage": item["milestone"]}
-            for name, value in defaults.items():
-                if name in assigned:
-                    continue  # Preserve operator values; complete only missing defaults after interruption.
-                field = known[name]
-                option = next((x for x in field.get("options", []) if x["name"] == value), None)
-                if option is None:
-                    raise SetupError(f"Project field {name} lacks option {value}; preserve existing values and reconcile field manually")
-                self.graphql('''mutation($p:ID!,$i:ID!,$f:ID!,$v:String!){updateProjectV2ItemFieldValue(input:{projectId:$p,itemId:$i,fieldId:$f,value:{singleSelectOptionId:$v}}){projectV2Item{id}}}''', {"p": project["id"], "i": row, "f": field["id"], "v": option["id"]})
+            for field_id, value in updates:
+                self.graphql('mutation($p:ID!,$i:ID!,$f:ID!,$v:ProjectV2FieldValue!){updateProjectV2ItemFieldValue(input:{projectId:$p,itemId:$i,fieldId:$f,value:$v}){projectV2Item{id}}}', {"p": project["id"], "i": row, "f": field_id, "v": value})
         return {"url": project["url"], "items": len(self.items), "view_configuration": "Run the views component using supported owner authentication"}
 
     def views(self):
@@ -518,6 +570,8 @@ def main():
         parser.error("Unknown component; choose " + ",".join(COMPONENTS))
     try:
         backlog, items = load_backlog(args.backlog)
+        if "project" in args.components or not args.apply:
+            validate_project_spec(read_json(ROOT / "planning/github-project.json"), items)
         if not args.apply:
             print(json.dumps({"mode": "offline dry run; no remote state inspected or changed",
                 "repository": args.repo, "components": sorted(args.components), "epics": len(backlog["epics"]),

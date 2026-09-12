@@ -130,7 +130,9 @@ function parsePage<T>(value: unknown, parse: (v: unknown) => T): Page<T> {
 export class ControlApi {
   private csrf: string | null = null;
   private readonly transport: typeof fetch;
-  constructor(transport: typeof fetch = fetch) { this.transport = transport; }
+  // Native browser fetch requires the Window receiver. Keeping it directly as
+  // a class property and calling this.transport(...) triggers Illegal invocation.
+  constructor(transport: typeof fetch = (input, init) => globalThis.fetch(input, init)) { this.transport = transport; }
   clearAuth() { this.csrf = null; }
   private async request(path: string, options: { body?: unknown; key?: string; signal?: AbortSignal; method?: string } = {}): Promise<unknown> {
     const headers: Record<string, string> = { Accept: 'application/json' };

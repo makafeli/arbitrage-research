@@ -126,3 +126,39 @@ fn tick_crossing_changes_output_and_duplicate_tick_data_is_rejected() {
     crossing.tick_arrays[0].initialized_ticks.push(duplicate);
     assert!(quote_exact_input_math(&crossing, 10000, true).is_err());
 }
+
+#[test]
+fn both_tick_window_edges_terminate_with_large_unfilled_amounts() {
+    let s = snapshot(1);
+    for direction in [true, false] {
+        assert!(quote_exact_input_math(&s, u64::MAX, direction).is_err());
+    }
+    // At a range's lower boundary there is no captured downward price interval.
+    let mut lower = snapshot(1);
+    lower.tick_arrays.remove(0);
+    assert!(quote_exact_input_math(&lower, 10_000, true).is_err());
+    // At a range's upper boundary there is no captured upward price interval.
+    let mut upper = snapshot(1);
+    upper.state.tick_current_index = 5631;
+    upper.state.sqrt_price_x64 = orca_whirlpools_core::tick_index_to_sqrt_price(5631).to_string();
+    assert!(quote_exact_input_math(&upper, 10_000, false).is_err());
+}
+
+#[test]
+fn malformed_liquidity_crossings_fail_before_entering_core_math() {
+    let mut underflow = snapshot(1);
+    underflow.tick_arrays[0].initialized_ticks.push(TickState {
+        index: -64,
+        liquidity_gross: "2000000000000".into(),
+        liquidity_net: "2000000000000".into(),
+    });
+    assert!(quote_exact_input_math(&underflow, 5_000_000_000, true).is_err());
+    let mut overflow = snapshot(1);
+    overflow.state.liquidity = u128::MAX.to_string();
+    overflow.tick_arrays[0].initialized_ticks.push(TickState {
+        index: -64,
+        liquidity_gross: "1".into(),
+        liquidity_net: "-1".into(),
+    });
+    assert!(quote_exact_input_math(&overflow, 5_000_000_000, true).is_err());
+}

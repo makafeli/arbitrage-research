@@ -150,10 +150,17 @@ fn claimed_recorded_solana_capture_must_match_case_sensitive_allowlists_and_gene
         let mut pool = registry.pool.clone();
         let mut mint = registry.mint_a.clone();
         if mutation == 1 {
-            pool.replace_range(1..2, "V");
+            // Alter a trailing letter: changing a leading Base58 digit can
+            // change the decoded byte length and exercise address parsing
+            // instead of the case-sensitive replay authorization boundary.
+            let index = pool.len() - 2;
+            assert_eq!(&pool[index..index + 1], "K");
+            pool.replace_range(index..index + 1, "k");
         }
         if mutation == 2 {
-            mint.replace_range(1..2, "K");
+            let index = mint.len() - 2;
+            assert_eq!(&mint[index..index + 1], "y");
+            mint.replace_range(index..index + 1, "Y");
         }
         if mutation == 3 {
             solana["expected_genesis_identity"] = json!(registry.program_data);
@@ -169,7 +176,7 @@ fn claimed_recorded_solana_capture_must_match_case_sensitive_allowlists_and_gene
         let config = arb_config::ValidatedConfig::from_effective_json(
             &serde_json::to_string(&config).unwrap(),
         )
-        .unwrap();
+        .unwrap_or_else(|error| panic!("synthetic config mutation {mutation}: {error:?}"));
         bundle.manifest.origin = Origin::RecordedLive;
         bundle.manifest.adapter_version = "arb_solana-v1".into();
         bundle.manifest.config_digest = config.digest().into();

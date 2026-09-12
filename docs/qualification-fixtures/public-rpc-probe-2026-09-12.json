@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "purpose": "bounded-public-read-only-qualification-probe",
+  "started_at_utc": "2026-09-12T18:39:08.140363+00:00",
+  "budget": {
+    "paid_spend": 0,
+    "max_requests_per_chain": 5,
+    "max_response_bytes": 2097152,
+    "request_timeout_seconds": 10,
+    "retries": 0
+  },
+  "providers": {
+    "base": {
+      "public_documented_endpoint": "https://mainnet.base.org",
+      "calls": [
+        {
+          "request": {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "eth_chainId",
+            "params": []
+          },
+          "started_at_utc": "2026-09-12T18:39:08.143131+00:00",
+          "outcome": "transport-or-decode-failed",
+          "error_type": "URLError",
+          "elapsed_ms": 10034.083
+        }
+      ],
+      "production_qualified": false,
+      "eligible_pools": []
+    },
+    "solana": {
+      "public_documented_endpoint": "https://api.mainnet.solana.com",
+      "calls": [
+        {
+          "request": {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "getGenesisHash",
+            "params": []
+          },
+          "started_at_utc": "2026-09-12T18:39:08.144962+00:00",
+          "outcome": "transport-or-decode-failed",
+          "error_type": "URLError",
+          "elapsed_ms": 10034.752
+        }
+      ],
+      "production_qualified": false,
+      "eligible_pools": []
+    }
+  },
+  "stopped_reason": "Initial public RPC request failed or was blocked; no alternate endpoints, retries or follow-up calls attempted.",
+  "finished_at_utc": "2026-09-12T18:39:18.181993+00:00"
+}

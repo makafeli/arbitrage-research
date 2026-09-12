@@ -5,8 +5,8 @@
 use crate::{PoolSnapshot, key};
 use arb_adapter_api::{AdapterError, Result, StateContext};
 use orca_whirlpools_core::{
-    MAX_SQRT_PRICE, MIN_SQRT_PRICE, TickArrayFacade, TickArrays, TickFacade, WhirlpoolFacade,
-    sqrt_price_to_tick_index, swap_quote_by_input_token, tick_index_to_sqrt_price,
+    MAX_SQRT_PRICE, MIN_SQRT_PRICE, TickArrayFacade, TickArraySequence, TickArrays, TickFacade,
+    WhirlpoolFacade, compute_swap, sqrt_price_to_tick_index, tick_index_to_sqrt_price,
 };
 use serde::Serialize;
 use std::collections::BTreeSet;
@@ -49,7 +49,10 @@ fn signed_atomic(value: &str) -> Result<i128> {
         .parse()
         .map_err(|_| AdapterError("quote state signed amount overflow"))
 }
-fn facade(snapshot: &PoolSnapshot) -> Result<(WhirlpoolFacade, TickArrays)> {
+fn facade(
+    snapshot: &PoolSnapshot,
+    a_to_b: bool,
+) -> Result<(WhirlpoolFacade, TickArraySequence<6>, u128)> {
     let state = &snapshot.state;
     key(&snapshot.pool)?;
     key(&state.mint_a)?;
@@ -156,6 +159,42 @@ fn facade(snapshot: &PoolSnapshot) -> Result<(WhirlpoolFacade, TickArrays)> {
             "current tick is outside supplied quote arrays",
         ));
     }
+    // The historical SDK's global price limit can loop without progress after
+    // a finite tick sequence is exhausted. Bound the swap to the captured range.
+    let sqrt_price_limit = tick_index_to_sqrt_price(if a_to_b { first } else { last });
+    if (a_to_b && sqrt_price_limit >= price) || (!a_to_b && sqrt_price_limit <= price) {
+        return Err(AdapterError("no captured price range in quote direction"));
+    }
+    // Core 1.0.4 applies tick liquidity changes with unchecked +/- operators.
+    // Prove every reachable transition in this finite direction is representable
+    // before entering its loop, including malformed fixture/RPC input cases.
+    let mut changes = Vec::new();
+    for array in &arrays {
+        for (offset, tick) in array.ticks.iter().enumerate() {
+            let index = array.start_tick_index + offset as i32 * i32::from(state.tick_spacing);
+            if tick.initialized
+                && ((a_to_b && index <= state.tick_current_index)
+                    || (!a_to_b && index > state.tick_current_index))
+            {
+                changes.push(tick.liquidity_net);
+            }
+        }
+    }
+    if a_to_b {
+        changes.reverse();
+    }
+    let mut reachable_liquidity = liquidity;
+    for net in changes {
+        let subtract = if a_to_b { net >= 0 } else { net < 0 };
+        reachable_liquidity = if subtract {
+            reachable_liquidity.checked_sub(net.unsigned_abs())
+        } else {
+            reachable_liquidity.checked_add(net.unsigned_abs())
+        }
+        .ok_or(AdapterError(
+            "quote tick transition underflows or overflows liquidity",
+        ))?;
+    }
     let arrays = match arrays.as_slice() {
         [a] => TickArrays::One(*a),
         [a, b] => TickArrays::Two(*a, *b),
@@ -165,7 +204,9 @@ fn facade(snapshot: &PoolSnapshot) -> Result<(WhirlpoolFacade, TickArrays)> {
         [a, b, c, d, e, f] => TickArrays::Six(*a, *b, *c, *d, *e, *f),
         _ => return Err(AdapterError("unsupported tick-array count")),
     };
-    Ok((pool, arrays))
+    let sequence = TickArraySequence::new(arrays.into(), state.tick_spacing)
+        .map_err(|_| AdapterError("invalid captured tick sequence"))?;
+    Ok((pool, sequence, sqrt_price_limit))
 }
 
 /// Return exact integer math for the supplied state. A successful result is CANDIDATE only.
@@ -180,13 +221,18 @@ pub fn quote_exact_input_math(
     if amount_in == 0 {
         return Err(AdapterError("zero quote input"));
     }
-    let (pool, arrays) = facade(snapshot)?;
-    let quote = swap_quote_by_input_token(amount_in, a_to_b, 0, pool, arrays, None, None)
+    let (pool, sequence, sqrt_price_limit) = facade(snapshot, a_to_b)?;
+    let quote = compute_swap(amount_in, sqrt_price_limit, pool, sequence, a_to_b, true, 0)
         .map_err(|_| AdapterError("quote math rejected state, amount or captured tick coverage"))?;
-    if quote.token_in != amount_in {
+    let (consumed_input, amount_out) = if a_to_b {
+        (quote.token_a, quote.token_b)
+    } else {
+        (quote.token_b, quote.token_a)
+    };
+    if consumed_input != amount_in {
         return Err(AdapterError("partial quote input consumption"));
     }
-    if quote.token_est_out == 0 {
+    if amount_out == 0 {
         return Err(AdapterError("quote output rounds to zero"));
     }
     let (input, output) = if a_to_b {
@@ -197,8 +243,8 @@ pub fn quote_exact_input_math(
     Ok(ExactInputMathQuote {
         input_asset: input.clone(),
         output_asset: output.clone(),
-        amount_in: quote.token_in.to_string(),
-        amount_out: quote.token_est_out.to_string(),
+        amount_in: consumed_input.to_string(),
+        amount_out: amount_out.to_string(),
         pool_fee_in_input_asset: quote.trade_fee.to_string(),
         math_engine: MATH_ENGINE,
         evidence: "CANDIDATE",
