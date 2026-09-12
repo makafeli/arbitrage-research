@@ -30,3 +30,7 @@ The current handoff contains source scaffolding and synthetic demonstrations. It
 Detailed requirements in `docs` are authoritative. These Wiki pages summarize and navigate them; if a summary is ambiguous, follow the linked requirement and correct the summary. Financial examples are synthetic unless explicitly backed by a captured run and provenance. A planned feature is not a completed feature.
 
 Wiki source lives in the repository's `wiki` directory. Sibling `.md` links work while browsing that source. Publishing to native GitHub Wiki converts those links to Wiki page routes; canonical document links already use absolute repository URLs. Source preparation and native Wiki publication are separate actions. The setup record states what actually published and any unavailable GitHub features.
+
+## Publication status
+
+[Verified repository setup and remaining native Project/Wiki steps](https://github.com/makafeli/arbitrage-research/blob/main/docs/13-GITHUB-SETUP-STATUS.md). All published issue links are in [the GitHub issue index](https://github.com/makafeli/arbitrage-research/blob/main/planning/GITHUB-ISSUES.md).

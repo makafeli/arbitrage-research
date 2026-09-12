@@ -41,5 +41,4 @@ cargo test -p arb-domain
 
 The test suite covers gate/ack separation, stopping with unresolved work, recovery,
 fault preservation, stale revisions, superseding stop, readiness, exact large
-amounts, unsupported LIVE/DISARM and invalid research evidence. Tests are authored
-but were not run locally because the Rust toolchain was unavailable.
+amounts, unsupported LIVE/DISARM and invalid research evidence. All 19 domain tests passed in [the verified GitHub CI run](https://github.com/makafeli/arbitrage-research/actions/runs/34709107929). The [verification record](../../docs/11-PACKAGE-VALIDATION.md) distinguishes these in-memory invariants from future integration guarantees.

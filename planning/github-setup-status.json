@@ -1,0 +1,36 @@
+{
+  "repository": "makafeli/arbitrage-research",
+  "verified_on": "2026-09-12",
+  "visibility": "public",
+  "code_commit": "36e6c35706927a3cc30a522f5b16cf1957e1aa9f",
+  "ci": {
+    "url": "https://github.com/makafeli/arbitrage-research/actions/runs/34709107929",
+    "conclusion": "success",
+    "rust_tests": 19,
+    "frontend_unit_tests": 6,
+    "browser_scenarios": 10,
+    "importer_tests": 12,
+    "negative_contract_cases": 12
+  },
+  "planning": {
+    "url": "https://github.com/makafeli/arbitrage-research/actions/runs/34708957300",
+    "conclusion": "success",
+    "epics": 8,
+    "tasks": 68,
+    "issues": 76,
+    "custom_labels": 23,
+    "milestones": 8,
+    "native_sub_issue_links": 68,
+    "native_blocked_by_links": 219
+  },
+  "wiki_source_pages": 9,
+  "native_project": {
+    "status": "pending_authenticated_cli",
+    "prepared_views": 4
+  },
+  "native_wiki": {
+    "status": "pending_initialization_and_authenticated_push"
+  },
+  "administrative_rulesets": "not_configured",
+  "live_execution": "not_implemented_or_enabled"
+}

@@ -11,7 +11,13 @@ A Rust-first research platform for comparing same-chain arbitrage opportunities 
 - [Dashboard application](apps/web/README.md) and [approved design reference](design/dashboard-wireframe.html)
 - [Complete delivery backlog](planning/BACKLOG.md), [published issue index](planning/GITHUB-ISSUES.md) and [machine-readable ticket specifications](planning/backlog.json)
 - [Project wiki source](wiki/Home.md) and [GitHub issues](https://github.com/makafeli/arbitrage-research/issues)
-- [GitHub setup instructions](scripts/README.md) and [verification record](docs/11-PACKAGE-VALIDATION.md)
+- [Verified GitHub setup status](docs/13-GITHUB-SETUP-STATUS.md), [setup instructions](scripts/README.md) and [test record](docs/11-PACKAGE-VALIDATION.md)
+
+## Dashboard preview
+
+Captured from the verified synthetic dashboard. [Mobile preview](design/dashboard-mobile.png).
+
+![Arbitrage Research dashboard with synthetic Base and Solana examples](design/dashboard-desktop.png)
 
 ## Run the dashboard
 
@@ -49,6 +55,6 @@ The checked-in dashboard demonstrates these distinctions using local synthetic f
 
 The backlog contains product, architecture, chain integration, simulation, UX, security, operations and optional live milestones from M0 through M7. Scaffold files are starting points, not evidence that a ticket meets its acceptance criteria. Select an issue, implement the behavior, attach reproducible verification and review it against the linked requirements before closing it.
 
-Repository documentation is available immediately. Native GitHub Projects and Wiki setup have separate capability and authentication requirements described in the setup guide; their existence must be verified before being reported as complete.
+All 76 native issues, eight milestones, 23 project labels, 68 epic/task links and 219 blocking dependencies are verified. Native GitHub Project and Wiki publication remain the authenticated workstation steps in the setup status; their source and commands are prepared.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development and review expectations. A software distribution license has not yet been selected; public visibility alone does not grant an open-source license.

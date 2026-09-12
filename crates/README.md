@@ -14,18 +14,12 @@ checked against the [Rust release announcement](https://blog.rust-lang.org/2025/
 [Tokio documentation](https://docs.rs/tokio/1.53.1/tokio/). Compatible SDK versions
 for chain adapters are deliberately not selected before the adapter spike.
 
-No `Cargo.lock` is fabricated. Generate it using this toolchain, review the resolved
-graph and commit it before claiming reproducible builds:
+The resolved `Cargo.lock` is committed. Use it for normal development and review changes to the dependency graph explicitly:
 
 ```sh
-cargo generate-lockfile
-cargo fmt --all
+cargo fmt --all -- --check
 cargo test --workspace --locked
 cargo clippy --workspace --all-targets --locked -- -D warnings
 ```
 
-At scaffold authoring, neither `cargo` nor `rustc` was available in the environment.
-TOML manifests and source paths were inspected, but compilation, rustfmt and Rust
-tests were not executed. Successful CI is a required next validation gate. A direct
-dependency pin does not pin transitive dependencies; the committed lockfile remains
-necessary.
+The [verified GitHub CI run](https://github.com/makafeli/arbitrage-research/actions/runs/34709107929) passed formatting, Clippy across all workspace targets and all 19 Rust tests on the pinned toolchain. The initial workspace lacked local Rust tooling; CI supplied the compiler and generated the reviewed lockfile. This verifies the foundation's source behavior, not protocol arithmetic, durable execution controls or a trading strategy.

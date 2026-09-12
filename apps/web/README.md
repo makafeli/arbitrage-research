@@ -62,18 +62,13 @@ Local timers illustrate worker acknowledgments. Production controls must use aut
 
 Mode switching, live enablement, key handling, durable sessions, authentication, real feeds, replay execution, editable strategies and exports are not implemented here. Session state resets on reload. Vite performs TSX compilation without an additional React plugin; development updates can reload the page and reset the demo.
 
-## Validation recorded during scaffold creation
+## Verified validation
 
-On 12 September 2026, in the supplied workspace with Node 24.19.0:
+The [final GitHub CI run](https://github.com/makafeli/arbitrage-research/actions/runs/34709107929) passed application and test TypeScript checking, the production Vite build, all six model tests and all ten Chromium browser scenarios. Node 24 and the committed npm lockfile were used.
 
-- Exact dependency installation succeeded and produced `package-lock.json`.
-- `npm test`: six tests passed, zero failures. Covered independent network scope, PENDING/APPLIED distinction, separate acknowledgments, invalid transitions, draining/reconciliation and fixture evidence boundaries.
-- `npm run build`: TypeScript checking and Vite production bundling passed after adding Vite's stylesheet declarations. `npm run typecheck` also checks the Playwright configuration and all test files with pinned Node 24 types.
-- `npm run test:browser -- --list`: passed; all ten Playwright scenarios were discovered. This validates test loading and configuration, not browser behavior.
-- The production bundle contains the local demo only. No runtime API or wallet integration is claimed.
-- A Chromium executable was unavailable locally and a bounded download attempt by the integration owner timed out. No local browser rendering, screenshot review or screen-reader conformance is claimed. Browser smoke checks are supplied for CI; their actual run status must be checked before accepting the dashboard milestone.
+Browser coverage includes six views, themes, filtering, initial modal focus, Tab/Shift+Tab containment, Escape/focus restoration, independent stop acknowledgements and draining. Viewport checks cover 320, 390, 768 and 1440 pixels, including card/label clipping inside wrappers. Verified [desktop](../../design/dashboard-desktop.png) and [mobile](../../design/dashboard-mobile.png) previews are committed. The [verification record](../../docs/11-PACKAGE-VALIDATION.md) describes complete scope and limitations.
 
-Manual acceptance still includes screen-reader review, 200% zoom, contrast verification in both themes, and the planned loading/stale/unavailable states when API integration exists.
+Manual acceptance still includes screen-reader review, 200% zoom, contrast verification in both themes, and the planned loading/stale/unavailable states when API integration exists. The production bundle contains only the synthetic local demo.
 
 ## Dependency references
 

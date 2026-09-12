@@ -58,7 +58,7 @@ The Runs screen has a separate synthetic prior-submission example. After its adm
 
 Use semantic landmarks, visible keyboard focus, associated labels, an actual navigation landmark and `aria-current` on the selected destination. The skip link targets main content. Page navigation moves focus to the main title; theme changes preserve the selected view. Important updates are announced through one polite live region.
 
-The opportunity dialog uses `showModal()` for native focus containment and inert background behavior. Close and Escape dismiss it; the previous Inspect control regains focus. Preserve reduced-motion preferences and text enlargement. Browser tests cover navigation, themes, dialog focus, session controls, independent stop acknowledgments and narrow-width overflow. Full screen-reader and WCAG 2.2 AA review remains a delivery gate; passing a smoke test does not establish complete conformance.
+The opportunity dialog uses `showModal()` for native modal and inert-background behavior. It explicitly focuses Close after opening and wraps Tab/Shift+Tab within visible enabled controls. Close and Escape dismiss it; the previous Inspect control regains focus. Preserve reduced-motion preferences and text enlargement. Browser tests cover navigation, themes, dialog focus, session controls, independent stop acknowledgments and narrow-width overflow. Full screen-reader and WCAG 2.2 AA review remains a delivery gate; passing a smoke test does not establish complete conformance.
 
 ## Delivery boundary
 

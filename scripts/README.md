@@ -8,7 +8,7 @@ The `Set up repository planning` workflow runs on a main-branch change to the ba
 
 Only an actual completed workflow run establishes that this setup is present. See its run summary and `setup-progress` artifact for phase results and issue URLs. A failing phase stops subsequent phases and remains recorded as failed; an issue created before that failure is still a real issue and is discovered on the next run. The workflow never commits its generated state or automatically closes an imported ticket.
 
-The `Validate project` workflow checks the Rust workspace, frontend, browser interactions and source specifications. It retains generated lockfiles and browser evidence as artifacts. An initial missing Cargo lockfile is generated for review, then compilation and tests use `--locked`. Maintainers should commit that generated lockfile after review; the workflow does not publish source changes itself. If source formatting fails, the Rust job still runs compile/test checks, exports `rust-format.patch`, and ends failed so the formatting gap cannot be mistaken for a pass.
+The `Validate project` workflow checks the Rust workspace, frontend, browser interactions and source specifications. It retains generated lockfiles and browser evidence as artifacts. Both dependency lockfiles are committed. If a future checkout lacks Cargo.lock, the initial scaffold fallback generates it for review, then compilation and tests use `--locked`. Maintainers must review and commit such a generated lockfile; the workflow does not publish source changes itself. If source formatting fails, the Rust job still runs compile/test checks, exports `rust-format.patch`, and ends failed so the formatting gap cannot be mistaken for a pass.
 
 ## Offline review
 

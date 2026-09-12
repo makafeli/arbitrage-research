@@ -1,42 +1,40 @@
 # Foundation verification record
 
-Date: 12 September 2026. Version: 0.2. This record covers the project scaffold, synthetic dashboard, contracts and setup automation. It does not validate a trading strategy or a production execution system.
+Date: 12 September 2026. Version: 0.2. All three jobs in the [final code validation run](https://github.com/makafeli/arbitrage-research/actions/runs/34709107929) passed against code commit `36e6c35706927a3cc30a522f5b16cf1957e1aa9f`. Later handoff changes contain documentation, publication metadata and captured previews only. This record validates the foundation and synthetic dashboard, not an arbitrage strategy or production execution system.
 
-## Checks completed locally
+## Verified checks
 
-| Area | Evidence | Result and limits |
+| Area | Actual evidence | Result |
 |---|---|---|
-| Frontend dependencies | Exact direct versions and `apps/web/package-lock.json` | Installed successfully with Node 24.19.0; reproducible npm dependency resolution is checked in |
-| Frontend build | `npm run build` | TypeScript strict check and Vite production build passed; this is the synthetic interface |
-| Frontend lifecycle | `npm test` | Six tests passed: network scope, independent stop acknowledgements, stale acknowledgement behavior, pause/resume, draining and fictional evidence |
-| Browser test discovery | `npm run test:browser -- --list` | Browser scenarios parse and are discoverable; execution is a separate CI check |
-| Contract fixtures | `python scripts/validate_specs.py` | Seven operation IDs and local references resolved; valid opportunity/command fixtures and arithmetic passed; twelve invalid evidence/quantity examples rejected |
-| Setup importer | `python scripts/test_github_bootstrap.py` | Eight offline regression tests passed, including rerun preservation and uncertain-create handling |
-| Project structure | `python scripts/validate_project.py` | Eight epics and 68 tickets form an acyclic graph; required metadata, local document links, JSON/TOML/Python syntax and five workspace member paths passed |
-| Rust manifests | TOML/member source inspection | Five workspace members resolve to source; nineteen Rust tests are authored, awaiting compilation and execution |
+| Rust build and lint | Pinned Rust 1.90.0, committed Cargo.lock; Clippy across all workspace targets with warnings denied | Passed |
+| Rust formatting | `cargo fmt --all -- --check` | Passed after applying the CI formatter patch |
+| Rust domain behavior | `cargo test --workspace --locked` | All 19 tests passed, including exact amounts, immutable modes, pending/applied control, stop/drain/recovery and non-live evidence restrictions |
+| Frontend build | Node 24, `npm ci`, application and test TypeScript checks, Vite production build | Passed with the committed npm lockfile |
+| Frontend unit/model behavior | `npm test` | All six tests passed |
+| Browser interactions | Playwright Chromium, `npm run test:browser` | All ten scenarios passed |
+| Contract fixtures | `python scripts/validate_specs.py` | Seven operation IDs and local refs resolved; valid fixtures/arithmetic passed; twelve invalid evidence/quantity examples rejected |
+| GitHub importer | `python scripts/test_github_bootstrap.py` | All twelve offline regression tests passed |
+| Project integrity | `python scripts/validate_project.py` | Eight epics, 68 tasks, acyclic resolved dependency graph, required metadata, local document links, parsed JSON/TOML/Python and five Cargo members passed |
+| Repository setup | [Successful planning workflow](https://github.com/makafeli/arbitrage-research/actions/runs/34708957300) and independent GitHub issue metadata reads | 76 issues, 23 custom labels, eight milestones, 68 parent/child links and 219 blocked-by links verified |
 
-The contract checker intentionally implements only the schema keywords exercised in this package. It is not a complete JSON Schema or OpenAPI conformance validator. A structural evidence flag cannot prove actual chain state or a successful transaction simulation.
+The contract checker implements the schema keywords exercised by this package; it is not a complete JSON Schema or OpenAPI conformance validator. A flag in a valid example does not prove actual chain state, full transaction simulation or economic eligibility.
 
-## Checks pending at initial publication
+## Browser and visual evidence
 
-The workspace has no local cargo/rustc/rustfmt installation. GitHub CI is configured to resolve and retain Cargo.lock, check formatting, run Clippy and execute Rust tests. A formatted source patch is retained for review if the first format check fails. A workflow definition is not evidence of a passing run.
+The ten browser scenarios cover all six screens, both themes, chain filtering without scope changes, opportunity detail, initial focus, Tab/Shift+Tab containment, Escape/focus restoration, separate session acknowledgements and the synthetic DRAINING example. The four viewport scenarios exercise 320, 390, 768 and 1440 pixels and detect both page-level and internal card/label overflow. Tested flows reject uncaught JavaScript errors and attempted external connections.
 
-A bounded attempt to install the local Chromium headless browser timed out. GitHub CI is configured to install Chromium and run the dashboard's browser scenarios, retaining screenshots and test output. Until a run is inspected, responsive rendering, keyboard/focus behavior and real-browser interactions remain unverified. The design targets accessibility; no conformance certification is claimed.
+CI captured desktop/mobile previews and the approved reference. Visual review confirmed the retained dark palette, lime accent, sidebar, peer chain panels and opportunity table. It identified and resolved a clipped mobile financial label. Browser execution identified and resolved modal tab wrapping and explicit initial focus after opening.
 
-The structural project validation passed after all delivery files were present. GitHub workflow/configuration YAML also parsed successfully. The final GitHub handoff records actual remote setup and CI results separately.
+The verified [desktop preview](../design/dashboard-desktop.png) and [mobile preview](../design/dashboard-mobile.png) are committed. Full screenshots and traces are in the run's dashboard artifact while its retention period lasts. This is bounded Chromium and visual verification; other browsers, screen-reader testing and accessibility conformance certification remain future acceptance work.
 
-## Review findings incorporated
+## Setup recovery evidence
 
-- The dashboard's grouped Base/Solana controls now model two independent sessions and stop acknowledgements. A chain view filter cannot change either session's scope.
-- The Rust reference reducer accepts a stop fence during recovery or fault without claiming recovery is complete; it preserves the blocking state.
-- Stop acceptance remains PENDING until the relevant local fence applies. Unresolved attempts keep an applied stop in DRAINING.
-- The importer preserves issue comments, operator workflow state and edits outside managed body blocks. Uncertain creates are rediscovered before a further write.
-- Synthetic results remain clearly labelled and cannot become REALIZED paper returns.
+The first importer run created all 76 issues, then received an issue collection that omitted five known IDs. The replacement index originally lost those IDs. Refresh now individually verifies known issues absent from a collection and saves the new index only after identity/marker checks succeed. Four added regressions cover omission after creation, omission after restart without duplicate creation, failed verification preserving state and changed-marker rejection. The succeeding workflow verified the existing issues and finished native relationships.
 
-These are bounded code/design reviews by collaborating agents. They are not an independent production security audit.
+## Scope of review
 
-## Publication and implementation limits
+Product, architecture, engineering, UX and operations specialists reviewed bounded parts of the handoff. The review resolved single-network session scope, stop during recovery/fault, exact-amount boundaries, evidence classification, simulation/funding gates and dependency scheduling. These checks are not an independent production execution-security audit.
 
-The repository contains a functional synthetic dashboard and a Rust foundation. The authenticated control API, durable storage, market adapters, complete transaction simulation and paper accounting are not implemented. No RPC provider, key, funded wallet, production executor, signer or live broadcast system is configured.
+The authenticated control API, durable storage, market adapters, complete transaction simulation and paper accounting remain unimplemented. No provider, wallet key, funded account, production executor, signer or live broadcast system is configured. Current dashboard data is synthetic and paper examples never become REALIZED returns.
 
-Native GitHub issues/milestones/relationships are created only when their setup phase succeeds. Wiki source in `wiki/` is distinct from native Wiki publication; the owner Project has its own authentication requirements. Consult the actual setup result rather than inferring remote state from the presence of templates.
+The [GitHub setup status](13-GITHUB-SETUP-STATUS.md) separately records the remaining owner Project and native Wiki publication steps. Their prepared source is not evidence that those remote resources exist.
