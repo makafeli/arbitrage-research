@@ -382,7 +382,7 @@ async fn insert_paper_event(
     let row=sqlx::query("INSERT INTO paper_journal(event_id,run_id,sequence,command_id,payload_digest,payload) VALUES($1,$2,$3,$4,$5,$6) RETURNING *").bind(Uuid::new_v4().to_string()).bind(run_id).bind(event.sequence() as i64).bind(event.command_id()).bind(payload_digest(event)?).bind(serde_json::to_value(event).map_err(|_|StoreError::CorruptState)?).fetch_one(&mut **tx).await?;
     stored_paper_event(&row)
 }
-fn stored_paper_event(row: &PgRow) -> Result<StoredPaperEvent, StoreError> {
+pub(super) fn stored_paper_event(row: &PgRow) -> Result<StoredPaperEvent, StoreError> {
     let event: JournalEvent =
         serde_json::from_value(row.try_get("payload")?).map_err(|_| StoreError::CorruptState)?;
     if payload_digest(&event)? != row.try_get::<String, _>("payload_digest")?
@@ -398,7 +398,7 @@ fn stored_paper_event(row: &PgRow) -> Result<StoredPaperEvent, StoreError> {
         event,
     })
 }
-async fn restore_paper(
+pub(super) async fn restore_paper(
     tx: &mut Transaction<'_, Postgres>,
     row: &PgRow,
 ) -> Result<PaperRun, StoreError> {
@@ -407,6 +407,9 @@ async fn restore_paper(
             .bind(row.try_get::<String, _>("run_id")?)
             .fetch_all(&mut **tx)
             .await?;
+    restore_paper_rows(row, &rows)
+}
+pub(super) fn restore_paper_rows(row: &PgRow, rows: &[PgRow]) -> Result<PaperRun, StoreError> {
     if rows.len() > 5000 || rows.len() != row.try_get::<i64, _>("revision")? as usize + 1 {
         return Err(StoreError::CorruptState);
     }
@@ -457,7 +460,7 @@ async fn paper_projection(
     let run = restore_paper(tx, row).await?;
     project_paper(row, &run)
 }
-fn project_paper(row: &PgRow, run: &PaperRun) -> Result<PaperRunRecord, StoreError> {
+pub(super) fn project_paper(row: &PgRow, run: &PaperRun) -> Result<PaperRunRecord, StoreError> {
     Ok(PaperRunRecord {
         run_id: row.try_get("run_id")?,
         session_id: row.try_get("session_id")?,

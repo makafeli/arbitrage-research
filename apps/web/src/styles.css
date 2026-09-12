@@ -239,6 +239,7 @@ button {touch-action:manipulation;}
 .research-table td:first-child {width:30%}
 .research-facts {display:grid;grid-template-columns:minmax(130px,1fr) minmax(0,2fr);gap:9px 20px;font-size:13px;margin:20px 0}
 .research-facts dt {color:var(--muted)}
+.export-count {display:contents}
 .research-facts dd {margin:0;overflow-wrap:anywhere;font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
 .research-dialog {width:min(850px,calc(100% - 32px))}
 .research-dialog .dialoghead {flex-wrap:wrap}

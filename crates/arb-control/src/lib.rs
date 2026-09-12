@@ -204,6 +204,80 @@ impl ControlWorker {
         }
         result
     }
+    /// Persist a batch identity before capture I/O, including readiness-only batches.
+    pub async fn begin_collection_attempt(
+        &self,
+        attempt_id: &str,
+        generation: u64,
+        purpose: arb_storage::CollectionPurpose,
+    ) -> Result<arb_storage::StoredCollectionAttempt, StoreError> {
+        let mut gate = self.gate.lock().await;
+        if Instant::now() >= gate.lease_deadline {
+            gate.open = false;
+            return Err(StoreError::Conflict("collection worker lease expired"));
+        }
+        if gate.recovery_required
+            || generation != gate.generation
+            || (purpose == arb_storage::CollectionPurpose::Research && !gate.open)
+        {
+            return Err(StoreError::Conflict("stale or fenced collection start"));
+        }
+        let result = self
+            .store
+            .begin_collection_attempt(&self.claim, attempt_id, generation, purpose)
+            .await;
+        if result.is_err() {
+            gate.open = false;
+            gate.recovery_required = true;
+        }
+        result
+    }
+
+    /// Late telemetry closes only its original durable batch; this cannot open admission.
+    pub async fn finish_collection_attempt(
+        &self,
+        attempt_id: &str,
+        finish: arb_storage::CollectionFinish,
+    ) -> Result<arb_storage::StoredCollectionAttempt, StoreError> {
+        self.store
+            .finish_collection_attempt(&self.claim, attempt_id, finish)
+            .await
+    }
+
+    /// Admission and the successful terminal telemetry receipt share one database commit.
+    pub async fn admit_collection_decision_traces(
+        &self,
+        work: WorkGeneration,
+        attempt_id: &str,
+        traces: &[arb_domain::DecisionTrace],
+        finish: arb_storage::CollectionFinish,
+    ) -> Result<Vec<arb_storage::StoredDecisionTrace>, StoreError> {
+        let mut gate = self.gate.lock().await;
+        if Instant::now() >= gate.lease_deadline {
+            gate.open = false;
+        }
+        if !gate.open || work.generation != gate.generation || work.epoch != self.claim.epoch() {
+            return Err(StoreError::Conflict("stale or fenced collection decisions"));
+        }
+        gate.open = false;
+        gate.recovery_required = true;
+        let result = self
+            .store
+            .append_collection_decision_traces(
+                &self.claim,
+                attempt_id,
+                work.generation,
+                traces,
+                finish,
+            )
+            .await;
+        if result.is_ok() {
+            gate.open = true;
+            gate.recovery_required = false;
+        }
+        result
+    }
+
     /// Internal virtual accounting. HTTP clients cannot reserve or settle funds.
     pub async fn apply_paper_command(
         &self,

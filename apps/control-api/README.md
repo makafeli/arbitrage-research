@@ -166,3 +166,9 @@ Additional PostgreSQL HTTP tests exercise persisted research filtering, rejectio
 pagination, origin separation, immutable paper creation and cross-operator denial. These
 cases require TEST_DATABASE_URL and must be executed in CI; source presence or successful
 mock tests alone are not evidence of database behavior.
+
+## Collection diagnostics and frozen export
+
+Authenticated operator-scoped GET routes expose `/v1/sessions/{session_id}/collection-attempts`, `/collection-coverage` and `/export`. Attempts use canonical UUID cursors and limits 1–100; coverage and export accept no query parameters. `collection_telemetry` and `session_export` capability flags advertise these features. Recorded attempt counts include READINESS and RESEARCH separately, with exact decision associations; unresolved starts and market/schedule completeness remain explicitly unknown.
+
+The export takes a read-only REPEATABLE READ snapshot of the five defined research datasets. It refuses more than 10,000 source rows or 8 MiB with 413; two exports may run per process, with additional requests returning 429 EXPORT_BUSY. Normal request deadlines remain 15 seconds, and each export SQL statement has an 8-second bound. All responses retain authentication, redacted errors and no-store. Configuration content, local artifact paths and raw files are excluded; capture availability/expiry and missing decimals are disclosed. Paper journal reasons are removed and command/attempt identifiers are pseudonymized while exact accounting and original payload hashes remain. The [contract](../../docs/08-DATA-AND-API-CONTRACTS.md) and [verified checkpoint](../../docs/18-COLLECTION-AND-EXPORT-VERIFICATION.md) define hash formats, source scope and remaining acceptance.

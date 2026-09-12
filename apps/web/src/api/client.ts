@@ -1,5 +1,7 @@
 import { parseAsset, parseCoverage, parseDecision, parseGroup, parseJournal, parsePaperRun, parseReservation } from './research.ts';
 import type { AccountingAsset, InitialBalance } from './research.ts';
+import { parseCollectionAttempt, parseCollectionCoverage } from './collection.ts';
+import { MAX_FROZEN_EXPORT_BYTES, parseFrozenExport, verifyFrozenExport } from './frozenExport.ts';
 export type Network = 'base-mainnet' | 'solana-mainnet';
 export type ResearchMode = 'OBSERVE' | 'PAPER' | 'REPLAY';
 export type SessionState = 'RECOVERING' | 'STOPPED' | 'RUNNING' | 'PAUSING' | 'PAUSED' | 'DRAINING' | 'FAULTED';
@@ -22,7 +24,7 @@ export interface Configuration {
 export interface Capabilities {
   modes: ResearchMode[]; live_execution: boolean; market_data: boolean; opportunity_capture: boolean;
   registered_configurations: Configuration[]; command_application?: string;
-  decision_history?: boolean; paper_ledger?: boolean; paper_run_creation?: boolean;
+  decision_history?: boolean; paper_ledger?: boolean; paper_run_creation?: boolean; collection_telemetry?: boolean; session_export?: boolean;
 }
 export interface CreateSession {
   network_id: Network; mode: ResearchMode; configuration_digest: string; experiment_id: string; strategy_ids: string[];
@@ -117,7 +119,7 @@ function parseCapabilities(value: unknown): Capabilities {
   const v = object(value);
   assert(Array.isArray(v.modes) && v.modes.every(mode => oneOf(mode, modes.slice(0, 3))));
   assert(['live_execution', 'market_data', 'opportunity_capture'].every(k => typeof v[k] === 'boolean'));
-  assert(['decision_history', 'paper_ledger', 'paper_run_creation'].every(k => v[k] === undefined || typeof v[k] === 'boolean'));
+  assert(['decision_history', 'paper_ledger', 'paper_run_creation', 'collection_telemetry', 'session_export'].every(k => v[k] === undefined || typeof v[k] === 'boolean'));
   assert(Array.isArray(v.registered_configurations));
   for (const config of v.registered_configurations) {
     const c = object(config);
@@ -147,7 +149,7 @@ export class ControlApi {
   // a class property and calling this.transport(...) triggers Illegal invocation.
   constructor(transport: typeof fetch = (input, init) => globalThis.fetch(input, init)) { this.transport = transport; }
   clearAuth() { this.csrf = null; }
-  private async request(path: string, options: { body?: unknown; key?: string; signal?: AbortSignal; method?: string } = {}): Promise<unknown> {
+  private async request(path: string, options: { body?: unknown; key?: string; signal?: AbortSignal; method?: string; maxResponseBytes?: number } = {}): Promise<unknown> {
     const headers: Record<string, string> = { Accept: 'application/json' };
     if (options.body !== undefined) headers['Content-Type'] = 'application/json';
     if (options.method === 'POST' && this.csrf) headers['X-CSRF-Token'] = this.csrf;
@@ -155,7 +157,20 @@ export class ControlApi {
     const response = await this.transport(`/v1${path}`, { method: options.method ?? 'GET', credentials: 'same-origin', cache: 'no-store', headers, body: options.body === undefined ? undefined : JSON.stringify(options.body), signal: options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(10_000)]) : AbortSignal.timeout(10_000) });
     if (response.status === 204) return null;
     let body: unknown;
-    try { body = await response.json(); } catch { throw new ApiError(response.status, 'INVALID_RESPONSE', 'The API did not return JSON. Check the same-origin service configuration.'); }
+    try {
+      if (options.maxResponseBytes && response.body) {
+        const reader = response.body.getReader(), chunks: Uint8Array[] = []; let size = 0;
+        while (true) {
+          const next = await reader.read(); if (next.done) break;
+          size += next.value.byteLength;
+          if (size > options.maxResponseBytes) { await reader.cancel(); throw new ApiError(response.status, 'EXPORT_LIMIT_EXCEEDED', 'Frozen export exceeds the 8 MiB response bound. No partial download was prepared.'); }
+          chunks.push(next.value);
+        }
+        const bytes = new Uint8Array(size); let offset = 0;
+        for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+        body = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+      } else body = await response.json();
+    } catch (e) { if (e instanceof ApiError) throw e; throw new ApiError(response.status, 'INVALID_RESPONSE', 'The API did not return JSON. Check the same-origin service configuration.'); }
     if (!response.ok) {
       const error = object(body);
       if (response.status === 401) this.clearAuth();
@@ -183,6 +198,19 @@ export class ControlApi {
   async coverage(sessionId: string, signal?: AbortSignal) {
     const coverage = parseCoverage(await this.request('/decision-coverage?session_id=' + encodeURIComponent(sessionId), { signal }));
     assert(coverage.session_id === sessionId, 'Coverage response has the wrong session scope.'); return coverage;
+  }
+  async collectionCoverage(sessionId: string, signal?: AbortSignal) {
+    const coverage = parseCollectionCoverage(await this.request('/sessions/' + encodeURIComponent(sessionId) + '/collection-coverage', { signal }));
+    assert(coverage.session_id === sessionId, 'Collection coverage response has the wrong session scope.'); return coverage;
+  }
+  async collectionAttempts(sessionId: string, cursor?: string, signal?: AbortSignal) {
+    const page = parsePage(await this.request('/sessions/' + encodeURIComponent(sessionId) + '/collection-attempts?' + this.query(cursor), { signal }), parseCollectionAttempt);
+    assert(page.items.every(item => item.session_id === sessionId), 'Collection attempts response has the wrong session scope.'); return page;
+  }
+  async frozenExport(sessionId: string, signal?: AbortSignal) {
+    const bundle = parseFrozenExport(await this.request('/sessions/' + encodeURIComponent(sessionId) + '/export', { signal, maxResponseBytes: MAX_FROZEN_EXPORT_BYTES }));
+    assert(bundle.data.session.session_id === sessionId, 'Frozen export response has the wrong session scope.');
+    return verifyFrozenExport(bundle);
   }
   async paperRuns(sessionId: string, cursor?: string, signal?: AbortSignal) {
     const page = parsePage(await this.request('/sessions/' + encodeURIComponent(sessionId) + '/paper-runs?' + this.query(cursor), { signal }), parsePaperRun);

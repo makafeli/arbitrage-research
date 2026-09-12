@@ -1,8 +1,8 @@
 use super::*;
 use arb_storage::{
-    DecisionCoverage, DecisionGroupPage, DecisionTracePage, NewPaperRun, OpportunityFilter,
-    OpportunityPage, PaperJournalPage, PaperReservationPage, PaperRunPage, PaperRunRecord,
-    StoredDecisionTrace,
+    CollectionAttemptPage, CollectionCoverage, DecisionCoverage, DecisionGroupPage,
+    DecisionTracePage, NewPaperRun, OpportunityFilter, OpportunityPage, PaperJournalPage,
+    PaperReservationPage, PaperRunPage, PaperRunRecord, ResearchExport, StoredDecisionTrace,
 };
 use axum::body::{Body, to_bytes};
 use serde_json::{Value, json};
@@ -12,6 +12,21 @@ use tower::ServiceExt;
 const SECRET: &str = "test-operator-secret-at-least-32-bytes";
 const ORIGIN: &str = "http://127.0.0.1:5173";
 const DIGEST: &str = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+#[test]
+fn http_smoke_configuration_registers_observe_only_without_execution() {
+    let config = arb_config::ValidatedConfig::from_toml(include_str!(
+        "../../web/tests/http-smoke.observe.toml"
+    ))
+    .unwrap();
+    assert_eq!(config.mode(), arb_domain::Mode::Observe);
+    assert!(config.network_enabled(arb_domain::NetworkId::BaseMainnet));
+    assert!(!config.network_enabled(arb_domain::NetworkId::SolanaMainnet));
+    // Validation rejects enabled execution/signers in this research profile.
+    let unsafe_config = include_str!("../../web/tests/http-smoke.observe.toml")
+        .replace("signer_enabled = false", "signer_enabled = true");
+    assert!(arb_config::ValidatedConfig::from_toml(&unsafe_config).is_err());
+}
 
 #[derive(Default)]
 struct MockStore {
@@ -151,6 +166,77 @@ fn setup_with(store: Arc<MockStore>, insecure: bool) -> Router {
 fn setup() -> (Router, Arc<MockStore>) {
     let store = Arc::new(MockStore::default());
     (setup_with(store.clone(), true), store)
+}
+
+#[tokio::test]
+async fn export_limit_and_concurrency_refusals_preserve_control_capacity_and_no_store() {
+    let store = Arc::new(MockStore {
+        fail: true,
+        ..Default::default()
+    });
+    let state = AppState::with_store(
+        store.clone(),
+        ServerConfig {
+            listen_address: "127.0.0.1:8080".parse().unwrap(),
+            public_origin: ORIGIN.into(),
+            allow_insecure_loopback: true,
+            operator_secret_hash: hash(SECRET),
+            configurations: vec![],
+        },
+    );
+    let app = router(state.clone());
+    let (cookie, _csrf) = authenticate(&app).await;
+    let permits = state.0.exports.acquire_many(2).await.unwrap();
+    let busy = call(
+        &app,
+        Method::GET,
+        "/v1/sessions/x/export",
+        None,
+        Some(&cookie),
+        None,
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(busy.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(busy.headers()[header::CACHE_CONTROL], "no-store");
+    assert_eq!(busy.headers()[header::RETRY_AFTER], "60");
+    assert_eq!(value(busy).await["code"], "EXPORT_BUSY");
+    assert_eq!(store.calls.load(Ordering::SeqCst), 0);
+    let capabilities = call(
+        &app,
+        Method::GET,
+        "/v1/capabilities",
+        None,
+        Some(&cookie),
+        None,
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(capabilities.status(), StatusCode::OK);
+    let capabilities = value(capabilities).await;
+    assert_eq!(capabilities["collection_telemetry"], true);
+    assert_eq!(capabilities["session_export"], true);
+    drop(permits);
+    let limited = call(
+        &app,
+        Method::GET,
+        "/v1/sessions/x/export",
+        None,
+        Some(&cookie),
+        None,
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(limited.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    assert_eq!(limited.headers()[header::CACHE_CONTROL], "no-store");
+    let error = value(limited).await;
+    assert_eq!(error["code"], "EXPORT_LIMIT_EXCEEDED");
+    assert!(error.get("data").is_none());
+    assert_eq!(store.calls.load(Ordering::SeqCst), 1);
+    assert_eq!(state.0.exports.available_permits(), 2);
 }
 #[allow(clippy::too_many_arguments)]
 async fn call(
@@ -1129,6 +1215,37 @@ async fn request_capacity_is_bounded_and_cancellation_releases_owned_permits() {
 
 #[async_trait]
 impl ResearchStore for MockStore {
+    async fn export_session(
+        &self,
+        _operator: &str,
+        _session: &str,
+    ) -> Result<ResearchExport, StoreError> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        if self.fail {
+            Err(StoreError::ExportLimitExceeded)
+        } else {
+            Err(StoreError::NotFound)
+        }
+    }
+    async fn collection_coverage(
+        &self,
+        _operator: &str,
+        _session: &str,
+    ) -> Result<CollectionCoverage, StoreError> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        Err(StoreError::NotFound)
+    }
+    async fn collection_attempts(
+        &self,
+        _operator: &str,
+        _session: &str,
+        _cursor: Option<&str>,
+        _limit: u32,
+    ) -> Result<CollectionAttemptPage, StoreError> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        Err(StoreError::NotFound)
+    }
+
     async fn list_decisions(
         &self,
         _operator: &str,
@@ -1247,6 +1364,9 @@ async fn research_routes_require_auth_and_keep_mutation_guards() {
         "/v1/decision-groups?session_id=x",
         "/v1/decision-coverage?session_id=x",
         "/v1/sessions/x/paper-runs",
+        "/v1/sessions/x/export",
+        "/v1/sessions/x/collection-coverage",
+        "/v1/sessions/x/collection-attempts",
         "/v1/paper-runs/x",
         "/v1/paper-runs/x/journal",
         "/v1/paper-runs/x/reservations",
@@ -1305,6 +1425,11 @@ async fn research_page_and_paper_payload_bounds_fail_before_read_queries() {
         "/v1/paper-runs/x/journal?limit=101",
         "/v1/paper-runs/x/reservations?cursor=",
         "/v1/opportunities?source_kind=REAL_PROFIT",
+        "/v1/sessions/x/export?limit=1",
+        "/v1/sessions/x/export?format=raw",
+        "/v1/sessions/x/collection-coverage?cursor=x",
+        "/v1/sessions/x/collection-attempts?limit=101",
+        "/v1/sessions/x/collection-attempts?cursor=bad",
     ] {
         let response = call(
             &app,
@@ -1976,6 +2101,61 @@ async fn postgres_decision_http_counts_rejections_without_undercounting_eligible
     assert_eq!(coverage["reconciled_transactions"], Value::Null);
     assert_eq!(coverage["execution_accounting_available"], false);
 
+    let exported_response = call(
+        &app,
+        Method::GET,
+        &format!("/v1/sessions/{}/export", session.session_id),
+        None,
+        Some(&cookie),
+        None,
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(exported_response.status(), StatusCode::OK);
+    assert_eq!(
+        exported_response.headers()[header::CACHE_CONTROL],
+        "no-store"
+    );
+    let exported = value(exported_response).await;
+    assert_eq!(exported["snapshot"]["source_counts"]["decisions"], "5");
+    assert_eq!(exported["data"]["decision_coverage"], coverage);
+    assert_eq!(exported["data"]["decisions"].as_array().unwrap().len(), 5);
+    assert_eq!(
+        exported["data"]["capture_dependencies"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    for capture in exported["data"]["capture_dependencies"].as_array().unwrap() {
+        assert_eq!(capture["catalog_status"], "PRESENT");
+        assert_eq!(capture["raw_artifact_status"], "NOT_VERIFIED");
+    }
+    assert_eq!(exported["methodology"]["execution_authorized"], false);
+    let typed: ResearchExport = serde_json::from_value(exported.clone()).unwrap();
+    assert_eq!(
+        typed.content_sha256,
+        arb_storage::export_content_digest(&typed).unwrap()
+    );
+    let telemetry = value(
+        call(
+            &app,
+            Method::GET,
+            &format!("/v1/sessions/{}/collection-coverage", session.session_id),
+            None,
+            Some(&cookie),
+            None,
+            None,
+            None,
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(telemetry["attempts_started"], "0");
+    assert_eq!(telemetry["collection_completeness"], "UNKNOWN");
+    assert_eq!(telemetry["denominator"], "RECORDED_COLLECTION_ATTEMPTS");
+
     let mut cursor = None::<String>;
     let mut seen = std::collections::HashSet::new();
     for _ in 0..8 {
@@ -2198,6 +2378,15 @@ async fn postgres_decision_http_counts_rejections_without_undercounting_eligible
             hidden_session.session_id
         ),
         format!("/v1/opportunities?session_id={}", hidden_session.session_id),
+        format!("/v1/sessions/{}/export", hidden_session.session_id),
+        format!(
+            "/v1/sessions/{}/collection-coverage",
+            hidden_session.session_id
+        ),
+        format!(
+            "/v1/sessions/{}/collection-attempts",
+            hidden_session.session_id
+        ),
     ] {
         assert_eq!(
             call(

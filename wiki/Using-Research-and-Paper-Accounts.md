@@ -32,6 +32,12 @@ Exact local quotes include supported protocol pool fees and price impact. Extern
 
 Coverage counts describe stored raw records and groups. Collection completeness is `UNKNOWN`; eligible execution attempts and reconciled transactions are unavailable. Empty history does not prove a working collector found zero market opportunities. Stored observation bounds do not establish uninterrupted uptime, complete venue coverage or a success rate. Run or chain rankings remain unavailable without comparable coverage, valuation and simulation evidence.
 
+## Inspect collection diagnostics
+
+In System, select the session to inspect its registered collection attempts. READINESS batches can continue while stopped; RESEARCH batches are evaluated under an admitted generation. Provider/input failures, evaluation failures/deadlines, deliberate suppression and shutdown are distinct outcomes. IN_PROGRESS means no terminal evidence is retained; it may be active work or a crashed attempt, and is never counted as success. Recorded decision IDs connect successful batches to their exact observations.
+
+A zero-error count does not establish uninterrupted collection. The denominator is registered batches only, and the operational attempt record has no asserted market-input provenance. Check provider configuration, worker logs/heartbeat and capture files according to the named diagnostic. Automated alert delivery and complete chain-lag/queue/storage monitoring remain future acceptance work.
+
 ## Initialize virtual capital
 
 In Runs, choose a PAPER session in the Paper accounting workspace. The API must advertise account creation, expose the matching enabled configuration and observe the session as STOPPED. A concurrent pending command can block creation even when an earlier page still shows STOPPED.
@@ -44,7 +50,9 @@ If creation delivery is uncertain, retry the same request. The dashboard retains
 
 ## Export or replay evidence
 
-JSON export buttons save the selected received run or history page, including its scope and reception/export times, with a 2 MiB bound. The export is not a complete history or an atomic snapshot across balances, journal and reservations. Journal exports contain command kind and postings but omit original command inputs. Capture references do not prove raw files remain retained.
+Page JSON buttons still export only their displayed scope. Use the session snapshot export to fetch all defined stored research records together, up to 10,000 source rows and 8 MiB. It includes decisions, paper runs and exact journal/account data, collection attempts and capture references from one consistent database snapshot. Both JSON and CSV downloads use that same fetched response. The snapshot hash and source counts support external checks; exceeding a bound refuses the whole export rather than silently truncating it.
+
+Paper journal freeform reasons are removed and command/attempt IDs become stable pseudonyms, with original payload hashes retained. Financial amounts remain exact strings. The CSV quotes separators/newlines and guards formula-leading scalar cells. Each payload_json cell contains its exact JSON record; parse it to recover authoritative identities and amounts without guessing which apostrophes are protective. Asset decimals are unavailable in the retained database model. Provider settings, authentication material, local paths and raw market files are excluded. Catalog PRESENT does not prove file availability or expiry: those remain NOT_VERIFIED/UNKNOWN until the actual raw bundle is checked. This is a frozen database export, not a complete historical replay package.
 
 Offline replay separately verifies exact retained manifests, configuration, registry and raw request/response order before re-decoding and evaluation. `replay --evaluate-captures` requires an explicit modeled historical input age and preserves original provenance. It makes no network requests and does not reconstruct unrecorded arrival times, complete transaction simulation or counterfactual paper fills. See [replay usage](https://github.com/makafeli/arbitrage-research/blob/main/apps/replay/README.md).
 

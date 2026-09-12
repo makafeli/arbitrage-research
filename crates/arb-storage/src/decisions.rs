@@ -71,6 +71,20 @@ impl Store {
         generation: u64,
         traces: &[DecisionTrace],
     ) -> Result<Vec<StoredDecisionTrace>, StoreError> {
+        let mut tx = self.pool.begin().await?;
+        let result = self
+            .append_decision_traces_in_tx(&mut tx, claim, generation, traces)
+            .await?;
+        tx.commit().await?;
+        Ok(result)
+    }
+    pub(super) async fn append_decision_traces_in_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        claim: &WorkerClaim,
+        generation: u64,
+        traces: &[DecisionTrace],
+    ) -> Result<Vec<StoredDecisionTrace>, StoreError> {
         if traces.is_empty() || traces.len() > 64 {
             return Err(StoreError::InvalidInput(
                 "decision batch must contain 1..64 traces",
@@ -83,8 +97,7 @@ impl Store {
         {
             return Err(StoreError::InvalidInput("decision batch exceeds 256 KiB"));
         }
-        let mut tx = self.pool.begin().await?;
-        let session = worker::locked_worker(&mut tx, claim).await?;
+        let session = worker::locked_worker(tx, claim).await?;
         let state = lifecycle(&session)?;
         if !state.allows_evaluation() || state.generation() != generation {
             return Err(StoreError::Conflict("decision generation is fenced"));
@@ -115,7 +128,7 @@ impl Store {
             )
             .bind(&claim.session_id)
             .bind(&trace.observation_id)
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&mut **tx)
             .await?
             {
                 if existing.try_get::<String, _>("payload_digest")? != digest {
@@ -128,18 +141,17 @@ impl Store {
                 .validate()
                 .map_err(|_| StoreError::InvalidInput("invalid sealed decision trace"))?;
             for capture in &trace.capture_refs {
-                let exists:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM capture_admissions c JOIN research_attempts a ON a.attempt_id=c.attempt_id WHERE c.session_id=$1 AND c.capture_id=$2 AND c.manifest_digest=$3 AND c.generation=$4 AND a.admitted_worker_epoch=$5)").bind(&claim.session_id).bind(&capture.capture_id).bind(&capture.manifest_digest).bind(i64::try_from(generation).map_err(|_|StoreError::CorruptState)?).bind(claim.epoch).fetch_one(&mut *tx).await?;
+                let exists:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM capture_admissions c JOIN research_attempts a ON a.attempt_id=c.attempt_id WHERE c.session_id=$1 AND c.capture_id=$2 AND c.manifest_digest=$3 AND c.generation=$4 AND a.admitted_worker_epoch=$5)").bind(&claim.session_id).bind(&capture.capture_id).bind(&capture.manifest_digest).bind(i64::try_from(generation).map_err(|_|StoreError::CorruptState)?).bind(claim.epoch).fetch_one(&mut **tx).await?;
                 if !exists {
                     return Err(StoreError::Conflict(
                         "decision capture is not admitted in this generation",
                     ));
                 }
             }
-            let row=sqlx::query("INSERT INTO decision_traces(trace_id,operator_id,session_id,observation_id,payload_digest,configuration_digest,generation,observed_at_unix_ms,result_status,grouping_version,grouping_key,window_start_ms,payload) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *").bind(Uuid::now_v7().to_string()).bind(&claim.operator_id).bind(&claim.session_id).bind(&trace.observation_id).bind(digest).bind(&trace.configuration_digest).bind(i64::try_from(generation).map_err(|_|StoreError::CorruptState)?).bind(i64::try_from(trace.observed_at_unix_ms).map_err(|_|StoreError::InvalidInput("decision timestamp out of range"))?).bind(trace.result.status()).bind(&trace.grouping.version).bind(&trace.grouping.key).bind(i64::try_from(trace.grouping.window_start_ms).map_err(|_|StoreError::InvalidInput("group timestamp out of range"))?).bind(serde_json::to_value(trace).map_err(|_|StoreError::CorruptState)?).fetch_one(&mut *tx).await?;
+            let row=sqlx::query("INSERT INTO decision_traces(trace_id,operator_id,session_id,observation_id,payload_digest,configuration_digest,generation,observed_at_unix_ms,result_status,grouping_version,grouping_key,window_start_ms,payload) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *").bind(Uuid::now_v7().to_string()).bind(&claim.operator_id).bind(&claim.session_id).bind(&trace.observation_id).bind(digest).bind(&trace.configuration_digest).bind(i64::try_from(generation).map_err(|_|StoreError::CorruptState)?).bind(i64::try_from(trace.observed_at_unix_ms).map_err(|_|StoreError::InvalidInput("decision timestamp out of range"))?).bind(trace.result.status()).bind(&trace.grouping.version).bind(&trace.grouping.key).bind(i64::try_from(trace.grouping.window_start_ms).map_err(|_|StoreError::InvalidInput("group timestamp out of range"))?).bind(serde_json::to_value(trace).map_err(|_|StoreError::CorruptState)?).fetch_one(&mut **tx).await?;
             result.push(decision_record(&row)?);
         }
-        audit(&mut tx,&claim.session_id,&claim.operator_id,"DECISIONS_RECORDED",None,json!({"observations":result.iter().map(|r|&r.trace.observation_id).collect::<Vec<_>>(),"generation":generation.to_string(),"evidence":"CANDIDATE_OR_REJECTION_ONLY"})).await?;
-        tx.commit().await?;
+        audit(tx,&claim.session_id,&claim.operator_id,"DECISIONS_RECORDED",None,json!({"observations":result.iter().map(|r|&r.trace.observation_id).collect::<Vec<_>>(),"generation":generation.to_string(),"evidence":"CANDIDATE_OR_REJECTION_ONLY"})).await?;
         Ok(result)
     }
     pub async fn get_decision_trace(
@@ -315,7 +327,7 @@ fn validate_trace_page(cursor: Option<&str>, limit: u32) -> Result<(), StoreErro
 fn count(row: &PgRow, key: &str) -> Result<String, StoreError> {
     Ok(row.try_get::<i64, _>(key)?.to_string())
 }
-fn decision_record(row: &PgRow) -> Result<StoredDecisionTrace, StoreError> {
+pub(super) fn decision_record(row: &PgRow) -> Result<StoredDecisionTrace, StoreError> {
     let trace: DecisionTrace =
         serde_json::from_value(row.try_get("payload")?).map_err(|_| StoreError::CorruptState)?;
     trace.validate().map_err(|_| StoreError::CorruptState)?;

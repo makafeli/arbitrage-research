@@ -74,6 +74,8 @@ jobs:
           ARB_PUBLIC_ORIGIN: http://127.0.0.1:5173
           ARB_ALLOW_INSECURE_LOOPBACK: 'true'
           ARB_DATABASE_URL: postgres://arb_test:local_ci_only@127.0.0.1:5432/arb_http_smoke
+          ARB_CONFIG_FILES: config/research.example.toml,apps/web/tests/http-smoke.observe.toml
+          ARB_HTTP_SMOKE_RESEARCH: 'true'
         run: |
           docker exec '${{ job.services.postgres.id }}' createdb -U arb_test arb_http_smoke
           npm ci --prefix apps/web
@@ -140,7 +142,7 @@ jobs:
       - run: npm run build
       - run: npx playwright install --with-deps chromium
       - run: npm run test:browser
-      - name: Emit three synthetic dashboard screenshots for visual review
+      - name: Emit nine synthetic dashboard screenshots for visual review
         if: always()
         run: python ../../scripts/emit_ui_review.py
       - name: Preserve dashboard browser evidence and lockfile

@@ -2,10 +2,11 @@ import { expect, test } from '@playwright/test';
 import type { Page, Route } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { coverage, decision, huge, journal, nativeAsset, paperRun, principalAsset, reservation } from '../research.fixture';
+import { collectionCoverage, frozenExportFixture } from '../exports.fixture';
 
 // HTTP fixtures validate view behavior; they are never production market data.
 const session = { session_id: 'session-paper', network_id: 'base-mainnet', mode: 'PAPER', observed_state: 'STOPPED', health: 'UNKNOWN', desired_revision: '1', applied_revision: '1', outstanding_attempts: 0, execution_authorized: false, last_heartbeat_at: null, configuration_digest: 'sha256:paper-fixture-config' };
-const capabilities = { modes: ['OBSERVE', 'PAPER', 'REPLAY'], live_execution: false, market_data: false, opportunity_capture: false, decision_history: true, paper_ledger: true, paper_run_creation: true,
+const capabilities = { modes: ['OBSERVE', 'PAPER', 'REPLAY'], live_execution: false, market_data: false, opportunity_capture: false, decision_history: true, paper_ledger: true, paper_run_creation: true, collection_telemetry: true, session_export: true,
   registered_configurations: [{ configuration_digest: session.configuration_digest, mode: 'PAPER', enabled_networks: ['base-mainnet'], strategy_ids: ['usdc-cycle'], paper_assets: [{ network_id: 'base-mainnet', asset: principalAsset }, { network_id: 'base-mainnet', asset: nativeAsset }] }] };
 const auth = { operator_id: 'operator', csrf_token: 'research-test-csrf', expires_at: '2000000000' };
 const records = [decision(), { ...decision('RECORDED_LIVE', 'observation-rejected'), trace: { ...decision('RECORDED_LIVE', 'observation-rejected').trace, result: { status: 'REJECTED', reason_codes: ['STALE_INPUT'] } } }, { ...decision('MANUALLY_CONSTRUCTED', 'observation-unavailable'), trace: { ...decision('MANUALLY_CONSTRUCTED', 'observation-unavailable').trace, amount_in_minor: null, input_age_ms: null, route: [], result: { status: 'DATA_UNAVAILABLE', reason_codes: ['NO_CAPTURE_INPUTS'] } } }];
@@ -23,6 +24,9 @@ async function stub(page: Page, override?: (route: Route, url: URL) => Promise<b
     if (path.startsWith('/v1/decisions/')) data = records.find(item => item.trace.observation_id === path.split('/').at(-1));
     if (path === '/v1/decision-coverage') data = coverage();
     if (path === '/v1/decision-groups') data = { items: [group], next_cursor: null };
+    if (path === '/v1/sessions/session-paper/collection-coverage') data = collectionCoverage();
+    if (path === '/v1/sessions/session-paper/collection-attempts') data = { items: frozenExportFixture().data.collection_attempts, next_cursor: null };
+    if (path === '/v1/sessions/session-paper/export') data = frozenExportFixture();
     if (path === '/v1/sessions/session-paper/paper-runs') data = { items: [paperRun()], next_cursor: null };
     if (path === '/v1/paper-runs/run-original') data = paperRun();
     if (path === '/v1/paper-runs/run-original/journal') data = { items: [journal()], next_cursor: null };
@@ -225,3 +229,94 @@ test('stopped paper sessions with a rejected command and revision gap can reques
   await expect(page.getByRole('button', { name: 'Paper run created', exact: true })).toBeDisabled();
   expect(creationRequests).toBe(1);
 });
+
+test('JSON and CSV downloads reuse one verified frozen snapshot while live pages remain independent', async ({ page }) => {
+  let exports = 0;
+  await stub(page, async (route, url) => {
+    if (url.pathname !== '/v1/sessions/session-paper/export') return false;
+    exports++; await route.fulfill({ json: frozenExportFixture() }); return true;
+  });
+  await openDecisions(page);
+  const panel = page.getByRole('region', { name: 'Frozen session export', exact: true });
+  await expect(panel.getByRole('button', { name: 'Download frozen JSON', exact: true })).toBeDisabled();
+  await panel.getByRole('button', { name: 'Prepare frozen session export', exact: true }).click();
+  await expect(panel.getByText('Frozen database snapshot verified', { exact: true })).toBeVisible();
+  await expect(panel.getByText(/Scheduled collection completeness: UNKNOWN/)).toBeVisible();
+  await panel.getByText('Capture dependency availability:', { exact: false }).click();
+  await expect(panel.getByText(/This bundle alone cannot reproduce capture-based calculations/)).toBeVisible();
+  const jsonEvent = page.waitForEvent('download'); await panel.getByRole('button', { name: 'Download frozen JSON', exact: true }).click();
+  const jsonDownload = await jsonEvent, json = JSON.parse(readFileSync((await jsonDownload.path())!, 'utf8'));
+  await page.getByRole('button', { name: 'Refresh evidence', exact: true }).click();
+  const csvEvent = page.waitForEvent('download'); await panel.getByRole('button', { name: 'Download frozen CSV', exact: true }).click();
+  const csvDownload = await csvEvent, csv = readFileSync((await csvDownload.path())!, 'utf8');
+  expect(json.export_id).toBe('export-fixture-one'); expect(json.snapshot.source_counts.decisions).toBe('1');
+  expect(json.data.paper_runs[0].run.balances[0].total).toBe(huge);
+  expect(json.data.paper_runs[0].journal[0].event.command.balances[0].amount).toBe(huge);
+  expect(csv).toContain(json.content_sha256); expect(csv).toContain(huge); expect(csv).toContain('"PAPER_JOURNAL_EVENT"');
+  expect(exports).toBe(1); expect(csvDownload.suggestedFilename()).toBe(jsonDownload.suggestedFilename().replace('.json', '.csv'));
+});
+
+test('over-limit or tampered refresh keeps the earlier frozen bundle explicitly available', async ({ page }) => {
+  let calls = 0;
+  await stub(page, async (route, url) => {
+    if (url.pathname !== '/v1/sessions/session-paper/export') return false;
+    calls++;
+    if (calls === 2) await route.fulfill({ status: 413, json: { code: 'EXPORT_LIMIT_EXCEEDED', message: 'Too large' } });
+    else if (calls === 3) await route.fulfill({ json: { ...frozenExportFixture(), content_sha256: 'sha256:' + 'b'.repeat(64) } });
+    else await route.fulfill({ json: frozenExportFixture() });
+    return true;
+  });
+  await openDecisions(page);
+  const panel = page.getByRole('region', { name: 'Frozen session export', exact: true });
+  await panel.getByRole('button', { name: 'Prepare frozen session export', exact: true }).click();
+  await expect(panel.getByText('Frozen database snapshot verified', { exact: true })).toBeVisible();
+  await panel.getByRole('button', { name: 'Prepare a new frozen snapshot', exact: true }).click();
+  await expect(panel.getByRole('alert')).toContainText('No partial export was prepared');
+  await expect(panel.getByRole('button', { name: 'Download frozen JSON', exact: true })).toBeEnabled();
+  await panel.getByRole('button', { name: 'Prepare a new frozen snapshot', exact: true }).click();
+  await expect(panel.getByRole('alert')).toContainText('content digest could not be verified');
+  await expect(panel.getByText('export-fixture-one', { exact: false })).toBeVisible();
+});
+
+test('System distinguishes provider failures, control suppression and interrupted work without claiming schedule coverage', async ({ page }) => {
+  let outage = false;
+  await stub(page, async (route, url) => {
+    if (!outage || !url.pathname.endsWith('/collection-attempts')) return false;
+    await route.fulfill({ status: 503, json: { code: 'UNAVAILABLE', message: 'Fixture outage' } }); return true;
+  });
+  await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'System', exact: true }).click();
+  await page.getByLabel('Collection health session', { exact: true }).selectOption('session-paper');
+  const counts = page.getByRole('region', { name: 'Recorded collection attempt counts', exact: true });
+  await expect(counts.getByText('3', { exact: true }).first()).toBeVisible();
+  await expect(counts.getByText(/Scheduled collection completeness: UNKNOWN/)).toBeVisible();
+  const attempts = page.getByRole('table', { name: 'Recorded batch attempts and suggested checks', exact: true });
+  await expect(attempts.getByText('PROVIDER_UNAVAILABLE', { exact: true })).toBeVisible();
+  await expect(attempts.getByText('GENERATION_FENCED', { exact: true })).toBeVisible();
+  await expect(attempts.getByText('NO TERMINAL OUTCOME', { exact: true })).toBeVisible();
+  await expect(attempts.getByText(/may still be running or may have been interrupted/)).toBeVisible();
+  await expect(page.getByText(/Attempt origin is not retained/)).toBeVisible();
+  outage = true; await page.getByRole('button', { name: 'Refresh collection health', exact: true }).click();
+  await expect(page.getByText('Stale snapshot retained.', { exact: true })).toBeVisible();
+  await expect(attempts.getByText('PROVIDER_UNAVAILABLE', { exact: true })).toBeVisible();
+});
+
+for (const width of [320, 390, 1440]) {
+  test('frozen exports and collection diagnostics remain contained at ' + width + 'px', async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 900 }); await stub(page); await openDecisions(page);
+    const panel = page.getByRole('region', { name: 'Frozen session export', exact: true });
+    await panel.getByRole('button', { name: 'Prepare frozen session export', exact: true }).click();
+    await expect(panel.getByText('Frozen database snapshot verified', { exact: true })).toBeVisible();
+    await panel.getByText('Capture dependency availability:', { exact: false }).click();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
+    for (const name of ['Prepare a new frozen snapshot', 'Download frozen JSON', 'Download frozen CSV']) {
+      const bounds = await panel.getByRole('button', { name, exact: true }).boundingBox();
+      expect(bounds!.width).toBeGreaterThanOrEqual(44); expect(bounds!.height).toBeGreaterThanOrEqual(44);
+    }
+    await testInfo.attach('frozen-export-' + width, { body: await page.screenshot({ path: testInfo.outputPath('frozen-export-' + width + '.png'), fullPage: true, scale: 'css' }), contentType: 'image/png' });
+    await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'System', exact: true }).click();
+    await page.getByLabel('Collection health session', { exact: true }).selectOption('session-paper');
+    await expect(page.getByText('NO TERMINAL OUTCOME', { exact: true })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
+    await testInfo.attach('collection-health-' + width, { body: await page.screenshot({ path: testInfo.outputPath('collection-health-' + width + '.png'), fullPage: true, scale: 'css' }), contentType: 'image/png' });
+  });
+}

@@ -2,7 +2,7 @@
 
 A Rust-first research platform for investigating same-chain arbitrage on Base and Solana, with an approved React dashboard design and a staged path from observation to paper experiments. It is intended for one private operator. The GitHub repository is the project delivery source; application access and repository visibility are separate settings.
 
-Current source includes bounded read-only capture, exact two-pool quote research, retained-input replay, PostgreSQL controls and virtual accounts, and a connected dashboard beside the synthetic demo. It does not submit transactions, automatically settle paper trades or establish market profitability. Shipped network configurations remain disabled until their actual providers and pool identities are qualified. Read [implementation status](https://github.com/makafeli/arbitrage-research/blob/main/docs/12-IMPLEMENTATION-STATUS.md) for scope and [integration verification](https://github.com/makafeli/arbitrage-research/blob/main/docs/17-RESEARCH-INTEGRATION-VERIFICATION.md) for the current evidence and pending CI.
+Current source includes bounded read-only capture, exact two-pool quote research, retained-input replay, PostgreSQL controls and virtual accounts, and a connected dashboard beside the synthetic demo. It does not submit transactions, automatically settle paper trades or establish market profitability. Shipped network configurations remain disabled until their actual providers and pool identities are qualified. Read [implementation status](https://github.com/makafeli/arbitrage-research/blob/main/docs/12-IMPLEMENTATION-STATUS.md) for scope and [integration verification](https://github.com/makafeli/arbitrage-research/blob/main/docs/18-COLLECTION-AND-EXPORT-VERIFICATION.md) for the current evidence checkpoint.
 
 ## Start here
 
@@ -24,7 +24,7 @@ Current source includes bounded read-only capture, exact two-pool quote research
 | [Implementation handoff](https://github.com/makafeli/arbitrage-research/blob/main/docs/10-BUILD-HANDOFF.md) | Team responsibilities and first integrated slice |
 | [Structured backlog](https://github.com/makafeli/arbitrage-research/blob/main/planning/backlog.json) | Stable epic/ticket IDs, dependencies, scope and acceptance |
 | [Issues](https://github.com/makafeli/arbitrage-research/issues) | Published work items and evidence links |
-| [Integration verification](https://github.com/makafeli/arbitrage-research/blob/main/docs/17-RESEARCH-INTEGRATION-VERIFICATION.md) | Current test evidence, review corrections and remaining acceptance |
+| [Integration verification](https://github.com/makafeli/arbitrage-research/blob/main/docs/18-COLLECTION-AND-EXPORT-VERIFICATION.md) | Current test evidence, review corrections and remaining acceptance |
 | [Railway runbook](https://github.com/makafeli/arbitrage-research/blob/main/deploy/RAILWAY.md) | Selected hosting layout and preparation; no deployment is claimed |
 | [Dashboard reference](https://github.com/makafeli/arbitrage-research/blob/main/design/dashboard-wireframe.html) | Original approved visual/interaction reference |
 

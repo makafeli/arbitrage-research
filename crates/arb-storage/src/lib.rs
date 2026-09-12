@@ -1,5 +1,9 @@
 //! Durable research sessions and revisioned operator intent. No signing or broadcast.
+mod collection;
 mod decisions;
+mod exports;
+pub use collection::*;
+pub use exports::*;
 mod paper;
 mod types;
 pub use decisions::*;
