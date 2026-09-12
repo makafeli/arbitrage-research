@@ -157,6 +157,21 @@ for (const width of [320, 390, 1440]) {
       expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
     }
     await page.getByRole('navigation').getByRole('button', { name: 'Overview', exact: true }).click();
+    const session = page.getByRole('region', { name: 'Session session-base' });
+    for (const action of ['Start', 'Pause', 'Resume', 'Stop']) {
+      const geometry = await session.getByRole('button', { name: action, exact: true }).evaluate(button => {
+        const text = document.createRange();
+        text.selectNodeContents(button);
+        const lines = Array.from(text.getClientRects()).filter(rect => rect.width > 0 && rect.height > 0);
+        const bounds = button.getBoundingClientRect();
+        return { lineTops: [...new Set(lines.map(rect => Math.round(rect.top)))], width: bounds.width, height: bounds.height,
+          clipped: lines.some(rect => rect.left < bounds.left || rect.right > bounds.right) };
+      });
+      expect(geometry.lineTops, `${action} label wraps at ${width}px`).toHaveLength(1);
+      expect(geometry.clipped, `${action} label is clipped at ${width}px`).toBe(false);
+      expect(geometry.width, `${action} target width at ${width}px`).toBeGreaterThanOrEqual(44);
+      expect(geometry.height, `${action} target height at ${width}px`).toBeGreaterThanOrEqual(44);
+    }
     await testInfo.attach(`connected-${width}`, { body: await page.screenshot({ fullPage: true }), contentType: 'image/png' });
   });
 }

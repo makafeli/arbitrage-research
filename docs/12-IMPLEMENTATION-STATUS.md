@@ -5,7 +5,7 @@ Updated 12 September 2026 during the parallel implementation. The [goal](../GOAL
 | Component | Implemented source behavior | Remaining boundary |
 |---|---|---|
 | Domain/configuration | Exact integer amounts, signed P&L, identities/routes, declared evidence validation, immutable canonical configuration, secret references | Declared consistency is not proof that provider state or settlement is true; production registry qualification remains required |
-| PostgreSQL/control | Immutable sessions/configurations, scoped idempotency, revision conflicts, append-only audit, actual attempt IDs, worker leases/generations, cancellation-safe local gates, recovery validation | Database/process integration requires the recorded CI result; no signing lease or live transport |
+| PostgreSQL/control | Immutable sessions/configurations, scoped idempotency, revision conflicts, append-only audit, actual attempt IDs, worker leases/generations, cancellation-safe local gates, recovery validation | Database/process integration passed in the linked verification record; no deployed backup/restore proof, signing lease or live transport |
 | API | Authenticated `/v1` sessions/commands/capabilities, secure cookies, Origin/CSRF, rate/body/concurrency/deadline limits, redacted errors | No opportunity production/query integration, multi-operator service or durable browser-auth store |
 | Dashboard | Preserved approved demo plus explicit Connected mode, real API client, auth, creation, per-session receipts, stale/error/retry states and evidence inspector | Paper ledger/report views and real captured opportunities remain integration work; exact browser evidence belongs to CI |
 | Capture | Base hash-pinned state and tick reads, Orca account/tick-array decoding, bounded read-only RPC, immutable manifests, content hashes and provenance | Manually constructed fixtures do not qualify production providers; streaming, rollback invalidation and full range qualification remain incomplete |
@@ -26,7 +26,7 @@ The observation worker may continue collecting bounded raw input while stopped o
 
 Local Rust validation uses the extracted Rust 1.91.1 toolchain; CI remains pinned to Rust 1.90.0. The local environment cannot run PostgreSQL or the matching Chromium binary. Mandatory PostgreSQL suites and browser tests therefore run in GitHub Actions. Local commands that filter database tests report that exclusion explicitly; absence of a database must never be counted as a passing integration test.
 
-The exact tested commit, check totals and limitations belong in the implementation verification record. Peer reviews found and corrected cancellation, duplicate resolution, readiness-loss and persisted-state consistency defects. These reviews are engineering evidence and are not an independent security audit.
+The exact tested commit, check totals and limitations are in the [implementation verification record](14-IMPLEMENTATION-VERIFICATION.md), including 139 passing Rust tests with actual PostgreSQL and a successful UI-client/API/database interoperability check. Peer reviews found and corrected cancellation, duplicate resolution, readiness-loss and persisted-state consistency defects. These reviews are engineering evidence and are not an independent security audit.
 
 ## Gates still ahead
 

@@ -9,72 +9,109 @@
     {
       "id": "ARB-001",
       "issue_url": "https://github.com/makafeli/arbitrage-research/issues/14",
-      "state": "planned",
+      "state": "completed",
       "owner_role": "Product Owner",
       "dependencies": [],
-      "evidence": [],
-      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+      "evidence": [
+        "docs/15-FOUNDATION-REVIEW.md maps all four original scope/gate criteria to the PRD and decision register and recommends acceptance of the implementation baseline.",
+        "The dated FQ-01..FQ-11 register records accountable roles, due milestones and consequences for budget, provider qualification, Railway capacity, campaign assumptions and later live authorization. It is an agent-assisted product/technical review, not an operator spending or trading decision.",
+        "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Full GitHub CI and maintainer acceptance remain pending; see docs/14-IMPLEMENTATION-VERIFICATION.md.",
+        "Applicable CI checkpoint aadca0c (https://github.com/makafeli/arbitrage-research/actions/runs/34712579037) passed specification, Rust/PostgreSQL and three container jobs; the foundation recommendation remains for maintainer acceptance, and full PR/browser CI is not yet green.",
+        "Original acceptance checklist independently checked against native issue body and committed review. All prerequisites for this foundation ticket are accepted in this progress register."
+      ],
+      "remaining_acceptance": "",
+      "acceptance_review": "Accepted on 2026-09-12 by root integration under the user-authorized build scope, using the agent-assisted product/technical criterion review in docs/15-FOUNDATION-REVIEW.md and applicable successful specification/Rust/container checks in run 34712579037. This accepts only the original foundation-establishment scope. Native issue closure follows merge of PR #83; downstream provider, deployment, simulation, campaign, independent security and live gates remain open."
     },
     {
       "id": "ARB-002",
       "issue_url": "https://github.com/makafeli/arbitrage-research/issues/15",
-      "state": "planned",
+      "state": "in_progress",
       "owner_role": "Operations engineer",
       "dependencies": [
         "ARB-001"
       ],
-      "evidence": [],
-      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure.",
-      "external_prerequisite": "Provider account, endpoint availability and spending envelope not supplied."
+      "evidence": [
+        "docs/16-PROVIDER-QUALIFICATION.md records the dated official Base/Solana endpoint references, capability gaps and RPC-versus-Railway spending distinction.",
+        "docs/qualification-fixtures/public-rpc-probe-2026-09-12.json and its probe source record two credential-free, bounded identity requests. Both ended in transport errors; no chain response, market capture or provider latency measurement was obtained.",
+        "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Full GitHub CI and maintainer acceptance remain pending; see docs/14-IMPLEMENTATION-VERIFICATION.md."
+      ],
+      "remaining_acceptance": "Select provider accounts/services and a spending ceiling; obtain complete required state on both chains or record each blocking feature gap. Measure representative request latency/coverage, reconnect/backfill and quota behavior from the intended environment, preserving redacted provenance. The failed public probes cannot qualify or rank providers.",
+      "external_prerequisite": "Dedicated provider selection/access and spending envelope are unset. Both credential-free identity probes returned transport errors without a response; provider versus environment cause is unresolved."
     },
     {
       "id": "ARB-003",
       "issue_url": "https://github.com/makafeli/arbitrage-research/issues/16",
-      "state": "planned",
+      "state": "in_progress",
       "owner_role": "Chain engineers",
       "dependencies": [
         "ARB-001",
         "ARB-002"
       ],
-      "evidence": [],
-      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure.",
-      "external_prerequisite": "Actual pool/asset registry requires source verification and provider-backed qualification."
+      "evidence": [
+        "docs/16-PROVIDER-QUALIFICATION.md cross-references primary documentation for Base chain/factory/WETH/USDC and Solana Whirlpool/wSOL/USDC identities; these are documented identities, not verified runtime state.",
+        "The bounded probe prepares two Base factory fee-tier searches and a Solana pool-layout/mint-filter discovery request, but stops before discovery after identity transport failures. Zero pools have been qualified; config/research.example.toml remains disabled.",
+        "crates/arb-domain and crates/arb-config reject ticker-only/fixture production identities and require typed same-network allowlists plus a registry qualification digest before an enabled network is structurally accepted.",
+        "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Full GitHub CI and maintainer acceptance remain pending; see docs/14-IMPLEMENTATION-VERIFICATION.md."
+      ],
+      "remaining_acceptance": "Obtain and independently review read-only mainnet identity, current factory/program-code hashes, owners, token behavior and quote-relevant pool/account state. Seek at least two distinct eligible pools on each chain; keep two-pool experiments blocked if absent. Verify Solana genesis and registry evidence from actual responses; do not enable from documented addresses or constructed fixtures alone.",
+      "external_prerequisite": "No real pool has been qualified on either chain. Mainnet responses, independently reviewed runtime/program identities, asset behavior and at least two eligible pools per chain remain required."
     },
     {
       "id": "ARB-004",
       "issue_url": "https://github.com/makafeli/arbitrage-research/issues/17",
-      "state": "planned",
+      "state": "in_progress",
       "owner_role": "Technical Lead / Operations",
       "dependencies": [
         "ARB-001",
         "ARB-002"
       ],
-      "evidence": [],
-      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure.",
-      "external_prerequisite": "Railway selected; actual project/environment, service budget, retention capacity and measured host benchmark remain unqualified."
+      "evidence": [
+        "The user selected Railway on 2026-09-12. deploy/RAILWAY.md and .railway/railway.ts define the private API/PostgreSQL and same-origin dashboard foundation, with independent qualified workers and dedicated capture volumes described separately.",
+        "docs/15-FOUNDATION-REVIEW.md FQ-02/FQ-03/FQ-11 assigns budget, region/capacity and retention/backup decisions to the operator and Operations/Technical Lead; docs/12-IMPLEMENTATION-STATUS.md explicitly withholds deployment and performance claims.",
+        "Capture manifests record raw expiry and reject expired bundles; worker documentation limits each capture volume to one controlled writer. No Redis/Kafka/Kubernetes service or universal latency guarantee is introduced.",
+        "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Full GitHub CI and maintainer acceptance remain pending; see docs/14-IMPLEMENTATION-VERIFICATION.md."
+      ],
+      "remaining_acceptance": "Select the actual Railway project/environment, region, budget and service resources. Publish the reproducible benchmark-host manifest and a transparent 24-hour storage estimate from measured/declared input rates; review retention consequences and recovery targets. Run an authenticated Railway plan and capacity/RTT measurements before deployment assumptions can be accepted.",
+      "external_prerequisite": "Railway is selected, but authenticated target project/environment, region, service budget, retention capacity and measured host/provider benchmark remain unqualified."
     },
     {
       "id": "ARB-005",
       "issue_url": "https://github.com/makafeli/arbitrage-research/issues/18",
-      "state": "planned",
+      "state": "completed",
       "owner_role": "Security reviewer / Technical Lead",
       "dependencies": [
         "ARB-001"
       ],
-      "evidence": [],
-      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+      "evidence": [
+        "docs/15-FOUNDATION-REVIEW.md records the uploaded artifact fingerprint, manifest/source dependency review, capability-boundary matrix and attack surfaces; the uploaded script is excluded from trusted execution code.",
+        "Research configuration and API reject LIVE/signing/broadcast toggles; read-only RPC methods, bounded imports and validated captures remain separate from execution capabilities. Focused Orca archive/license provenance is recorded, without claiming a full dependency audit.",
+        "The review lists FR-01..FR-09 with severity, accountable role and downstream gate, including corrected control/storage defects and open provider, simulation, deployment, dependency and native-GitHub limitations.",
+        "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Full GitHub CI and maintainer acceptance remain pending; see docs/14-IMPLEMENTATION-VERIFICATION.md.",
+        "Applicable CI checkpoint aadca0c (https://github.com/makafeli/arbitrage-research/actions/runs/34712579037) passed specification, Rust/PostgreSQL and three container jobs; the foundation recommendation remains for maintainer acceptance, and full PR/browser CI is not yet green.",
+        "Original acceptance checklist independently checked against native issue body and committed review. All prerequisites for this foundation ticket are accepted in this progress register."
+      ],
+      "remaining_acceptance": "",
+      "acceptance_review": "Accepted on 2026-09-12 by root integration under the user-authorized build scope, using the agent-assisted product/technical criterion review in docs/15-FOUNDATION-REVIEW.md and applicable successful specification/Rust/container checks in run 34712579037. This accepts only the original foundation-establishment scope. Native issue closure follows merge of PR #83; downstream provider, deployment, simulation, campaign, independent security and live gates remain open."
     },
     {
       "id": "ARB-006",
       "issue_url": "https://github.com/makafeli/arbitrage-research/issues/19",
-      "state": "planned",
+      "state": "completed",
       "owner_role": "Technical Lead / Product Owner",
       "dependencies": [
         "ARB-001",
         "ARB-005"
       ],
-      "evidence": [],
-      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+      "evidence": [
+        "docs/15-FOUNDATION-REVIEW.md verifies 8 epics, 68 stable task IDs, unchanged resolvable prerequisites, an acyclic graph and the concrete PR/acceptance conventions.",
+        "scripts/github_bootstrap.py and planning/github-project.json now include Role, Release gate and Dependency IDs; 19 regression cases cover reconciliation, metadata initialization, preservation and failure handling.",
+        "docs/13-GITHUB-SETUP-STATUS.md explicitly distinguishes repository/issue sources from native owner Project, Wiki and administrative enforcement; the reviewed dry-run performs no unrelated repository mutation.",
+        "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Full GitHub CI and maintainer acceptance remain pending; see docs/14-IMPLEMENTATION-VERIFICATION.md.",
+        "Applicable CI checkpoint aadca0c (https://github.com/makafeli/arbitrage-research/actions/runs/34712579037) passed specification, Rust/PostgreSQL and three container jobs; the foundation recommendation remains for maintainer acceptance, and full PR/browser CI is not yet green.",
+        "Original acceptance checklist independently checked against native issue body and committed review. All prerequisites for this foundation ticket are accepted in this progress register."
+      ],
+      "remaining_acceptance": "",
+      "acceptance_review": "Accepted on 2026-09-12 by root integration under the user-authorized build scope, using the agent-assisted product/technical criterion review in docs/15-FOUNDATION-REVIEW.md and applicable successful specification/Rust/container checks in run 34712579037. This accepts only the original foundation-establishment scope. Native issue closure follows merge of PR #83; downstream provider, deployment, simulation, campaign, independent security and live gates remain open."
     },
     {
       "id": "ARB-007",
@@ -87,9 +124,12 @@
         "ARB-006"
       ],
       "evidence": [
-        "Source implementation on feat/research-foundations; final acceptance awaits recorded CI and full original criteria."
+        "Cargo.toml/Cargo.lock contain the implemented 15-member research workspace and Cargo-generated dependency resolution; .github/workflows/ci.yml retains Rust 1.90.0 and explicit formatting, Clippy, Rust, PostgreSQL, frontend/browser and container checks.",
+        "docs/14-IMPLEMENTATION-VERIFICATION.md distinguishes local Rust 1.91.1 checks from required remote database/browser execution and records the initial CI failures plus source corrections. docs/15-FOUNDATION-REVIEW.md inspects the no-signer/no-broadcast process graph.",
+        "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Full GitHub CI and maintainer acceptance remain pending; see docs/14-IMPLEMENTATION-VERIFICATION.md.",
+        "CI commit aadca0c (https://github.com/makafeli/arbitrage-research/actions/runs/34712579037): Rust passed 139 tests with zero failures, ignores or filtered tests against PostgreSQL 17.11; this includes 12 control tests, 9 storage tests, the real API/worker-process integration and browser-client-to-real-API/PostgreSQL smoke test. This is the Rust job result, not a fully passing PR."
       ],
-      "remaining_acceptance": "Original dependency gates and complete integration acceptance remain mandatory; see docs/12-IMPLEMENTATION-STATUS.md."
+      "remaining_acceptance": "Preserve the passing aadca0c Rust/PostgreSQL, specification and container evidence and obtain a passing full corrected PR #83 run including the outstanding browser correction. Complete the original ARB-004/005/006 acceptance gates and maintainer review; a partial job result does not accept the full release."
     },
     {
       "id": "ARB-008",
@@ -100,9 +140,13 @@
         "ARB-007"
       ],
       "evidence": [
-        "Source implementation on feat/research-foundations; final acceptance awaits recorded CI and full original criteria."
+        "crates/arb-domain implements canonical string-serialized unsigned amounts, signed P&L, explicit decimals, checked arithmetic with 512-bit multiply/divide intermediates and explicit rounding/overflow errors.",
+        "Typed network/asset/pool identities and two-leg route validation reject ticker-only identity, cross-network discontinuity and repeated pools. Opportunity validation enforces research/REALIZED separation and declared full-simulation/estimated-executable gates; native fees remain distinct from wrapped assets.",
+        "Boundary/exhaustive bounded property tests, shared opportunity JSON round-trip, explicit missing/unknown variants and lifecycle snapshot/restart tests are present; evidence consistency validation is not proof of provider truth or settlement.",
+        "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Full GitHub CI and maintainer acceptance remain pending; see docs/14-IMPLEMENTATION-VERIFICATION.md.",
+        "CI commit aadca0c (https://github.com/makafeli/arbitrage-research/actions/runs/34712579037): Rust passed 139 tests with zero failures, ignores or filtered tests against PostgreSQL 17.11; this includes 12 control tests, 9 storage tests, the real API/worker-process integration and browser-client-to-real-API/PostgreSQL smoke test. This is the Rust job result, not a fully passing PR."
       ],
-      "remaining_acceptance": "Original dependency gates and complete integration acceptance remain mandatory; see docs/12-IMPLEMENTATION-STATUS.md."
+      "remaining_acceptance": "Attach the passing aadca0c domain/Rust and specification evidence to the acceptance review after ARB-007 is accepted; retain the pending full-PR CI status. Provider truth and transaction-simulation/ledger proof remain later producer responsibilities, and local arithmetic must never be promoted to SIMULATED."
     },
     {
       "id": "ARB-009",
@@ -114,9 +158,13 @@
         "ARB-008"
       ],
       "evidence": [
-        "Source implementation on feat/research-foundations; final acceptance awaits recorded CI and full original criteria."
+        "crates/arb-config parses bounded TOML/effective JSON with unknown-field and unsafe capability rejection, canonical effective defaults/digests, validated secret references and redacted field/parse errors.",
+        "FrozenSessionConfig has immutable mode/network/starting-asset/digest getters; replacement requires STOPPED. Structural enabled-network checks require same-network allowlists and a qualification digest; the shipped example remains inert.",
+        "Configuration tests cover stable hashes across equivalent serialization, unsafe limits/capabilities, fixture/unqualified registries, secret redaction, frozen replacement and effective JSON revalidation; API/storage bind sessions to registered configuration digests.",
+        "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Full GitHub CI and maintainer acceptance remain pending; see docs/14-IMPLEMENTATION-VERIFICATION.md.",
+        "CI commit aadca0c (https://github.com/makafeli/arbitrage-research/actions/runs/34712579037): Rust passed 139 tests with zero failures, ignores or filtered tests against PostgreSQL 17.11; this includes 12 control tests, 9 storage tests, the real API/worker-process integration and browser-client-to-real-API/PostgreSQL smoke test. This is the Rust job result, not a fully passing PR."
       ],
-      "remaining_acceptance": "Original dependency gates and complete integration acceptance remain mandatory; see docs/12-IMPLEMENTATION-STATUS.md."
+      "remaining_acceptance": "Accept ARB-003/008 and review the passing aadca0c configuration/API/PostgreSQL evidence for frozen persisted bindings. Actual runtime registry qualification remains unresolved; structural configuration acceptance cannot grant data readiness or establish pool eligibility. The full PR still awaits its browser correction run."
     },
     {
       "id": "ARB-010",
@@ -128,9 +176,13 @@
         "ARB-009"
       ],
       "evidence": [
-        "Source implementation on feat/research-foundations; final acceptance awaits recorded CI and full original criteria."
+        "migrations/0001_control.sql and crates/arb-storage implement immutable configuration/session storage, operator-scoped idempotency, revision conflicts, durable command receipts and append-only audit.",
+        "Worker storage persists lease/generation state and actual research attempt IDs; duplicate resolution is idempotent, and read/recovery paths reject inconsistent persisted state rather than infer APPLIED from API acceptance.",
+        "migrations/README.md documents forward recovery and compatibility limits. crates/arb-storage/tests/postgres.rs requires a real database and covers concurrent duplicates/revisions, immutable records, recovery and durable acknowledgement paths.",
+        "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Full GitHub CI and maintainer acceptance remain pending; see docs/14-IMPLEMENTATION-VERIFICATION.md.",
+        "CI commit aadca0c (https://github.com/makafeli/arbitrage-research/actions/runs/34712579037): Rust passed 139 tests with zero failures, ignores or filtered tests against PostgreSQL 17.11; this includes 12 control tests, 9 storage tests, the real API/worker-process integration and browser-client-to-real-API/PostgreSQL smoke test. This is the Rust job result, not a fully passing PR."
       ],
-      "remaining_acceptance": "Original dependency gates and complete integration acceptance remain mandatory; see docs/12-IMPLEMENTATION-STATUS.md."
+      "remaining_acceptance": "Maintainer must review the passing aadca0c PostgreSQL concurrency, persistence, corruption and restart evidence together with migration/recovery instructions and accept ARB-008/009. Full PR CI still awaits the browser correction. The durable control journal does not establish the separately planned financial paper ledger."
     },
     {
       "id": "ARB-011",
@@ -141,9 +193,13 @@
         "ARB-010"
       ],
       "evidence": [
-        "Source implementation on feat/research-foundations; final acceptance awaits recorded CI and full original criteria."
+        "crates/arb-control coordinates PostgreSQL research leases with an exclusive local admission gate, generation-tagged work and worker-only acknowledgements. STOP keeps outstanding attempts DRAINING; the API cannot acknowledge its own intent.",
+        "Peer-review fixes latch the gate closed before cancellable database awaits, fault on lost readiness, reject stale generations and reconcile actual unresolved attempt rows during restart.",
+        "apps/research-worker integrates OBSERVE control polling independently from bounded read-only capture; process tests block RPC while applying STOP and ensure the late bundle remains unadmitted. Independent one-shot capture CLIs are explicitly outside dashboard control.",
+        "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Full GitHub CI and maintainer acceptance remain pending; see docs/14-IMPLEMENTATION-VERIFICATION.md.",
+        "CI commit aadca0c (https://github.com/makafeli/arbitrage-research/actions/runs/34712579037): Rust passed 139 tests with zero failures, ignores or filtered tests against PostgreSQL 17.11; this includes 12 control tests, 9 storage tests, the real API/worker-process integration and browser-client-to-real-API/PostgreSQL smoke test. This is the Rust job result, not a fully passing PR."
       ],
-      "remaining_acceptance": "Original dependency gates and complete integration acceptance remain mandatory; see docs/12-IMPLEMENTATION-STATUS.md."
+      "remaining_acceptance": "Review the passing aadca0c database/control and real worker-process cases for cancellation, delayed ACK, stale results, idempotent resolution, draining and restart; accept ARB-010. Finish corrected browser acknowledgement/stop-all coverage and review pause/resume semantics. Already-started RPC calls cannot be recalled; there is no live execution fence."
     },
     {
       "id": "ARB-012",
@@ -156,9 +212,13 @@
         "ARB-011"
       ],
       "evidence": [
-        "Source implementation on feat/research-foundations; final acceptance awaits recorded CI and full original criteria."
+        "apps/control-api implements registered-configuration research sessions, revisioned command acceptance/receipts, capabilities and schema-shaped redacted errors with correlation IDs.",
+        "Operator cookies are secure by default; exact Origin/CSRF, login/request rate limits, bounded bodies/concurrency/deadlines, token rotation/logout and explicit LIVE/DISARM capability denials are implemented.",
+        "Unit/virtual-time cases and a mandatory PostgreSQL router/coordinator integration case cover authentication, forbidden mutations, conflicts, idempotency and PENDING-to-worker-APPLIED semantics; specs/openapi.yaml includes the implemented 11-operation contract.",
+        "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Full GitHub CI and maintainer acceptance remain pending; see docs/14-IMPLEMENTATION-VERIFICATION.md.",
+        "CI commit aadca0c (https://github.com/makafeli/arbitrage-research/actions/runs/34712579037): Rust passed 139 tests with zero failures, ignores or filtered tests against PostgreSQL 17.11; this includes 12 control tests, 9 storage tests, the real API/worker-process integration and browser-client-to-real-API/PostgreSQL smoke test. This is the Rust job result, not a fully passing PR."
       ],
-      "remaining_acceptance": "Original dependency gates and complete integration acceptance remain mandatory; see docs/12-IMPLEMENTATION-STATUS.md."
+      "remaining_acceptance": "Review the passing aadca0c API/PostgreSQL integration, contract and real client smoke evidence after ARB-008/010/011 acceptance; finish the corrected browser run for the full PR. Opportunity production/query integration remains empty and separate; HTTP/schema success is not market-data availability or proof of deployed HTTPS."
     },
     {
       "id": "ARB-013",
@@ -171,9 +231,13 @@
         "ARB-011"
       ],
       "evidence": [
-        "Source implementation on feat/research-foundations; final acceptance awaits recorded CI and full original criteria."
+        "crates/arb-scheduler implements bounded per-network queues, round-robin dispatch, reserved cross-chain in-flight capacity, generation/age checks, cancellable permits and fixed-cardinality stage snapshots.",
+        "Deterministic overload, blocked-Solana/Base-dispatch, stale completion, abandonment and stop-ordering tests exercise bounded work and isolation. Payload destruction and external I/O stay outside the scheduler lock.",
+        "The scheduler README explicitly states that it does not create the fixed CPU thread pool or export a metrics backend; the OBSERVE worker separately bounds capture concurrency and control polling.",
+        "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Full GitHub CI and maintainer acceptance remain pending; see docs/14-IMPLEMENTATION-VERIFICATION.md.",
+        "CI commit aadca0c (https://github.com/makafeli/arbitrage-research/actions/runs/34712579037): Rust passed 139 tests with zero failures, ignores or filtered tests against PostgreSQL 17.11; this includes 12 control tests, 9 storage tests, the real API/worker-process integration and browser-client-to-real-API/PostgreSQL smoke test. This is the Rust job result, not a fully passing PR."
       ],
-      "remaining_acceptance": "Original dependency gates and complete integration acceptance remain mandatory; see docs/12-IMPLEMENTATION-STATUS.md."
+      "remaining_acceptance": "Integrate the scheduler with a fixed-size CPU pool, per-process resource budgets, real evaluation/control paths and asynchronous stage-metric export. Record measured p50/p95/p99 and bounded-memory overload evidence on the named deployment host; test slow analytics/dashboard isolation. Complete ARB-007/008/011 acceptance before closure."
     },
     {
       "id": "ARB-014",
@@ -186,9 +250,13 @@
         "ARB-010"
       ],
       "evidence": [
-        "Source implementation on feat/research-foundations; final acceptance awaits recorded CI and full original criteria."
+        "crates/arb-capture writes immutable versioned bundles with fsynced objects/manifest, an INCOMPLETE marker, input/build/config/source provenance, bounded flat filenames and SHA-256 integrity checks.",
+        "Load/round-trip tests reject corrupt/missing objects, invalid versions, traversal, quota failures, incomplete writes and expired raw retention. Synthetic/manually constructed origins remain distinguishable from recorded-live provenance.",
+        "OBSERVE admissions store manifest digest/path/generation only after the bundle commits; orphaned raw captures remain unadmitted. Replay rechecks the original manifest/configuration and exact recorded inputs.",
+        "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Full GitHub CI and maintainer acceptance remain pending; see docs/14-IMPLEMENTATION-VERIFICATION.md.",
+        "CI commit aadca0c (https://github.com/makafeli/arbitrage-research/actions/runs/34712579037): Rust passed 139 tests with zero failures, ignores or filtered tests against PostgreSQL 17.11; this includes 12 control tests, 9 storage tests, the real API/worker-process integration and browser-client-to-real-API/PostgreSQL smoke test. This is the Rust job result, not a fully passing PR."
       ],
-      "remaining_acceptance": "Original dependency gates and complete integration acceptance remain mandatory; see docs/12-IMPLEMENTATION-STATUS.md."
+      "remaining_acceptance": "Attach passing capture/control/replay CI and review a real provider-backed export for provenance, secret redaction and decision-to-bundle lookup once ARB-008/009/010 and production qualification pass. Wire retention and decision/report references without rewriting historical evidence; constructed fixtures do not establish real capture completeness or market performance."
     },
     {
       "id": "ARB-015",
@@ -220,9 +288,13 @@
         "ARB-014"
       ],
       "evidence": [
-        "Source implementation on feat/research-foundations; final acceptance awaits recorded CI and full original criteria."
+        "crates/arb-evm performs bounded Base Uniswap V3 read-only acquisition: chain/factory/pool identity checks, runtime-code hashes, block-hash-pinned state calls and configured tick bitmap/tick reads.",
+        "Manually constructed transcript fixtures exercise deterministic ABI decoding, wrong identities and incomplete state; the adapter reports acquisition capability and withholds quote completeness.",
+        "docs/16-PROVIDER-QUALIFICATION.md records that the public Base identity probe obtained no response and discovered no qualified pools; documented addresses are not enabled production registry evidence.",
+        "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Full GitHub CI and maintainer acceptance remain pending; see docs/14-IMPLEMENTATION-VERIFICATION.md.",
+        "CI commit aadca0c (https://github.com/makafeli/arbitrage-research/actions/runs/34712579037): Rust passed 139 tests with zero failures, ignores or filtered tests against PostgreSQL 17.11; this includes 12 control tests, 9 storage tests, the real API/worker-process integration and browser-client-to-real-API/PostgreSQL smoke test. This is the Rust job result, not a fully passing PR."
       ],
-      "remaining_acceptance": "Original dependency gates and complete integration acceptance remain mandatory; see docs/12-IMPLEMENTATION-STATUS.md."
+      "remaining_acceptance": "Qualify ARB-002/003 providers and at least two real pools; capture complete amount-relevant state and compare decoded values with official ABI/state queries. Implement and test bounded reconnect/backfill, missing-log/gap handling and coherent quote coverage after ARB-008/009/014. Static transcript decoding alone does not satisfy read-only ingestion acceptance."
     },
     {
       "id": "ARB-017",
@@ -237,9 +309,13 @@
         "ARB-014"
       ],
       "evidence": [
-        "Source implementation on feat/research-foundations; final acceptance awaits recorded CI and full original criteria."
+        "crates/arb-solana decodes the pinned Orca legacy SPL-token/fixed tick-array layout with configured program-data hash, owner, mint/vault and account-set checks.",
+        "Acquisition uses one finalized getMultipleAccounts response for declared account context; manually constructed fixtures cover decoding/identity failures and preserve the layout/source revision in capture provenance.",
+        "docs/16-PROVIDER-QUALIFICATION.md leaves mainnet genesis, provider semantics and every actual pool unqualified after the failed bounded identity probe; no sample registry is promoted to production.",
+        "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Full GitHub CI and maintainer acceptance remain pending; see docs/14-IMPLEMENTATION-VERIFICATION.md.",
+        "CI commit aadca0c (https://github.com/makafeli/arbitrage-research/actions/runs/34712579037): Rust passed 139 tests with zero failures, ignores or filtered tests against PostgreSQL 17.11; this includes 12 control tests, 9 storage tests, the real API/worker-process integration and browser-client-to-real-API/PostgreSQL smoke test. This is the Rust job result, not a fully passing PR."
       ],
-      "remaining_acceptance": "Original dependency gates and complete integration acceptance remain mandatory; see docs/12-IMPLEMENTATION-STATUS.md."
+      "remaining_acceptance": "Complete ARB-002/003/008/009/014 qualification and compare representative real account captures with the pinned official layout. Exercise missing arrays, duplicate/out-of-order writes and bounded reconnect gaps; qualify the provider account-coherence semantics and current program before claiming complete valid quote state."
     },
     {
       "id": "ARB-018",
@@ -251,9 +327,13 @@
         "ARB-017"
       ],
       "evidence": [
-        "Source implementation on feat/research-foundations; final acceptance awaits recorded CI and full original criteria."
+        "Adapter snapshots record chain-specific finalized context: Base block/hash ancestry and Solana genesis/slot plus single-response account context. SnapshotQuality carries coherent, complete-for-quote and explicit missing inputs.",
+        "Domain evidence gates reject stale/incomplete/inconsistent declared state for estimated-executable labels; capture/replay retain original provenance and compare normalized snapshot/context/quality exactly.",
+        "Current adapters deliberately report unqualified quote completeness; similar wall-clock timestamps never establish a shared cross-chain atomic snapshot.",
+        "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Full GitHub CI and maintainer acceptance remain pending; see docs/14-IMPLEMENTATION-VERIFICATION.md.",
+        "CI commit aadca0c (https://github.com/makafeli/arbitrage-research/actions/runs/34712579037): Rust passed 139 tests with zero failures, ignores or filtered tests against PostgreSQL 17.11; this includes 12 control tests, 9 storage tests, the real API/worker-process integration and browser-client-to-real-API/PostgreSQL smoke test. This is the Rust job result, not a fully passing PR."
       ],
-      "remaining_acceptance": "Original dependency gates and complete integration acceptance remain mandatory; see docs/12-IMPLEMENTATION-STATUS.md."
+      "remaining_acceptance": "Implement the rolling snapshot state machine, versioned freshness policy and durable rollback/gap invalidation of dependent work. Replay real reorgs, out-of-order updates and mismatched account dependencies; prove formerly valid work becomes ineligible without altering captured provenance. Accept ARB-016/017 and attach current-commit integration evidence."
     },
     {
       "id": "ARB-019",
@@ -279,9 +359,13 @@
         "ARB-018"
       ],
       "evidence": [
-        "Restricted Orca static-fee exact-input and two-leg fixture math; third-party license/provenance pinned."
+        "crates/arb-solana/src/math.rs wraps a pinned Apache-licensed historical Orca static-fee exact-input primitive and two-leg fixture composition; unsupported adaptive-fee/array behavior remains rejected.",
+        "docs/14-IMPLEMENTATION-VERIFICATION.md records the initial nonterminating boundary regression and the fix: constrain the SDK swap to captured tick coverage, reject partial consumption and validate liquidity transitions.",
+        "All eight local math regressions passed after correction, including the formerly hanging case, both directions and malformed liquidity. Focused third-party archive/license provenance is recorded in the foundation review.",
+        "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Full GitHub CI and maintainer acceptance remain pending; see docs/14-IMPLEMENTATION-VERIFICATION.md.",
+        "CI commit aadca0c (https://github.com/makafeli/arbitrage-research/actions/runs/34712579037): Rust passed 139 tests with zero failures, ignores or filtered tests against PostgreSQL 17.11; this includes 12 control tests, 9 storage tests, the real API/worker-process integration and browser-client-to-real-API/PostgreSQL smoke test. This is the Rust job result, not a fully passing PR."
       ],
-      "remaining_acceptance": "Current-program differential qualification, complete captured-state integration and unsupported behavior gates."
+      "remaining_acceptance": "Obtain passing corrected-commit remote math/workspace CI, then qualify current deployed-program equivalence with golden/randomized differential cases, real complete captured state and the supported token-behavior matrix. Finish overflow/truncation, tick-boundary/empty-liquidity and unavailable-array review after ARB-008/017/018; the historical primitive is not a current-program qualification."
     },
     {
       "id": "ARB-021",
@@ -352,9 +436,13 @@
         "ARB-023"
       ],
       "evidence": [
-        "Source implementation on feat/research-foundations; final acceptance awaits recorded CI and full original criteria."
+        "crates/arb-paper/src/cost.rs computes exact transaction economics from quotes that already include pool fees/impact; its deductible expense vocabulary excludes those included costs and rejects duplicate components.",
+        "Native fee amounts retain asset identity and timestamped exact-ratio valuation; missing execution/funding/valuation inputs yield no complete net result. Gross, transaction-net and disclosed method/version overhead allocation remain separate and denominated in the actual starting asset.",
+        "Hand-calculated Base L1/execution and Solana execution/priority/tip fixtures preserve rounding, negative failed-attempt scenarios and missing-versus-zero distinctions. No USDC-to-guaranteed-USD claim is made.",
+        "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Full GitHub CI and maintainer acceptance remain pending; see docs/14-IMPLEMENTATION-VERIFICATION.md.",
+        "CI commit aadca0c (https://github.com/makafeli/arbitrage-research/actions/runs/34712579037): Rust passed 139 tests with zero failures, ignores or filtered tests against PostgreSQL 17.11; this includes 12 control tests, 9 storage tests, the real API/worker-process integration and browser-client-to-real-API/PostgreSQL smoke test. This is the Rust job result, not a fully passing PR."
       ],
-      "remaining_acceptance": "Original dependency gates and complete integration acceptance remain mandatory; see docs/12-IMPLEMENTATION-STATUS.md."
+      "remaining_acceptance": "Connect the core to the persisted ARB-023 evaluation pipeline and complete scenario fee/funding inputs; reproduce conversions and aggregate conservation from recorded decisions/reports. Attach passing corrected-commit tests and review ARB-008/023 dependencies. In-memory fixture calculations do not establish complete transaction simulation or a deployed cost ledger."
     },
     {
       "id": "ARB-026",
@@ -366,9 +454,13 @@
         "ARB-025"
       ],
       "evidence": [
-        "Source implementation on feat/research-foundations; final acceptance awaits recorded CI and full original criteria."
+        "crates/arb-paper/src/portfolio.rs freezes initial balances per run, separates token principal from native fee inventory and atomically applies reservations, explicit scenario outcomes and paired debit/credit postings.",
+        "Concurrent Mutex-mediated candidates cannot overreserve; unknown outcomes retain funds, failed included attempts spend fees while releasing atomic principal, and known non-inclusion releases both. Reset requires a different run.",
+        "Idempotent command/body replay, prefix reconstruction, tamper/gap/mixed-run rejection, conflicting-capital and bounded conservation tests cover the deterministic single-owner in-memory reducer.",
+        "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Full GitHub CI and maintainer acceptance remain pending; see docs/14-IMPLEMENTATION-VERIFICATION.md.",
+        "CI commit aadca0c (https://github.com/makafeli/arbitrage-research/actions/runs/34712579037): Rust passed 139 tests with zero failures, ignores or filtered tests against PostgreSQL 17.11; this includes 12 control tests, 9 storage tests, the real API/worker-process integration and browser-client-to-real-API/PostgreSQL smoke test. This is the Rust job result, not a fully passing PR."
       ],
-      "remaining_acceptance": "Original dependency gates and complete integration acceptance remain mandatory; see docs/12-IMPLEMENTATION-STATUS.md."
+      "remaining_acceptance": "Integrate reservations/settlements with PostgreSQL transactions and the evaluation/worker pipeline, then run real crash/restart and concurrent persistent-reservation tests. Verify report balances and mutually exclusive decisions using recorded inputs after ARB-010/025. Journal-prefix replay is not disk durability or cross-process ownership proof."
     },
     {
       "id": "ARB-027",
@@ -382,9 +474,13 @@
         "ARB-023"
       ],
       "evidence": [
-        "Source implementation on feat/research-foundations; final acceptance awaits recorded CI and full original criteria."
+        "apps/replay verifies original manifest/object digests and re-decodes ordered RPC transcripts offline, requiring matching methods/parameters, complete consumption and exact snapshot/context/quality equality.",
+        "Recorded-live effective configuration and registry bindings are revalidated; protocol source revision, original build and replay build identities are distinguished. The report explicitly marks quote replay, paper P&L and full-transaction simulation unavailable.",
+        "docs/14-IMPLEMENTATION-VERIFICATION.md records four passing local strict capture replay regressions, including self-consistently rehashed mismatches, configuration/source/sequence changes and repeated deterministic acquisition output.",
+        "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Full GitHub CI and maintainer acceptance remain pending; see docs/14-IMPLEMENTATION-VERIFICATION.md.",
+        "CI commit aadca0c (https://github.com/makafeli/arbitrage-research/actions/runs/34712579037): Rust passed 139 tests with zero failures, ignores or filtered tests against PostgreSQL 17.11; this includes 12 control tests, 9 storage tests, the real API/worker-process integration and browser-client-to-real-API/PostgreSQL smoke test. This is the Rust job result, not a fully passing PR."
       ],
-      "remaining_acceptance": "Original dependency gates and complete integration acceptance remain mandatory; see docs/12-IMPLEMENTATION-STATUS.md."
+      "remaining_acceptance": "Build complete route/evaluation/economic replay over qualified Base/Orca math and persisted ARB-023 records; retain missing-input rejection and CANDIDATE evidence for mathematical results. Compare canonical full outputs in isolated environments with network denied, record platform/version limits and accept ARB-014/019/020/023. Acquisition re-decoding alone is not full deterministic trading replay."
     },
     {
       "id": "ARB-028",
@@ -524,9 +620,13 @@
         "ARB-036"
       ],
       "evidence": [
-        "Source implementation on feat/research-foundations; final acceptance awaits recorded CI and full original criteria."
+        "apps/web/src/ConnectedApp.tsx and src/api/client.ts add explicit Connected mode, authenticated queries, loading/empty/unavailable/stale/disconnected states and safe retries while preserving the approved synthetic Demo mode.",
+        "RecordedOpportunities.tsx displays exact string amounts, snapshot/plan/valuation provenance, missing costs as unknown and failed simulations as rejection; disconnected snapshots do not invent continued activity.",
+        "API-client/unit and Connected browser fixtures cover data-quality and failure states. The native-fetch receiver defect from initial CI is corrected with a regression test; the corrected browser suite remains to be accepted.",
+        "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Full GitHub CI and maintainer acceptance remain pending; see docs/14-IMPLEMENTATION-VERIFICATION.md.",
+        "CI commit aadca0c (https://github.com/makafeli/arbitrage-research/actions/runs/34712579037) passed the real API/PostgreSQL client smoke test and 19 of 20 browser scenarios. One exact DOM-text assertion failed; its correction and the mobile button wrapping change require the next browser run. No full browser/PR pass is claimed."
       ],
-      "remaining_acceptance": "Original dependency gates and complete integration acceptance remain mandatory; see docs/12-IMPLEMENTATION-STATUS.md."
+      "remaining_acceptance": "Pass corrected-commit Connected browser/service-client CI and inspect one real persisted captured decision end-to-end against its API trace after the original dependencies pass. Wire actual opportunity production/query persistence; an empty endpoint and mocked evidence inspector do not complete the real-data dashboard acceptance."
     },
     {
       "id": "ARB-038",
@@ -540,9 +640,13 @@
         "ARB-036"
       ],
       "evidence": [
-        "Source implementation on feat/research-foundations; final acceptance awaits recorded CI and full original criteria."
+        "ConnectedApp creates research sessions from server-registered configuration digests, enabled networks, immutable mode and allowlisted strategy IDs; historical settings remain attached to the stored configuration.",
+        "The API revalidates selections and rejects hidden-field/URL LIVE attempts, unsupported modes/networks/strategies and invalid requests. Disabled/unqualified defaults cannot be used to start an active session.",
+        "Frontend creation/error fixtures and configuration/API tests exercise invalid selection and immutable-binding behavior without exposing RPC/database secrets.",
+        "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Full GitHub CI and maintainer acceptance remain pending; see docs/14-IMPLEMENTATION-VERIFICATION.md.",
+        "CI commit aadca0c (https://github.com/makafeli/arbitrage-research/actions/runs/34712579037) passed the real API/PostgreSQL client smoke test and 19 of 20 browser scenarios. One exact DOM-text assertion failed; its correction and the mobile button wrapping change require the next browser run. No full browser/PR pass is claimed."
       ],
-      "remaining_acceptance": "Original dependency gates and complete integration acceptance remain mandatory; see docs/12-IMPLEMENTATION-STATUS.md."
+      "remaining_acceptance": "Complete the full experiment review flow, including explicit virtual principal, separate native-fee reserves, sizes/delay/cost assumptions and capability feedback for pool/token models. Pass keyboard-driven browser/API creation and revised-experiment history tests with the actual immutable experiment records; current registered-session creation is narrower than the full ticket."
     },
     {
       "id": "ARB-039",
@@ -556,9 +660,13 @@
         "ARB-037"
       ],
       "evidence": [
-        "Source implementation on feat/research-foundations; final acceptance awaits recorded CI and full original criteria."
+        "Connected controls submit revisioned idempotent commands and poll per-session receipts; PENDING acceptance is distinct from worker APPLIED and unresolved work remains DRAINING.",
+        "Demo controls explicitly remain local; Connected mode handles delayed/lost ACK, stale revision, disconnect, uncertain request retry and per-session stop-all outcomes without claiming an atomic global stop.",
+        "Browser/control fixtures cover pending stop, command acknowledgement, unresolved attempts and focus/accessibility; real PostgreSQL/coordinator and worker-process tests are required in CI.",
+        "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Full GitHub CI and maintainer acceptance remain pending; see docs/14-IMPLEMENTATION-VERIFICATION.md.",
+        "CI commit aadca0c (https://github.com/makafeli/arbitrage-research/actions/runs/34712579037) passed the real API/PostgreSQL client smoke test and 19 of 20 browser scenarios. One exact DOM-text assertion failed; its correction and the mobile button wrapping change require the next browser run. No full browser/PR pass is claimed."
       ],
-      "remaining_acceptance": "Original dependency gates and complete integration acceptance remain mandatory; see docs/12-IMPLEMENTATION-STATUS.md."
+      "remaining_acceptance": "Pass the corrected Connected browser suite plus real API/PostgreSQL/worker-process acknowledgement tests, including duplicate clicks, delayed ACK, partial stop-all failure, safe retry and narrow-screen keyboard/live announcements. Complete original dependencies and verify pause/resume/feed behavior; infrastructure shutdown or local demo state must never stand in for a worker fence."
     },
     {
       "id": "ARB-040",
@@ -630,9 +738,13 @@
         "ARB-043"
       ],
       "evidence": [
-        "Source implementation on feat/research-foundations; final acceptance awaits recorded CI and full original criteria."
+        "deploy/Dockerfile.api, Dockerfile.web, Dockerfile.worker, Caddyfile and .railway/railway.ts prepare the private research deployment; deploy/RAILWAY.md records same-origin HTTPS, private services, dedicated worker volumes and one-owner restrictions.",
+        "The initial PR #83 container checks passed, but docs/14-IMPLEMENTATION-VERIFICATION.md requires corrected-commit full CI and explicitly separates image validation from actual Railway deployment.",
+        "The runbook documents inert startup, operator STOP versus process shutdown, fenced recovery, raw-capture expiry and outstanding configuration/volume/provider prerequisites. No authenticated Railway project or billable deployment was created.",
+        "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Full GitHub CI and maintainer acceptance remain pending; see docs/14-IMPLEMENTATION-VERIFICATION.md.",
+        "CI commit aadca0c (https://github.com/makafeli/arbitrage-research/actions/runs/34712579037) passed specifications and all three container-image jobs. These results verify build/configuration checks and do not establish an authenticated Railway deployment, volume access or backup restoration."
       ],
-      "remaining_acceptance": "Prepared Railway containers/IaC only; authenticated deployment, volumes, operational recovery and backup restore remain."
+      "remaining_acceptance": "After ARB-035/039/041/042/043, execute a reviewed authenticated Railway plan/deployment, verify volume permissions and clean inert startup, implement backup/retention jobs and perform an isolated restore drill comparing configurations, commands, ledger and replay references. Exercise abrupt restart/degraded providers and end-to-end STOP, record immutable release/image hashes and actual recovery evidence. Prepared images/runbooks are not deployment acceptance."
     },
     {
       "id": "ARB-045",

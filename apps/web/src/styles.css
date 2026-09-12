@@ -209,3 +209,12 @@ button {touch-action:manipulation;}
 .login-panel {margin-bottom:23px}
 .topactions {flex-wrap:wrap}
 @media(max-width:540px){.connected-form button{width:100%}.topbar{align-items:flex-start}.topactions{justify-content:flex-end}.topactions button{font-size:12px;padding:8px}.topbar>div:first-child{min-width:85px}}
+
+/* Preserve whole words in controls; session actions get room for every label. */
+.controls button {overflow-wrap:normal;word-break:normal}
+.session-actions button {white-space:nowrap;min-height:44px}
+@media(max-width:540px){
+  .session-actions {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));width:100%}
+  .session-actions button {width:100%;min-width:0}
+  .session-actions button:last-child:nth-child(odd) {grid-column:1/-1}
+}
