@@ -82,6 +82,8 @@ test('opportunity detail remains hypothetical and returns keyboard focus on Esca
   await expect(dialog.getByRole('button', { name: 'Close opportunity detail' })).toBeFocused();
   await page.keyboard.press('Tab');
   await expect(dialog.getByRole('button', { name: 'Close opportunity detail' })).toBeFocused();
+  await page.keyboard.press('Shift+Tab');
+  await expect(dialog.getByRole('button', { name: 'Close opportunity detail' })).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(dialog).not.toBeVisible();
   await expect(inspect).toBeFocused();
@@ -142,6 +144,16 @@ for (const width of [320, 390, 768, 1440]) {
         document.body.scrollWidth,
       ) - document.documentElement.clientWidth);
       expect(overflow, `${navigation} horizontal overflow at ${width}px`).toBeLessThanOrEqual(1);
+      const clippedCardContent = await page.evaluate(() => Array.from(
+        document.querySelectorAll<HTMLElement>('.tablewrap tr, .tablewrap .mobilelabel'),
+      ).filter(element => element.getClientRects().length > 0
+        && (element.matches('.mobilelabel') || getComputedStyle(element).display === 'grid'))
+        .map(element => ({
+          text: element.textContent?.trim().slice(0, 100),
+          overflow: element.scrollWidth - element.clientWidth,
+        }))
+        .filter(element => element.overflow > 1));
+      expect(clippedCardContent, `${navigation} clipped card content at ${width}px`).toEqual([]);
     }
     await page.getByRole('navigation').getByRole('button', { name: 'Overview', exact: true }).click();
     await testInfo.attach(`overview-${width}-dark`, { body: await page.screenshot({ fullPage: true }), contentType: 'image/png' });

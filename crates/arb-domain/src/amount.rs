@@ -30,9 +30,7 @@ impl FromStr for AtomicAmount {
         {
             return Err(AmountError::NonCanonical);
         }
-        if value.len() > MAX_U256.len()
-            || (value.len() == MAX_U256.len() && value > MAX_U256)
-        {
+        if value.len() > MAX_U256.len() || (value.len() == MAX_U256.len() && value > MAX_U256) {
             return Err(AmountError::Overflow);
         }
         Ok(Self(value.to_owned()))
@@ -77,7 +75,10 @@ mod tests {
     #[test]
     fn rejects_ambiguous_or_noninteger_wire_amounts() {
         for value in ["", "00", "01", "-1", "+1", "1.0", "1e6", " 1", "１"] {
-            assert_eq!(value.parse::<AtomicAmount>(), Err(AmountError::NonCanonical));
+            assert_eq!(
+                value.parse::<AtomicAmount>(),
+                Err(AmountError::NonCanonical)
+            );
         }
     }
 }

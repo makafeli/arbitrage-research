@@ -6,7 +6,7 @@
 mod amount;
 mod lifecycle;
 
-pub use amount::{AtomicAmount, AmountError};
+pub use amount::{AmountError, AtomicAmount};
 pub use lifecycle::{Action, ControlError, Mode, Progress, Session, State};
 
 /// Evidence names are classifications, not an automatic proof of eligibility.

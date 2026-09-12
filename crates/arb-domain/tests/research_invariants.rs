@@ -39,7 +39,11 @@ fn recovery_keeps_unknown_attempts_until_positive_resolution() {
     let one_left = recovering.resolve_attempt().unwrap();
     assert_eq!(one_left.outstanding(), 1);
     assert_eq!(one_left.state(), State::Recovering);
-    let ready = one_left.resolve_attempt().unwrap().complete_recovery().unwrap();
+    let ready = one_left
+        .resolve_attempt()
+        .unwrap()
+        .complete_recovery()
+        .unwrap();
     assert_eq!(ready.state(), State::Stopped);
 }
 
@@ -139,7 +143,11 @@ fn a_stop_superseding_a_started_pause_keeps_the_fence_closed() {
         Err(ControlError::NoMatchingCommand)
     );
     assert_eq!(
-        stop.begin_fence(3).unwrap().acknowledge(3, false).unwrap().state(),
+        stop.begin_fence(3)
+            .unwrap()
+            .acknowledge(3, false)
+            .unwrap()
+            .state(),
         State::Stopped
     );
 }
@@ -162,7 +170,11 @@ fn fault_closes_gate_and_recovery_requires_explicit_new_start() {
     assert_eq!(faulted.state(), State::Faulted);
     assert_eq!(faulted.outstanding(), 1);
     let recovering = faulted.begin_recovery().unwrap();
-    let ready = recovering.resolve_attempt().unwrap().complete_recovery().unwrap();
+    let ready = recovering
+        .resolve_attempt()
+        .unwrap()
+        .complete_recovery()
+        .unwrap();
     assert_eq!(ready.state(), State::Stopped);
     assert!(!ready.allows_evaluation());
 }
@@ -195,7 +207,11 @@ fn research_results_cannot_be_realized() {
 
 #[test]
 fn repeated_fence_begin_does_not_increment_generation_twice() {
-    let fenced = running().request(Action::Stop, 1).unwrap().begin_fence(2).unwrap();
+    let fenced = running()
+        .request(Action::Stop, 1)
+        .unwrap()
+        .begin_fence(2)
+        .unwrap();
     assert_eq!(fenced.begin_fence(2).unwrap(), fenced);
 }
 

@@ -178,6 +178,8 @@ class Bootstrap:
             self.last_write = time.monotonic()
         args = ["gh", "api", "--hostname", "github.com", endpoint, "--method", method,
                 "-H", "Accept: application/vnd.github+json", "-H", "X-GitHub-Api-Version: 2026-03-10"]
+        if method == "GET":
+            args += ["-H", "Cache-Control: no-cache"]
         if paginate:
             args += ["--paginate", "--slurp"]
         if payload is not None:
@@ -195,12 +197,34 @@ class Bootstrap:
         return result["data"]
 
     def refresh_issues(self):
-        self.issues = issue_index(self.api(self.base + "/issues?state=all&per_page=100", paginate=True))
+        # A collection read can lag recently completed writes. Never discard an
+        # acknowledged issue ID merely because it is absent from that listing.
+        # Build a replacement separately so a failed verification retains state.
+        known = dict(self.state.get("issues", {}))
+        known.update({key: {"number": issue["number"], "node_id": issue["node_id"]}
+                      for key, issue in self.issues.items()})
+        refreshed = issue_index(self.api(
+            self.base + "/issues?state=all&sort=created&direction=asc&per_page=100", paginate=True))
+        recovered = 0
+        for key, reference in known.items():
+            if key in refreshed:
+                verified = refreshed[key]
+            else:
+                number = reference["number"]
+                verified = self.api(self.base + f"/issues/{number}")
+                if key not in issue_index([verified]):
+                    raise SetupError(f"Known issue {key} #{number} no longer has its expected marker; retained state is unchanged")
+                refreshed[key] = verified
+                recovered += 1
+            if verified["number"] != reference["number"] or (reference.get("node_id") and verified["node_id"] != reference["node_id"]):
+                raise SetupError(f"Known issue identity changed for {key}; reconcile GitHub markers before importing")
+        self.issues = refreshed
         self.state["issues"] = {key: {"number": issue["number"], "url": issue["html_url"],
-                                     "node_id": issue["node_id"]} for key, issue in self.issues.items()}
-        for key in self.issues:
+                                     "node_id": issue["node_id"]} for key, issue in refreshed.items()}
+        for key in refreshed:
             self.state["pending"].pop("issue:" + key, None)
         self.save()
+        print(f"Verified {len(refreshed)} issue markers ({recovered} recovered by individual reads)", flush=True)
 
     def labels(self):
         existing = {entry["name"] for entry in self.api(self.base + "/labels?per_page=100", paginate=True)}
@@ -279,7 +303,7 @@ class Bootstrap:
         self.refresh_issues()
         missing = {item["id"] for item in self.items} - self.issues.keys()
         if missing:
-            raise SetupError("Import issues before relationships")
+            raise SetupError("Import issues before relationships; missing markers: " + ", ".join(sorted(missing)))
         epics = {entry["id"] for entry in self.backlog["epics"]}
         added = 0
         for epic in epics:

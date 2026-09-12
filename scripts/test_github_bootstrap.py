@@ -18,13 +18,22 @@ class FakeBootstrap(setup.Bootstrap):
         self.remote = []
         self.created = 0
         self.fail_create = None
+        self.stale_listing = False
+        self.fail_issue_read = False
+        self.individual_reads = 0
         self.remote_milestones = [{"title": key, "number": i + 1} for i, key in enumerate(setup.MILESTONES)]
 
     def api(self, endpoint, method="GET", payload=None, paginate=False):
         if "/milestones?" in endpoint:
             return deepcopy(self.remote_milestones)
         if method == "GET" and "/issues?" in endpoint:
-            return deepcopy(self.remote)
+            return [] if self.stale_listing else deepcopy(self.remote)
+        if method == "GET" and "/issues/" in endpoint:
+            self.individual_reads += 1
+            if self.fail_issue_read:
+                raise setup.SetupError("simulated individual read failure")
+            number = int(endpoint.rsplit("/", 1)[1])
+            return deepcopy(next(x for x in self.remote if x["number"] == number))
         if method == "POST" and endpoint.endswith("/issues"):
             self.created += 1
             value = dict(payload, id=self.created, node_id=f"I_{self.created}", number=self.created,
@@ -63,6 +72,54 @@ class ImportTests(unittest.TestCase):
             self.assertEqual(app.remote[0]["state"], "closed")
             self.assertIn("preserve me", app.remote[0]["body"])
             self.assertIn({"name": "triaged"}, app.remote[0]["labels"])
+
+    def test_stale_collection_after_creation_uses_verified_individual_read(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app = FakeBootstrap(Path(tmp), [self.item()])
+            app.issues_phase()
+            app.stale_listing = True
+            result = app.relationships()
+            self.assertEqual(result["relationships_added"], 0)
+            self.assertEqual(app.created, 1)
+            self.assertEqual(app.individual_reads, 1)
+            self.assertIn("ARB-001", app.state["issues"])
+
+    def test_stale_collection_after_restart_does_not_create_duplicate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            original = FakeBootstrap(Path(tmp), [self.item()])
+            original.issues_phase()
+            restarted = FakeBootstrap(Path(tmp), [self.item()])
+            restarted.remote = deepcopy(original.remote)
+            restarted.stale_listing = True
+            restarted.issues_phase()
+            self.assertEqual(restarted.created, 0)
+            self.assertEqual(restarted.individual_reads, 1)
+            self.assertIn("ARB-001", restarted.state["issues"])
+
+    def test_failed_individual_read_retains_saved_identity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app = FakeBootstrap(Path(tmp), [self.item()])
+            app.issues_phase()
+            before = app.state_path.read_text()
+            app.stale_listing = True
+            app.fail_issue_read = True
+            with self.assertRaises(setup.SetupError):
+                app.issues_phase()
+            self.assertEqual(app.state_path.read_text(), before)
+            self.assertEqual(app.created, 1)
+            self.assertIn("ARB-001", app.state["issues"])
+
+    def test_individual_read_with_changed_marker_stops_import(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app = FakeBootstrap(Path(tmp), [self.item()])
+            app.issues_phase()
+            before = app.state_path.read_text()
+            app.remote[0]["body"] = "Marker removed by an operator"
+            app.stale_listing = True
+            with self.assertRaises(setup.SetupError):
+                app.issues_phase()
+            self.assertEqual(app.state_path.read_text(), before)
+            self.assertEqual(app.created, 1)
 
     def test_uncertain_applied_create_is_discovered(self):
         with tempfile.TemporaryDirectory() as tmp:

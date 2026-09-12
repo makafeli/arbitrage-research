@@ -1,0 +1,539 @@
+{
+  "repository": "makafeli/arbitrage-research",
+  "verified_on": "2026-09-12",
+  "source": "GitHub REST issue listing after initial setup",
+  "issues": [
+    {
+      "id": "ARB-001",
+      "number": 14,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/14",
+      "title": "[ARB-001] Ratify research scope, success measures and release gates",
+      "milestone": "M0"
+    },
+    {
+      "id": "ARB-002",
+      "number": 15,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/15",
+      "title": "[ARB-002] Qualify data providers and set a spending envelope",
+      "milestone": "M0"
+    },
+    {
+      "id": "ARB-003",
+      "number": 16,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/16",
+      "title": "[ARB-003] Verify initial chain, token and venue identities",
+      "milestone": "M0"
+    },
+    {
+      "id": "ARB-004",
+      "number": 17,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/17",
+      "title": "[ARB-004] Set deployment, retention and benchmark assumptions",
+      "milestone": "M0"
+    },
+    {
+      "id": "ARB-005",
+      "number": 18,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/18",
+      "title": "[ARB-005] Establish threat model, license provenance and paper boundaries",
+      "milestone": "M0"
+    },
+    {
+      "id": "ARB-006",
+      "number": 19,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/19",
+      "title": "[ARB-006] Create delivery conventions, repository governance and acceptance workflow",
+      "milestone": "M0"
+    },
+    {
+      "id": "ARB-007",
+      "number": 20,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/20",
+      "title": "[ARB-007] Build the Rust workspace and reproducible research CI",
+      "milestone": "M1"
+    },
+    {
+      "id": "ARB-008",
+      "number": 22,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/22",
+      "title": "[ARB-008] Implement exact amounts, identities and evidence invariants",
+      "milestone": "M1"
+    },
+    {
+      "id": "ARB-009",
+      "number": 23,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/23",
+      "title": "[ARB-009] Implement immutable validated experiment configuration",
+      "milestone": "M1"
+    },
+    {
+      "id": "ARB-010",
+      "number": 24,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/24",
+      "title": "[ARB-010] Add PostgreSQL migrations, durable sessions and command journal",
+      "milestone": "M1"
+    },
+    {
+      "id": "ARB-011",
+      "number": 25,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/25",
+      "title": "[ARB-011] Implement worker lifecycle, cancellation fences and restart recovery",
+      "milestone": "M1"
+    },
+    {
+      "id": "ARB-012",
+      "number": 26,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/26",
+      "title": "[ARB-012] Serve the authenticated control API and schema-consistent errors",
+      "milestone": "M1"
+    },
+    {
+      "id": "ARB-013",
+      "number": 27,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/27",
+      "title": "[ARB-013] Add bounded scheduling, stage telemetry and chain isolation",
+      "milestone": "M1"
+    },
+    {
+      "id": "ARB-014",
+      "number": 28,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/28",
+      "title": "[ARB-014] Implement versioned capture manifests and fixture provenance",
+      "milestone": "M1"
+    },
+    {
+      "id": "ARB-015",
+      "number": 29,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/29",
+      "title": "[ARB-015] Deliver the first observation-to-control vertical slice",
+      "milestone": "M1"
+    },
+    {
+      "id": "ARB-016",
+      "number": 30,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/30",
+      "title": "[ARB-016] Implement Base Uniswap V3 read-only ingestion",
+      "milestone": "M2"
+    },
+    {
+      "id": "ARB-017",
+      "number": 31,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/31",
+      "title": "[ARB-017] Implement Solana Orca Whirlpool read-only ingestion",
+      "milestone": "M2"
+    },
+    {
+      "id": "ARB-018",
+      "number": 32,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/32",
+      "title": "[ARB-018] Build coherent snapshots, freshness gates and rollback handling",
+      "milestone": "M2"
+    },
+    {
+      "id": "ARB-019",
+      "number": 33,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/33",
+      "title": "[ARB-019] Qualify exact Uniswap V3 quote arithmetic",
+      "milestone": "M2"
+    },
+    {
+      "id": "ARB-020",
+      "number": 34,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/34",
+      "title": "[ARB-020] Qualify exact Orca Whirlpool quote arithmetic",
+      "milestone": "M2"
+    },
+    {
+      "id": "ARB-021",
+      "number": 35,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/35",
+      "title": "[ARB-021] Enforce adapter capability readiness and registry activation",
+      "milestone": "M2"
+    },
+    {
+      "id": "ARB-022",
+      "number": 36,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/36",
+      "title": "[ARB-022] Implement bounded distinct-pool cyclic route discovery",
+      "milestone": "M2"
+    },
+    {
+      "id": "ARB-023",
+      "number": 37,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/37",
+      "title": "[ARB-023] Persist decision traces, rejections and opportunity deduplication",
+      "milestone": "M2"
+    },
+    {
+      "id": "ARB-024",
+      "number": 38,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/38",
+      "title": "[ARB-024] Run dual-chain adapter qualification and chaos gate",
+      "milestone": "M2"
+    },
+    {
+      "id": "ARB-025",
+      "number": 39,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/39",
+      "title": "[ARB-025] Implement complete cost ledger and reproducible valuation",
+      "milestone": "M3"
+    },
+    {
+      "id": "ARB-026",
+      "number": 40,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/40",
+      "title": "[ARB-026] Build virtual portfolios, principal and fee reservations",
+      "milestone": "M3"
+    },
+    {
+      "id": "ARB-027",
+      "number": 41,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/41",
+      "title": "[ARB-027] Implement deterministic offline replay and compatibility checks",
+      "milestone": "M3"
+    },
+    {
+      "id": "ARB-028",
+      "number": 42,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/42",
+      "title": "[ARB-028] Build research-only Base transaction plans and atomic guard artifact",
+      "milestone": "M3"
+    },
+    {
+      "id": "ARB-029",
+      "number": 43,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/43",
+      "title": "[ARB-029] Build research-only Solana transaction plans and final balance guard",
+      "milestone": "M3"
+    },
+    {
+      "id": "ARB-030",
+      "number": 44,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/44",
+      "title": "[ARB-030] Implement complete Base simulation and exact-plan evidence",
+      "milestone": "M3"
+    },
+    {
+      "id": "ARB-031",
+      "number": 45,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/45",
+      "title": "[ARB-031] Implement complete Solana simulation and exact-plan evidence",
+      "milestone": "M3"
+    },
+    {
+      "id": "ARB-032",
+      "number": 46,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/46",
+      "title": "[ARB-032] Model delay, inclusion and failure scenarios without false certainty",
+      "milestone": "M3"
+    },
+    {
+      "id": "ARB-033",
+      "number": 47,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/47",
+      "title": "[ARB-033] Enforce estimated-executable evidence eligibility",
+      "milestone": "M3"
+    },
+    {
+      "id": "ARB-034",
+      "number": 48,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/48",
+      "title": "[ARB-034] Implement fair comparison cohorts and holdout analysis",
+      "milestone": "M3"
+    },
+    {
+      "id": "ARB-035",
+      "number": 49,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/49",
+      "title": "[ARB-035] Pass executable-paper release gate and financial correctness review",
+      "milestone": "M3"
+    },
+    {
+      "id": "ARB-036",
+      "number": 50,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/50",
+      "title": "[ARB-036] Implement the approved dashboard shell and design tokens",
+      "milestone": "M4"
+    },
+    {
+      "id": "ARB-037",
+      "number": 51,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/51",
+      "title": "[ARB-037] Connect dashboard queries, provenance and data-quality states",
+      "milestone": "M4"
+    },
+    {
+      "id": "ARB-038",
+      "number": 52,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/52",
+      "title": "[ARB-038] Implement experiment creation, immutable settings and capability feedback",
+      "milestone": "M4"
+    },
+    {
+      "id": "ARB-039",
+      "number": 53,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/53",
+      "title": "[ARB-039] Implement start, pause, resume and stop acknowledgement UX",
+      "milestone": "M4"
+    },
+    {
+      "id": "ARB-040",
+      "number": 54,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/54",
+      "title": "[ARB-040] Build run history, portfolio ledger and comparison views",
+      "milestone": "M4"
+    },
+    {
+      "id": "ARB-041",
+      "number": 55,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/55",
+      "title": "[ARB-041] Implement reproducible JSON/CSV exports and redaction",
+      "milestone": "M4"
+    },
+    {
+      "id": "ARB-042",
+      "number": 56,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/56",
+      "title": "[ARB-042] Instrument system health, alerts and actionable diagnostics",
+      "milestone": "M4"
+    },
+    {
+      "id": "ARB-043",
+      "number": 57,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/57",
+      "title": "[ARB-043] Pass dashboard accessibility, responsiveness and failure-state review",
+      "milestone": "M4"
+    },
+    {
+      "id": "ARB-044",
+      "number": 58,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/58",
+      "title": "[ARB-044] Ship the research deployment with backups and recovery proof",
+      "milestone": "M4"
+    },
+    {
+      "id": "ARB-045",
+      "number": 59,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/59",
+      "title": "[ARB-045] Register the observation campaign and analysis protocol",
+      "milestone": "M5"
+    },
+    {
+      "id": "ARB-046",
+      "number": 60,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/60",
+      "title": "[ARB-046] Operate the campaign and keep a data-quality incident log",
+      "milestone": "M5"
+    },
+    {
+      "id": "ARB-047",
+      "number": 61,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/61",
+      "title": "[ARB-047] Audit replay samples and investigate accounting or model discrepancies",
+      "milestone": "M5"
+    },
+    {
+      "id": "ARB-048",
+      "number": 62,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/62",
+      "title": "[ARB-048] Produce the comparative economics and feasibility report",
+      "milestone": "M5"
+    },
+    {
+      "id": "ARB-049",
+      "number": 63,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/63",
+      "title": "[ARB-049] Run operational and research-security readiness review",
+      "milestone": "M5"
+    },
+    {
+      "id": "ARB-050",
+      "number": 64,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/64",
+      "title": "[ARB-050] Record the go, revise or stop decision and optional live prerequisites",
+      "milestone": "M5"
+    },
+    {
+      "id": "ARB-051",
+      "number": 65,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/65",
+      "title": "[ARB-051] Approve a concrete live execution design and limit specification",
+      "milestone": "M6"
+    },
+    {
+      "id": "ARB-052",
+      "number": 66,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/66",
+      "title": "[ARB-052] Implement isolated signer policies, epochs and durable disarm",
+      "milestone": "M6"
+    },
+    {
+      "id": "ARB-053",
+      "number": 67,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/67",
+      "title": "[ARB-053] Harden execution artifacts and enforce live atomic constraints",
+      "milestone": "M6"
+    },
+    {
+      "id": "ARB-054",
+      "number": 68,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/68",
+      "title": "[ARB-054] Implement live inventory, fee reservations and submission-time risk checks",
+      "milestone": "M6"
+    },
+    {
+      "id": "ARB-055",
+      "number": 69,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/69",
+      "title": "[ARB-055] Implement durable intent, signed-payload and dispatch-start journals",
+      "milestone": "M6"
+    },
+    {
+      "id": "ARB-056",
+      "number": 70,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/70",
+      "title": "[ARB-056] Integrate the approved chain-specific submission transport",
+      "milestone": "M6"
+    },
+    {
+      "id": "ARB-057",
+      "number": 71,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/71",
+      "title": "[ARB-057] Reconcile pending, unknown, failed and finalized live outcomes",
+      "milestone": "M6"
+    },
+    {
+      "id": "ARB-058",
+      "number": 72,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/72",
+      "title": "[ARB-058] Implement fencing, crash recovery and controlled takeover",
+      "milestone": "M6"
+    },
+    {
+      "id": "ARB-059",
+      "number": 73,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/73",
+      "title": "[ARB-059] Add explicit live readiness, arming and incident-control UX",
+      "milestone": "M6"
+    },
+    {
+      "id": "ARB-060",
+      "number": 74,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/74",
+      "title": "[ARB-060] Complete independent execution review and adversarial remediation",
+      "milestone": "M6"
+    },
+    {
+      "id": "ARB-061",
+      "number": 75,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/75",
+      "title": "[ARB-061] Prepare the bounded live pilot release and final approval packet",
+      "milestone": "M6"
+    },
+    {
+      "id": "ARB-062",
+      "number": 76,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/76",
+      "title": "[ARB-062] Deploy and run one explicitly approved bounded live pilot",
+      "milestone": "M7"
+    },
+    {
+      "id": "ARB-063",
+      "number": 77,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/77",
+      "title": "[ARB-063] Evaluate the pilot and approve continuation, reduction or shutdown",
+      "milestone": "M7"
+    },
+    {
+      "id": "ARB-064",
+      "number": 78,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/78",
+      "title": "[ARB-064] Qualify a second venue per chain for research coverage",
+      "milestone": "M7"
+    },
+    {
+      "id": "ARB-065",
+      "number": 79,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/79",
+      "title": "[ARB-065] Add reviewed token universes and optional three-leg research routes",
+      "milestone": "M7"
+    },
+    {
+      "id": "ARB-066",
+      "number": 80,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/80",
+      "title": "[ARB-066] Qualify an additional chain through the adapter and operations contract",
+      "milestone": "M7"
+    },
+    {
+      "id": "ARB-067",
+      "number": 81,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/81",
+      "title": "[ARB-067] Assess and implement an optional atomic funding adapter",
+      "milestone": "M7"
+    },
+    {
+      "id": "ARB-068",
+      "number": 82,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/82",
+      "title": "[ARB-068] Establish maintenance, change control and safe project closeout",
+      "milestone": "M7"
+    },
+    {
+      "id": "EPIC-01",
+      "number": 2,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/2",
+      "title": "[EPIC-01] Scope, provenance and operating assumptions",
+      "milestone": "M0"
+    },
+    {
+      "id": "EPIC-02",
+      "number": 5,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/5",
+      "title": "[EPIC-02] Rust platform and first observation slice",
+      "milestone": "M1"
+    },
+    {
+      "id": "EPIC-03",
+      "number": 6,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/6",
+      "title": "[EPIC-03] Qualified Solana and Base market adapters",
+      "milestone": "M2"
+    },
+    {
+      "id": "EPIC-04",
+      "number": 7,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/7",
+      "title": "[EPIC-04] Executable-paper simulation, accounting and replay",
+      "milestone": "M3"
+    },
+    {
+      "id": "EPIC-05",
+      "number": 8,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/8",
+      "title": "[EPIC-05] Approved dashboard and research operations",
+      "milestone": "M4"
+    },
+    {
+      "id": "EPIC-06",
+      "number": 10,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/10",
+      "title": "[EPIC-06] Observation campaign and feasibility decision",
+      "milestone": "M5"
+    },
+    {
+      "id": "EPIC-07",
+      "number": 12,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/12",
+      "title": "[EPIC-07] Optional reviewed bounded live execution",
+      "milestone": "M6"
+    },
+    {
+      "id": "EPIC-08",
+      "number": 13,
+      "url": "https://github.com/makafeli/arbitrage-research/issues/13",
+      "title": "[EPIC-08] Optional pilot, measured expansion and closeout",
+      "milestone": "M7"
+    }
+  ]
+}

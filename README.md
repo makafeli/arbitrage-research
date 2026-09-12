@@ -9,7 +9,7 @@ A Rust-first research platform for comparing same-chain arbitrage opportunities 
 - [Product requirements](docs/01-PRD.md) and [architecture](docs/02-ARCHITECTURE.md)
 - [Implementation status](docs/12-IMPLEMENTATION-STATUS.md): what exists and what remains planned
 - [Dashboard application](apps/web/README.md) and [approved design reference](design/dashboard-wireframe.html)
-- [Complete delivery backlog](planning/BACKLOG.md) and [machine-readable ticket specifications](planning/backlog.json)
+- [Complete delivery backlog](planning/BACKLOG.md), [published issue index](planning/GITHUB-ISSUES.md) and [machine-readable ticket specifications](planning/backlog.json)
 - [Project wiki source](wiki/Home.md) and [GitHub issues](https://github.com/makafeli/arbitrage-research/issues)
 - [GitHub setup instructions](scripts/README.md) and [verification record](docs/11-PACKAGE-VALIDATION.md)
 
