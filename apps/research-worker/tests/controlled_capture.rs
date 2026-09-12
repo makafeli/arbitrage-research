@@ -1337,9 +1337,10 @@ async fn provider_failure_is_redacted_and_killed_collection_stays_unresolved() {
 }
 
 #[tokio::test]
-async fn independently_valid_different_contexts_record_evaluation_failure_without_decisions() {
-    let database = std::env::var("TEST_DATABASE_URL")
-        .expect("TEST_DATABASE_URL required; worker evaluation failures must not silently skip");
+async fn independently_valid_different_contexts_record_rejections_without_quoted_opportunities() {
+    let database = std::env::var("TEST_DATABASE_URL").expect(
+        "TEST_DATABASE_URL required; worker context rejection evidence must not silently skip",
+    );
     let store = Store::connect(&database).await.unwrap();
     store.migrate().await.unwrap();
     let pool = sqlx::PgPool::connect(&database).await.unwrap();
@@ -1367,7 +1368,8 @@ async fn independently_valid_different_contexts_record_evaluation_failure_withou
         .unwrap();
     }
     // Both independent captures validate, but their immutable contexts differ.
-    // This fixture establishes an engine precondition failure, not provider outage.
+    // The engine preserves per-route context rejection as durable decisions.
+    // This fixture is neither a whole-batch engine failure nor a provider outage.
     let config = two_pool_config(capture_root.to_str().unwrap(), &registry);
     let validated = ValidatedConfig::from_toml(&config).unwrap();
     let config_path = root.join("config.toml");
@@ -1438,10 +1440,28 @@ async fn independently_valid_different_contexts_record_evaluation_failure_withou
         )
         .await
         .unwrap();
-    wait_until(async || {
-        sqlx::query_scalar::<_,i64>("SELECT count(*) FROM collection_attempts WHERE session_id=$1 AND purpose='RESEARCH' AND outcome='EVALUATION_FAILED' AND reason='EVALUATION_REJECTED' AND captured_pools=2 AND decision_rows=0")
-            .bind(&id).fetch_one(&pool).await.unwrap() == 1
-    },20).await;
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let completed: i64 = sqlx::query_scalar("SELECT count(*) FROM collection_attempts WHERE session_id=$1 AND purpose='RESEARCH' AND outcome='DECISIONS_RECORDED' AND captured_pools=2 AND decision_rows=2")
+            .bind(&id).fetch_one(&pool).await.unwrap();
+        if completed > 0 {
+            break;
+        }
+        if Instant::now() >= deadline {
+            let outcomes: Vec<(String, Option<String>, i64)> = sqlx::query_as("SELECT outcome,reason,decision_rows FROM collection_attempts WHERE session_id=$1 ORDER BY attempt_id LIMIT 20")
+                .bind(&id).fetch_all(&pool).await.unwrap();
+            let mut log = String::new();
+            fs::File::open(root.join("worker.log"))
+                .unwrap()
+                .take(16384)
+                .read_to_string(&mut log)
+                .unwrap();
+            panic!(
+                "expected a completed two-decision context-rejection batch within 20s; collection outcomes: {outcomes:?}; bounded worker log: {log}"
+            );
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
     let session = store.get_session(&operator, &id).await.unwrap();
     let stop = store
         .issue_command(
@@ -1478,15 +1498,31 @@ async fn independently_valid_different_contexts_record_evaluation_failure_withou
         captures, 2,
         "both captures committed before engine rejected their different contexts"
     );
-    let decisions: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM decision_traces WHERE session_id=$1")
-            .bind(&id)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let decisions = store
+        .list_decision_traces(&operator, &id, None, 100)
+        .await
+        .unwrap();
+    assert!(decisions.next_cursor.is_none());
     assert_eq!(
-        decisions, 0,
-        "engine failure is separate durable evidence, never a fabricated decision"
+        decisions.items.len(),
+        2,
+        "both route directions retain their rejection evidence"
+    );
+    for stored in &decisions.items {
+        assert!(matches!(
+            &stored.trace.result,
+            arb_domain::DecisionResult::Rejected { reason_codes } if reason_codes == &["CAPTURE_CONTEXT_MISMATCH"]
+        ));
+        assert!(
+            stored.trace.to_opportunity().unwrap().is_none(),
+            "rejected contexts must not become quoted opportunities"
+        );
+    }
+    let evaluation_failures: i64 = sqlx::query_scalar("SELECT count(*) FROM collection_attempts WHERE session_id=$1 AND outcome='EVALUATION_FAILED'")
+        .bind(&id).fetch_one(&pool).await.unwrap();
+    assert_eq!(
+        evaluation_failures, 0,
+        "a recorded per-route rejection is not a whole-batch engine failure"
     );
     let provider_failures: i64 = sqlx::query_scalar("SELECT count(*) FROM collection_attempts WHERE session_id=$1 AND outcome='ACQUISITION_FAILED'")
         .bind(&id).fetch_one(&pool).await.unwrap();
