@@ -1,0 +1,136 @@
+# Architecture
+
+Status: v0.2 target architecture, 12 September 2026. The repository contains an initial Rust foundation and a React dashboard using synthetic fixtures. The architecture below includes future components that are not implemented. It implies no trading capability, profitability or measured performance. [Implementation status](12-IMPLEMENTATION-STATUS.md) identifies the current boundary.
+
+## 1. Architectural decision
+
+Build one modular Rust workspace with independently supervised chain workers, a control API, a local signer, and a replay executable. Begin with Base and Solana paper trading. Use separate worker processes to isolate chain failures; retain shared libraries for deterministic calculations, risk rules, persistence, and reporting. A private React dashboard talks only to the control API.
+
+The default deployment is one operator on a Linux host or dedicated VM, with PostgreSQL and durable local storage. Redis, Kafka, Kubernetes, service meshes, and a public multitenant account system are unnecessary for the initial scope. Docker Compose is the reference packaging; deployment isolation and resource limits remain explicit.
+
+Each session has an immutable `OBSERVE`, `PAPER`, `REPLAY` or `LIVE` mode. Observe records candidates without hypothetical fills; paper models execution against live observations; replay runs a recorded dataset offline; live permits authorized blockchain submission. Separate instances can observe the same chain in different modes. Changing mode requires `STOPPED` and a new session; configuration updates cannot silently turn simulated orders into real transactions.
+
+## 2. Runtime boundaries
+
+```mermaid
+flowchart TD
+    Browser["Private dashboard"] --> API["Rust control API"]
+    API --> DB[("PostgreSQL commands and journal")]
+    DB --> Worker["One chain worker per session"]
+    Feed["Chain data and venue adapters"] --> Worker
+    Worker --> DB
+    Worker --> Mode{"Session mode"}
+    Mode -->|Paper| Model["Fill model and scenario ledger"]
+    Mode -->|Live| Signer["Restricted local signer"]
+    Signer --> Dispatch["Worker submission gate"]
+    Dispatch --> Chain["Chain execution"]
+    Chain --> Reconcile["Receipt and finality reconciliation"]
+    Reconcile --> DB
+    Model --> DB
+```
+
+The diagram represents one worker's paper/live branches; observe stops at candidate recording and replay uses offline input. Base and Solana instantiate the worker boundary separately. The signer returns signed bytes to the worker and never broadcasts. The worker journals those bytes before its submission gate can dispatch them.
+
+`control-api` uses Axum for authenticated commands, status, configuration and event streaming. PostgreSQL is the durable command source; notifications accelerate delivery but are not treated as durable messages. Workers poll for missed revisions and publish heartbeats. An API outage does not itself erase worker state. A lost control lease or unavailable journal prevents new live submissions.
+
+`evm-worker` uses Alloy for EVM RPC, ABI bindings and transaction preparation. `solana-worker` uses the supported Solana Rust client crates and protocol-specific integrations. These SDKs provide connectivity and transaction primitives, not a ready-made arbitrage strategy. Exact versions and compatible feature sets must be pinned during the first implementation spike. [Alloy documentation](https://alloy.rs/introduction/getting-started/), [Solana Rust SDK](https://solana.com/docs/clients/official/rust)
+
+Tokio handles network I/O and timers. Route searches and expensive simulations use a bounded CPU pool with an explicit queue limit and cancellation generation. Unrestricted `spawn_blocking` is unsuitable as a CPU workload policy because its default thread limit is large. CPU and I/O budgets must be tuned against the chosen host. [Tokio blocking-task documentation](https://docs.rs/tokio/latest/tokio/task/fn.spawn_blocking.html)
+
+## 3. Data consistency and calculations
+
+The in-memory state store owns pool observations, token metadata, block/slot provenance and freshness. It builds immutable snapshots for calculations. A changed pool invalidates dependent routes; old jobs cannot publish a result against a newer generation without revalidation.
+
+EVM observations identify block number and hash, with parent linkage and rollback support. Base-specific intermediate state feeds, if introduced, must remain distinguishable from canonical blocks. Solana observations identify slot, commitment, source and account write version when available. Independently fetched account values are not assumed to form a coherent bank snapshot. The adapter must produce a demonstrably consistent input set. Inconsistent state cannot produce a usable quote or an estimated-executable result in any mode. Diagnostic calculations may be retained as unusable evidence, excluded from opportunity counts and profit-and-loss results until consistency is established.
+
+On a feed gap, contradictory sources, unsupported pool change or reorganization, invalidate affected routes, resynchronize and block their execution. Coalescing redundant updates is permitted only when it preserves state correctness. Silently discarding necessary deltas is forbidden. Reconciliation continues even when opportunity discovery is disabled.
+
+The shared domain uses asset identifiers containing chain and contract or mint address, never ticker alone. Amounts are integer base units with checked arithmetic. Pool implementations own their exact formulas, rounding, fee treatment and overflow behavior; a universal floating-point price formula cannot substitute for protocol mathematics. Conversion to a reporting currency records the valuation source, timestamp and uncertainty. USDC units are not automatically treated as guaranteed US dollars.
+
+An immutable `Opportunity` contains route, amount, state provenance, evaluator version, cost assumptions and expiry policy. A separate `ExecutionPlan` adds venue addresses, bounds, transaction encoding, simulation evidence and risk authorization. Both have content digests. Material changes create a new plan and require revalidation.
+
+Evidence labels have explicit requirements. `candidate` is coherent route mathematics only. `simulated` requires successful simulation of the complete atomic transaction for the exact plan and identified state; multiplying swap quotes is insufficient. `estimated executable` additionally requires passing transaction guards, costs, funding and freshness checks under a named execution scenario. `realized` requires reconciled chain execution and observed accounting, with provisional finality identified separately. None implies the next without its required evidence.
+
+## 4. Paper and live execution
+
+Both modes share candidate generation, exact swap calculations, sizing and risk evaluation. Paper execution adds configurable observation delay, submission delay, inclusion assumptions, adverse movement, failed-attempt costs and a virtual inventory ledger. Deterministic replay injects a clock, ordered input events and a seeded scenario generator. It cannot consume future observations or silently replace missing history with current RPC state.
+
+Live execution additionally requires supported venue encoders, current simulation, live limits, signer access and submission readiness. Own-capital execution requires the starting asset's principal at the actual spending account or executor, plus the correct allowances or token-account authority. A fee wallet alone is insufficient. Reserve principal, fees, rent where applicable, and outstanding-attempt exposure without conflicting claims on the same balance. Borrowed principal requires a verified, available lender and asset-specific repayment path.
+
+Initial routes start and end in configured USDC on each chain, identified by verified contract or mint address. WETH-start or wrapped-SOL-start routes require a separate explicit configuration, inventory policy and reporting valuation; native gas reserves remain independently protected.
+
+RPC simulation establishes whether a transaction works against the simulated state; it does not establish future inclusion or profitability after competition. The Solana simulation response includes context and execution details that must be retained with the plan. [Solana simulation API](https://solana.com/docs/rpc/http/simulatetransaction)
+
+Base uses a small Solidity executor developed and tested with Foundry. It must restrict callers and supported operations, authenticate lending callbacks, enforce repayment, and verify the starting asset's final balance requirement. A flash-loan provider is an adapter capability verified per chain and asset, not a universal dependency. Fork tests exercise the actual integrated protocol state. [Foundry documentation](https://www.getfoundry.sh/)
+
+Solana begins with transaction construction against existing programs. A custom Rust program is added if the validated route requires execution checks unavailable through existing instructions. All legs of an atomic route must fit the supported transaction or explicitly validated atomic submission mechanism. Initial scope excludes cross-chain routes and multi-transaction inventory strategies.
+
+An on-chain minimum balance increase cannot guarantee total business profit. Gas paid separately, failed attempts, relay payments and infrastructure remain off-chain costs. The eligibility policy and realized ledger must account for each applicable cost exactly once and distinguish estimated from observed amounts.
+
+## 5. Commands, sessions and stop semantics
+
+The API records `command_id`, idempotency key, target session, expected revision, new revision, requested action and actor. A unique idempotency key returns the original result; reuse with a different payload is rejected. An expected-revision mismatch rejects a stale update. API receipt means accepted with status `PENDING`; only a worker acknowledgement produces `APPLIED`. Acceptance is not evidence that the worker has stopped.
+
+Each worker serializes commands with its admission and submission gate. Plans carry session ID, control revision and authorization epoch. Immediately before signing and dispatch, the worker verifies that these still match, limits remain reserved, data is fresh and the session is authorized. It never relies on an earlier UI check.
+
+| Observed worker state | Meaning |
+|---|---|
+| `RECOVERING` | Load journal, reconcile prior attempts and rebuild state. No new trades. |
+| `STOPPED` | No new submissions and no unresolved dispatched attempts. Market observation may continue. |
+| `RUNNING` | Eligible work may proceed in this session's immutable mode. |
+| `PAUSING` | Close evaluation/admission and establish the worker's local submission fence. |
+| `PAUSED` | Evaluation and new submissions disabled; feeds and read-only reconciliation continue. |
+| `DRAINING` | Fence acknowledged; reconcile already dispatched attempts without initiating new trades. |
+| `FAULTED` | A blocking failure requires remediation. Observation and read-only reconciliation continue when possible. |
+
+```mermaid
+stateDiagram-v2
+    [*] --> RECOVERING
+    RECOVERING --> STOPPED: Reconciled and ready
+    STOPPED --> RUNNING: Authorized start
+    RUNNING --> PAUSING: Pause or stop requested
+    PAUSING --> PAUSED: Pause fence acknowledged
+    PAUSED --> RUNNING: Authorized resume
+    PAUSING --> DRAINING: Stop fence acknowledged
+    PAUSED --> DRAINING: Stop requested
+    DRAINING --> STOPPED: No unresolved attempts
+    RUNNING --> FAULTED: Blocking failure
+    DRAINING --> FAULTED: Reconciliation blocked
+    RECOVERING --> FAULTED: Recovery blocked
+    FAULTED --> RECOVERING: Explicit recovery
+```
+
+Any state can enter `FAULTED` on a blocking invariant failure; the diagram abbreviates those edges. Startup always enters recovery and reaches stopped before an explicit start. It never automatically resumes live trading after a restart.
+
+For pause and stop, `APPLIED` means the worker has installed its local broadcast fence. The acknowledgement includes applied revision, fence timestamp and outstanding attempt count. The fence invalidates queued plans and prevents another transport call from entering the dispatch boundary. Already admitted external requests may still execute. An already admitted signer request may also complete; its returned bytes are quarantined and cannot pass the closed dispatch gate. Pause/stop acknowledgement does not assert signer-epoch revocation.
+
+A paused session may have outstanding attempts; a stopped session has no unresolved dispatched attempts. Resume revalidates freshness, health and limits before reopening admission. `DISARM` additionally requires durable signer-epoch revocation and its acknowledgement. If the signer is unreachable, show worker broadcast fencing and pending signer revocation separately; do not claim completed disarm. Emergency stop prioritizes the local fence and requests disarm. No operation promises to cancel transactions already sent or make previously signed bytes cryptographically invalid.
+
+The UI presents requested and observed states separately. A disconnected worker is `unreachable` health, not presumed stopped. Mode, worker state, health, and submission authorization are distinct fields.
+
+## 6. Durable execution and recovery
+
+Live execution uses an append-only journal and constrained state transitions:
+
+1. Commit the intent, plan digest, limit reservation and EVM nonce reservation or Solana validity context.
+2. Ask the restricted signer to approve the exact message. Commit the signed payload, transaction hash/signature and authorization epoch before broadcast.
+3. Before every transport call, durably commit a dispatch-start record containing intent ID, hash/signature, provider, authorization epoch and monotonically increasing attempt sequence. Its initial outcome is `UNKNOWN`; only positive evidence changes it. A crash or timeout is neither failure nor permission to create another trade. Even a retry of identical bytes requires its own committed dispatch-start record.
+4. Reconcile chain receipts, balance effects, finality and replacement relationships. Commit settlement and release reservations only when their outcome is established.
+
+Unsigned plans may be abandoned safely. Signed transactions require controlled custody: if their external disclosure is uncertain, quarantine the intent until chain-specific resolution proves the outcome. On EVM, do not reuse a nonce blindly; on Solana, do not refresh a blockhash and assume the older transaction cannot execute. Store `lastValidBlockHeight` and resolve expiration using chain evidence rather than a wall-clock timeout. Durable nonces are outside initial scope. [Solana confirmation guidance](https://solana.com/developers/cookbook/transactions/confirmation), [Solana retry guidance](https://solana.com/developers/cookbook/transactions/retry)
+
+Retrying the identical serialized transaction may be permitted by its transport policy; creating a replacement requires a separately journaled, bounded policy and fresh authorization. Reorganization can move an apparently included attempt back into uncertainty. Provisional settlement remains separate from final settlement.
+
+Critical journal commits use PostgreSQL with `fsync` enabled and synchronous local WAL durability. This commit is deliberately on the execution path. Reporting writes may be batched; durable execution evidence may not. PostgreSQL documents that asynchronous commit can acknowledge transactions before their durability is guaranteed. [PostgreSQL WAL settings](https://www.postgresql.org/docs/current/runtime-config-wal.html)
+
+Only one active submitter may own a chain-wallet lease. Cooperative lease loss closes submission locally; startup takeover remains blocked until the former worker is fenced or terminated and its outstanding attempts are reconciled. Lease expiry and signer-epoch revocation do not invalidate previously signed bytes. A database lease alone cannot prevent a partitioned old process from broadcasting bytes it already holds. Initial deployment therefore has no automatic live failover.
+
+## 7. Signer and operations boundary
+
+Run the signer under a separate OS identity with a permission-restricted Unix socket. Paper processes have no socket access and no signing credentials. The signer decodes supported messages and enforces chain identity, approved wallet, destination/program allowlist, known instruction shapes, amount limits and plan authorization. It rejects arbitrary messages, unknown calldata and unsupported instruction versions. Its restricted local revocation journal survives restart; revoked authorization epochs load before it accepts requests, and revocation acknowledgement follows durable persistence.
+
+Signer IPC adds measurable latency and operational work; keep it local initially. Process separation reduces accidental key exposure but does not protect against a fully compromised root host. Keys never enter dashboard responses, logs, database records or replay fixtures. Contract administration uses separate credentials from the funded trading wallet.
+
+Trace observation-to-decision, simulation, journal, signing, submission and inclusion separately. Publish percentiles, queue depth, state age, dropped/coalesced events, unresolved attempts, fee spend and inventory. Benchmark targets are provisional until hardware, fixture set, route count and provider are fixed; CPU timings never stand in for end-to-end chain latency.
+
+Backups include configuration, journal and encrypted recovery material under separate access controls. Restore tests must reconcile against current chain state before allowing a start. Dependencies, compiler, Solidity version and images are pinned in the implementation repository, with reproducible fixtures and an explicit upgrade review.

@@ -1,0 +1,31 @@
+{
+  "request": {
+    "action": "STOP",
+    "expected_revision": "12",
+    "reason": "End synthetic research session"
+  },
+  "accepted_receipt": {
+    "command_id": "fixture-command-13",
+    "session_id": "fixture-session-paper-base",
+    "revision": "13",
+    "status": "PENDING",
+    "action": "STOP",
+    "accepted_at": "2026-09-12T12:00:00Z",
+    "applied_at": null,
+    "outstanding_attempts": 0,
+    "fence_effective": false,
+    "signer_revocation_status": "NOT_APPLICABLE"
+  },
+  "applied_receipt": {
+    "command_id": "fixture-command-13",
+    "session_id": "fixture-session-paper-base",
+    "revision": "13",
+    "status": "APPLIED",
+    "action": "STOP",
+    "accepted_at": "2026-09-12T12:00:00Z",
+    "applied_at": "2026-09-12T12:00:01Z",
+    "outstanding_attempts": 0,
+    "fence_effective": true,
+    "signer_revocation_status": "NOT_APPLICABLE"
+  }
+}

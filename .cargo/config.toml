@@ -1,0 +1,6 @@
+[resolver]
+incompatible-rust-versions = "fallback"
+
+[alias]
+check-all = "check --workspace --all-targets"
+test-all = "test --workspace"

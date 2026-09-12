@@ -1,0 +1,27 @@
+# Build and dependency output
+target/
+node_modules/
+dist/
+coverage/
+playwright-report/
+test-results/
+__pycache__/
+*.pyc
+
+# Local configuration and runtime state
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+config/local.toml
+data/
+captures/
+.github-bootstrap-state.json
+.github-setup-state.json
+github-setup-state.json
+
+# Editor and operating system files
+.DS_Store
+.idea/
+.vscode/

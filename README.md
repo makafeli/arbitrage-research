@@ -13,6 +13,26 @@ A Rust-first research platform for comparing same-chain arbitrage opportunities 
 - [Project wiki source](wiki/Home.md) and [GitHub issues](https://github.com/makafeli/arbitrage-research/issues)
 - [GitHub setup instructions](scripts/README.md) and [verification record](docs/11-PACKAGE-VALIDATION.md)
 
+## Run the dashboard
+
+Use Node.js 24 or newer. From the repository root:
+
+```sh
+cd apps/web
+npm ci
+npm run dev
+```
+
+Open the local URL printed by Vite. The UI remains a synthetic demonstration; starting it does not connect to a wallet or blockchain. `npm test` exercises the local lifecycle model and `npm run build` type-checks and builds the application. Browser checks have a separate command in the application README.
+
+For the Rust development liveness harness, install the toolchain declared in `rust-toolchain.toml`, then run from the repository root:
+
+```sh
+cargo run -p control-api
+```
+
+Its only endpoint is `http://127.0.0.1:8080/healthz`. The authenticated `/v1` control API in `specs/openapi.yaml` is a planned contract. The chain-worker and replay binaries currently report unavailable capabilities and exit.
+
 ## Research scope
 
 Initial experiments compare USDC-start, two-leg cycles through distinct pools on each chain: USDC → WETH → USDC on Base and USDC → wSOL → USDC on Solana. Uniswap V3 and Orca Whirlpools are the initial adapter qualification targets. Enabled pools and assets require verified identities and supported behavior; example configuration starts with both networks disabled.
