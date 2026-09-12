@@ -6,12 +6,14 @@ import { EvidenceBadge } from './OpportunityTable';
 
 export function OpportunityDialog({ opportunity, onClose }: { opportunity: Opportunity | null; onClose: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
+  const closeButton = useRef<HTMLButtonElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
     const node = dialog.current;
     if (!node || !opportunity) return;
     const previous = document.activeElement;
     if (!node.open) node.showModal();
+    closeButton.current?.focus();
     return () => {
       if (node.open) node.close();
       if (previous instanceof HTMLElement && previous.isConnected) previous.focus();
@@ -47,7 +49,7 @@ export function OpportunityDialog({ opportunity, onClose }: { opportunity: Oppor
 
   return <dialog ref={dialog} aria-labelledby="detail-title" onKeyDown={containTab} onCancel={event => { event.preventDefault(); onClose(); }}>
     {opportunity && <>
-      <div className="dialoghead"><div><p className="eyebrow">Synthetic opportunity</p><h2 ref={heading} tabIndex={-1} id="detail-title">{opportunity.id} · {chains[opportunity.chain].name}</h2></div><button className="close" onClick={onClose} aria-label="Close opportunity detail" autoFocus>Close</button></div>
+      <div className="dialoghead"><div><p className="eyebrow">Synthetic opportunity</p><h2 ref={heading} tabIndex={-1} id="detail-title">{opportunity.id} · {chains[opportunity.chain].name}</h2></div><button ref={closeButton} className="close" onClick={onClose} aria-label="Close opportunity detail">Close</button></div>
       <EvidenceBadge evidence={opportunity.evidence} />
       <p className="detailroute">{opportunity.route}</p><p className="muted">{opportunity.venue} · placeholder pool identities</p>
       <table className="detailcosts"><caption className="sr">Fictional costs and estimates denominated in USDC.</caption><tbody>
