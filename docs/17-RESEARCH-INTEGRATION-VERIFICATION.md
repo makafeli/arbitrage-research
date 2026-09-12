@@ -1,6 +1,25 @@
 # Research integration verification
 
-PR: [#89](https://github.com/makafeli/arbitrage-research/pull/89). Status: draft; runtime verification is in progress. This file must be updated with the exact final tested commit before acceptance. The first-round 139-test result belongs to PR #83 and is not a result for this change.
+PR: [#89](https://github.com/makafeli/arbitrage-research/pull/89). The integrated runtime is verified at **`d9e288446115ea8a32635c811f9df17584eb65ba`**: [all four CI jobs passed](https://github.com/makafeli/arbitrage-research/actions/runs/34718009563). Root integration accepts this implementation checkpoint following component and independent cross-component reviews. Original ticket dependencies, provider/deployment qualification and later research/live gates remain authoritative. The first-round 139-test result belongs to PR #83 and is not the result for this change.
+
+## Accepted verification checkpoint
+
+| Check | Result at `d9e2884` |
+|---|---|
+| Rust 1.90 formatting, Clippy and locked builds | Passed |
+| Rust test suite | **210 passed; zero failed, ignored or filtered** |
+| Real PostgreSQL 17.11 tests, included in 210 | **41 passed**: storage 23, control 12, API 3, worker processes 3 |
+| Complete quoted worker → storage → real authenticated HTTP | Passed for both distinct-pool route directions, with manual provenance and null net |
+| Actual TypeScript client → Rust service → PostgreSQL | Passed authentication/CSRF session, capabilities, empty records, rejected configuration and logout |
+| Chromium | **30 passed** |
+| Frontend | **20 Node tests passed**, both TypeScript checks and production build passed |
+| Independent Uniswap SDK reference | 14 swap cases and three primitive vectors reproduced exactly; Rust differential checks passed |
+| Specifications and delivery tooling | 20 API operations, 21 negative contract cases, 19 importer tests; structural graph and dry-run passed |
+| Railway containers | API, research worker and web builds passed; Caddy configuration validated |
+
+The 41 database tests execute against a real disposable PostgreSQL service. The quote-path fixture uses actual worker/API processes and synthetic RPC inputs. Browser rendering uses explicit API fixtures; the separate service-client and PostgreSQL/API tests establish their respective real-service paths. None of these tests is a market observation campaign or independent security audit.
+
+The final documentation-only commit records this immutable runtime checkpoint and its CI URL. Its normal PR checks must also pass before merge; no production source or runtime assertion is changed by that evidence commit.
 
 ## Source changes
 
@@ -20,7 +39,7 @@ Local Rust 1.91.1 validation passed formatting, all-target compilation and Clipp
 
 The canonical workflow uses Rust 1.90, PostgreSQL 17.11, the committed Cargo/npm locks, the pinned official Uniswap SDK oracle, the actual API client smoke test and Chromium. CI must reproduce the committed 14 swap cases and three primitive vectors byte for byte; this is arithmetic reference evidence, not current deployed-program equivalence.
 
-The first integrated CI head `6f933099f696b16773b4de7976e5247e160c0099` ([run 34716682208](https://github.com/makafeli/arbitrage-research/actions/runs/34716682208)) passed specifications, reference reproduction and all three container builds. Its Rust job stopped on one test-only Clippy warning; its browser job passed 21 scenarios and failed nine new scenarios on the select-label issue. PostgreSQL execution and downstream browser flows were not counted as passing. Both causes were corrected in `51b31bc3abb89910846937f1312e0701e6047aa2` ([run 34717005526](https://github.com/makafeli/arbitrage-research/actions/runs/34717005526)). That run passed all 30 browsers, the three containers and 206 Rust tests, including 39 of 40 PostgreSQL tests. The remaining PAPER worker fixture omitted the explicit starting asset required by production validation. Its correction supplies the actual fixture registry token and trade size and adds a non-database regression validating both fixture modes; no production guard or process-control assertion is relaxed. The corrected checkpoint `bca37cfff74a9257c95e5e067052adffe0e4ddc9` ([run 34717405033](https://github.com/makafeli/arbitrage-research/actions/runs/34717405033)) then passed all four jobs: 208 Rust tests including all 40 PostgreSQL tests, the actual API-client smoke, all 30 browsers, specifications and all three containers. An additional two-pool worker-to-HTTP quote regression is being added before final integration acceptance.
+The first integrated CI head `6f933099f696b16773b4de7976e5247e160c0099` ([run 34716682208](https://github.com/makafeli/arbitrage-research/actions/runs/34716682208)) passed specifications, reference reproduction and all three container builds. Its Rust job stopped on one test-only Clippy warning; its browser job passed 21 scenarios and failed nine new scenarios on the select-label issue. PostgreSQL execution and downstream browser flows were not counted as passing. Both causes were corrected in `51b31bc3abb89910846937f1312e0701e6047aa2` ([run 34717005526](https://github.com/makafeli/arbitrage-research/actions/runs/34717005526)). That run passed all 30 browsers, the three containers and 206 Rust tests, including 39 of 40 PostgreSQL tests. The remaining PAPER worker fixture omitted the explicit starting asset required by production validation. Its correction supplies the actual fixture registry token and trade size and adds a non-database regression validating both fixture modes; no production guard or process-control assertion is relaxed. The corrected checkpoint `bca37cfff74a9257c95e5e067052adffe0e4ddc9` ([run 34717405033](https://github.com/makafeli/arbitrage-research/actions/runs/34717405033)) then passed all four jobs: 208 Rust tests including all 40 PostgreSQL tests, the actual API-client smoke, all 30 browsers, specifications and all three containers. The later accepted checkpoint above adds the complete two-pool worker-to-HTTP quote regression and its fixture test.
 
 ## Review corrections
 
@@ -47,7 +66,7 @@ These are engineering reviews by the implementation team, not an independent sec
 
 `two_pool_worker_quotes_are_durable_and_visible_through_authenticated_http` launches the actual research worker and control API against disposable PostgreSQL and a strict loopback RPC fixture. Two distinct synthetic Base pools share a block context and produce both ordered routes. Exact input 10,000 returns 9,963 (gross -37); retaining this loss ensures a quote is not mislabeled as profitable arbitrage. The separate fixture test validates the registry, decoded state and hand-specified result before PostgreSQL.
 
-The process regression checks operator/session/experiment/configuration and capture bindings, both ordered pool routes, original input age, two admitted inputs and the later STOP generation fence. It then authenticates to the real HTTP service, paginates both opportunities, compares decision-detail responses to durable records, verifies source filtering and confirms CANDIDATE-only/null-net/no-execution semantics. It also checks zero paper runs for this OBSERVE session. The test is mandatory and requires the explicitly prebuilt API executable; no nested Cargo invocation or new production API is involved. Independent source review found no evidence shortcut. Actual execution of this newly added regression is pending the next canonical CI run.
+The process regression checks operator/session/experiment/configuration and capture bindings, both ordered pool routes, original input age, two admitted inputs and the later STOP generation fence. It then authenticates to the real HTTP service, paginates both opportunities, compares decision-detail responses to durable records, verifies source filtering and confirms CANDIDATE-only/null-net/no-execution semantics. It also checks zero paper runs for this OBSERVE session. The test is mandatory and requires the explicitly prebuilt API executable; no nested Cargo invocation or new production API is involved. Independent source review found no evidence shortcut. Actual execution passed in [run 34718009563](https://github.com/makafeli/arbitrage-research/actions/runs/34718009563), together with the full 210-test suite.
 
 ## Visual review
 
