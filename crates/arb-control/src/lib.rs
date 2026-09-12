@@ -10,6 +10,7 @@ pub struct WorkGeneration {
     epoch: i64,
 }
 
+impl WorkGeneration { pub fn generation(&self) -> u64 { self.generation } }
 #[derive(Debug)]
 struct Gate {
     generation: u64,
@@ -172,6 +173,28 @@ impl ControlWorker {
             gate.recovery_required = false;
             gate.open = update.gate_open;
         }
+        result
+    }
+
+    pub async fn admit_decision_traces(&self, work: WorkGeneration, traces: &[arb_domain::DecisionTrace]) -> Result<Vec<arb_storage::StoredDecisionTrace>, StoreError> {
+        let mut gate=self.gate.lock().await;
+        if Instant::now()>=gate.lease_deadline { gate.open=false; }
+        if !gate.open || work.generation!=gate.generation || work.epoch!=self.claim.epoch() { return Err(StoreError::Conflict("stale or fenced decisions")); }
+        gate.open=false; gate.recovery_required=true;
+        let result=self.store.append_decision_traces(&self.claim,work.generation,traces).await;
+        if result.is_ok() { gate.recovery_required=false; gate.open=true; }
+        result
+    }
+    /// Internal virtual accounting. HTTP clients cannot reserve or settle funds.
+    pub async fn apply_paper_command(&self, work: Option<WorkGeneration>, run_id: &str, key: &str, command: arb_paper::PaperCommand) -> Result<arb_storage::StoredPaperEvent, StoreError> {
+        let mut gate=self.gate.lock().await;
+        if Instant::now()>=gate.lease_deadline { gate.open=false; }
+        if matches!(&command,arb_paper::PaperCommand::Reserve{..}) && (!gate.open || !work.is_some_and(|w|w.generation==gate.generation && w.epoch==self.claim.epoch())) { return Err(StoreError::Conflict("stale or fenced paper reservation")); }
+        let was_open=gate.open; let was_recovery=gate.recovery_required;
+        gate.open=false; gate.recovery_required=true;
+        let result=self.store.apply_paper_command(&self.claim,gate.generation,run_id,key,command).await;
+        let known_rejection=matches!(&result,Err(StoreError::Conflict("paper command violates exact inventory or run invariants"))|Err(StoreError::InvalidInput(_)));
+        if result.is_ok() || known_rejection { gate.recovery_required=was_recovery; gate.open=was_open&&!was_recovery; }
         result
     }
 

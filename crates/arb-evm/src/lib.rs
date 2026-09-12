@@ -1,4 +1,5 @@
-//! Bounded Base Uniswap V3 state acquisition. Quoting and transaction simulation are not exposed.
+//! Bounded Base Uniswap V3 acquisition and candidate-only exact quote math.
+pub mod math;
 use arb_adapter_api::{AdapterError, ReadMethod, ReadRpc, Result, SnapshotQuality, StateContext};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};

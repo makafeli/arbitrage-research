@@ -4,6 +4,7 @@
 //! serialize it with their actual worker gate and journal before integration.
 
 mod amount;
+mod decision;
 mod identity;
 mod lifecycle;
 mod opportunity;
@@ -12,6 +13,7 @@ pub use amount::{AmountError, AtomicAmount, Decimals, Rounding, SignedAmount};
 pub use identity::{AssetId, FixtureId, IdentityError, NetworkId, PoolId, Route, RouteLeg};
 pub use lifecycle::{Action, ControlError, Mode, Progress, Session, SessionSnapshot, State};
 pub use opportunity::*;
+pub use decision::*;
 
 /// Evidence names are classifications, not an automatic proof of eligibility.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]

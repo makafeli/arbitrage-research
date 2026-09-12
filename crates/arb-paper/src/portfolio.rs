@@ -76,10 +76,20 @@ pub enum PaperCommand {
 pub struct JournalEvent {
     run_id: String,
     network: NetworkId,
+    #[serde(with = "sequence_wire")]
     sequence: u64,
     command_id: String,
     command: PaperCommand,
     postings: Vec<Posting>,
+}
+mod sequence_wire {
+    use serde::{Deserialize, Deserializer, Serializer, de};
+    pub fn serialize<S: Serializer>(value: &u64, serializer: S) -> Result<S::Ok, S::Error> { serializer.serialize_str(&value.to_string()) }
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<u64, D::Error> {
+        let value = String::deserialize(deserializer)?;
+        if value.is_empty() || (value.len() > 1 && value.starts_with('0')) || !value.bytes().all(|b| b.is_ascii_digit()) { return Err(de::Error::custom("canonical sequence string required")); }
+        value.parse().map_err(de::Error::custom)
+    }
 }
 impl JournalEvent {
     pub fn run_id(&self) -> &str {
@@ -91,18 +101,21 @@ impl JournalEvent {
     pub fn command_id(&self) -> &str {
         &self.command_id
     }
+    pub fn command(&self) -> &PaperCommand { &self.command }
+    pub fn network(&self) -> NetworkId { self.network }
     pub fn postings(&self) -> &[Posting] {
         &self.postings
     }
 }
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Balance {
     pub free: AtomicAmount,
     pub reserved: AtomicAmount,
     pub total: AtomicAmount,
 }
-#[derive(Clone, Debug, Eq, PartialEq)]
-enum ReservationState {
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ReservationState {
     Reserved,
     Unknown,
     Resolved,
@@ -111,6 +124,22 @@ enum ReservationState {
 struct Reservation {
     request: ReservationRequest,
     state: ReservationState,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct PortfolioBalance {
+    pub asset: AccountingAsset,
+    pub free: AtomicAmount,
+    pub reserved: AtomicAmount,
+    pub total: AtomicAmount,
+}
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct PortfolioReservation {
+    pub attempt_id: String,
+    pub principal_asset: AssetId,
+    pub principal: AtomicAmount,
+    pub native_fee_budget: AtomicAmount,
+    pub state: ReservationState,
 }
 
 /// Single-writer deterministic portfolio reducer. `&mut self` serializes local
@@ -185,6 +214,20 @@ impl PaperRun {
             reserved,
             total,
         })
+    }
+    pub fn balances(&self) -> Result<Vec<PortfolioBalance>, PaperError> {
+        let mut assets: Vec<AccountingAsset> = self.free.keys().chain(self.reserved.keys()).cloned().collect();
+        assets.sort_by_key(|asset| match asset { AccountingAsset::Token(id) => format!("TOKEN:{id}"), AccountingAsset::Native(network) => format!("NATIVE:{network}") });
+        assets.dedup();
+        assets.into_iter().map(|asset| { let balance = self.balance(&asset)?; Ok(PortfolioBalance { asset, free: balance.free, reserved: balance.reserved, total: balance.total }) }).collect()
+    }
+    pub fn outstanding_reservations(&self) -> usize {
+        self.attempts.values().filter(|reservation| reservation.state != ReservationState::Resolved).count()
+    }
+    pub fn reservations(&self) -> Vec<PortfolioReservation> {
+        let mut result: Vec<_> = self.attempts.values().map(|r| PortfolioReservation { attempt_id: r.request.attempt_id.clone(), principal_asset: r.request.principal_asset.clone(), principal: r.request.principal.clone(), native_fee_budget: r.request.native_fee_budget.clone(), state: r.state.clone() }).collect();
+        result.sort_by(|a, b| a.attempt_id.cmp(&b.attempt_id));
+        result
     }
     /// Identical idempotency key+command returns its original event; changed body
     /// conflicts. A failed command cannot partially mutate balances or history.

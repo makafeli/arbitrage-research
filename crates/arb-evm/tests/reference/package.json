@@ -1,0 +1,22 @@
+{
+  "name": "arbitrage-uniswap-reference",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Test-only independent Uniswap v3 arithmetic oracle; no provider, signer or transaction submission",
+  "scripts": {
+    "generate": "node generate.cjs --write",
+    "check": "node generate.cjs --check"
+  },
+  "dependencies": {
+    "@uniswap/v3-sdk": "3.11.0",
+    "@uniswap/sdk-core": "4.2.0",
+    "jsbi": "3.2.5"
+  },
+  "overrides": {
+    "@uniswap/sdk-core": "4.2.0",
+    "jsbi": "3.2.5"
+  },
+  "engines": {
+    "node": ">=24 <25"
+  }
+}

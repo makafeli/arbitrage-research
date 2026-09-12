@@ -2,6 +2,7 @@
 //! Matching a transcript proves deterministic acquisition decoding, not quote math or P&L.
 use arb_adapter_api::{Chain, RpcRecord, TranscriptRpc};
 use arb_capture::{CaptureError, LoadedBundle, Origin, load_bundle};
+use arb_registry::{RegistryDocument, PoolRegistry};
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, path::Path};
 
@@ -79,67 +80,40 @@ fn verify_loaded(bundle: &LoadedBundle) -> Result<Value, CaptureError> {
     let mut rpc = TranscriptRpc::new(records);
     let expected: Value = serde_json::from_slice(objects["snapshot.json"])
         .map_err(|_| CaptureError("invalid recorded snapshot"))?;
-    let actual = match bundle.manifest.network {
-        Chain::BaseMainnet => {
+    let network = match bundle.manifest.network {
+        Chain::BaseMainnet => arb_domain::NetworkId::BaseMainnet,
+        Chain::SolanaMainnet => arb_domain::NetworkId::SolanaMainnet,
+    };
+    let document = RegistryDocument::from_bytes(objects["registry.json"], network)
+        .map_err(|_| CaptureError("invalid replay registry document"))?;
+    if let Some((_, config)) = &recorded_config {
+        document.authorize(config)
+            .map_err(|_| CaptureError("replay registry is outside recorded configuration"))?;
+    }
+    if (recorded_config.is_some()
+        || document.format() == arb_registry::DocumentFormat::PoolSetV1)
+        && bundle.manifest.adapter_version != document.adapter_version()
+    {
+        return Err(CaptureError("unsupported registry capture format"));
+    }
+    let pool = expected["pool"].as_str()
+        .ok_or(CaptureError("snapshot has no pool identity"))?;
+    let actual = match document.select(pool)
+        .map_err(|_| CaptureError("captured pool is absent from registry"))? {
+        PoolRegistry::Base(registry) => {
             if bundle.manifest.adapter_source_commit != arb_evm::SOURCE_COMMIT {
                 return Err(CaptureError("unsupported Base adapter source revision"));
             }
-            if recorded_config.is_some() && bundle.manifest.adapter_version != "arb_evm-v1" {
-                return Err(CaptureError("unsupported Base capture format"));
-            }
-            let registry: arb_evm::PoolRegistry = serde_json::from_slice(objects["registry.json"])
-                .map_err(|_| CaptureError("invalid Base replay registry"))?;
-            if let Some((network, config)) = &recorded_config
-                && (!config
-                    .verified_pools(*network)
-                    .iter()
-                    .any(|pool| pool.address().eq_ignore_ascii_case(&registry.pool))
-                    || [&registry.token0, &registry.token1].iter().any(|address| {
-                        !config
-                            .verified_assets(*network)
-                            .iter()
-                            .any(|asset| asset.address().eq_ignore_ascii_case(address))
-                    }))
-            {
-                return Err(CaptureError(
-                    "Base replay registry is outside recorded allowlists",
-                ));
-            }
-            let snapshot =
-                arb_evm::capture_pool(&mut rpc, &registry, bundle.manifest.created_at_ms)
-                    .map_err(|_| CaptureError("Base transcript replay failed"))?;
+            let snapshot = arb_evm::capture_pool(&mut rpc, registry, bundle.manifest.created_at_ms)
+                .map_err(|_| CaptureError("Base transcript replay failed"))?;
             serde_json::to_value(snapshot).map_err(|_| CaptureError("snapshot encoding failed"))?
         }
-        Chain::SolanaMainnet => {
+        PoolRegistry::Solana(registry) => {
             if bundle.manifest.adapter_source_commit != arb_solana::SOURCE_COMMIT {
                 return Err(CaptureError("unsupported Solana adapter source revision"));
             }
-            if recorded_config.is_some() && bundle.manifest.adapter_version != "arb_solana-v1" {
-                return Err(CaptureError("unsupported Solana capture format"));
-            }
-            let registry: arb_solana::PoolRegistry =
-                serde_json::from_slice(objects["registry.json"])
-                    .map_err(|_| CaptureError("invalid Solana replay registry"))?;
-            if let Some((network, config)) = &recorded_config
-                && (config.expected_genesis_identity() != registry.expected_genesis_hash
-                    || !config
-                        .verified_pools(*network)
-                        .iter()
-                        .any(|pool| pool.address() == registry.pool)
-                    || [&registry.mint_a, &registry.mint_b].iter().any(|address| {
-                        !config
-                            .verified_assets(*network)
-                            .iter()
-                            .any(|asset| asset.address() == address.as_str())
-                    }))
-            {
-                return Err(CaptureError(
-                    "Solana replay registry is outside recorded allowlists or genesis identity",
-                ));
-            }
-            let snapshot =
-                arb_solana::capture_pool(&mut rpc, &registry, bundle.manifest.created_at_ms)
-                    .map_err(|_| CaptureError("Solana transcript replay failed"))?;
+            let snapshot = arb_solana::capture_pool(&mut rpc, registry, bundle.manifest.created_at_ms)
+                .map_err(|_| CaptureError("Solana transcript replay failed"))?;
             serde_json::to_value(snapshot).map_err(|_| CaptureError("snapshot encoding failed"))?
         }
     };
@@ -174,5 +148,150 @@ fn verify_loaded(bundle: &LoadedBundle) -> Result<Value, CaptureError> {
         "paper_pnl_available": false,
         "full_transaction_simulation_available": false,
         "network_requests": 0
+    }))
+}
+
+/// Validated economic replay inputs. Effective configuration must parse and match
+/// the complete registry even for fixtures; legacy decoder-only fixtures cannot
+/// become economic evidence by changing their origin label.
+pub fn load_evaluation_capture(
+    path: &Path,
+    expected_manifest_digest: &str,
+    now_ms: u64,
+) -> Result<(arb_engine::CapturedPool, arb_config::ValidatedConfig), CaptureError> {
+    let bundle = load_bundle(path, Some(expected_manifest_digest), now_ms)?;
+    verify_loaded(&bundle)?;
+    let object = |name: &str| -> Result<&[u8], CaptureError> {
+        bundle.objects.iter().find(|(n, _)| n == name)
+            .map(|(_, bytes)| bytes.as_slice()).ok_or(CaptureError("missing replay object"))
+    };
+    let configuration = arb_config::ValidatedConfig::from_effective_json(
+        std::str::from_utf8(object("effective-config.json")?)
+            .map_err(|_| CaptureError("invalid effective configuration encoding"))?)
+        .map_err(|_| CaptureError("economic replay requires validated frozen configuration"))?;
+    let network = match bundle.manifest.network {
+        Chain::BaseMainnet => arb_domain::NetworkId::BaseMainnet,
+        Chain::SolanaMainnet => arb_domain::NetworkId::SolanaMainnet,
+    };
+    let document = RegistryDocument::from_bytes(object("registry.json")?, network)
+        .map_err(|_| CaptureError("invalid replay registry document"))?;
+    document.authorize(&configuration)
+        .map_err(|_| CaptureError("economic replay registry is not authorized"))?;
+    let snapshot: Value = serde_json::from_slice(object("snapshot.json")?)
+        .map_err(|_| CaptureError("invalid snapshot"))?;
+    let selected = document.select(snapshot["pool"].as_str().ok_or(CaptureError("missing pool identity"))?)
+        .map_err(|_| CaptureError("pool outside registry"))?;
+    let state = match selected {
+        PoolRegistry::Base(registry) => arb_engine::PoolState::Base {
+            snapshot: serde_json::from_value(snapshot).map_err(|_| CaptureError("invalid Base snapshot"))?,
+            registry: registry.clone(),
+        },
+        PoolRegistry::Solana(registry) => arb_engine::PoolState::Solana {
+            snapshot: serde_json::from_value(snapshot).map_err(|_| CaptureError("invalid Solana snapshot"))?,
+            registry: registry.clone(),
+        },
+    };
+    let origin = match bundle.manifest.origin {
+        Origin::Synthetic => arb_domain::DatasetOrigin::Synthetic,
+        Origin::ManuallyConstructed => arb_domain::DatasetOrigin::ManuallyConstructed,
+        Origin::RecordedLive => arb_domain::DatasetOrigin::RecordedLive,
+    };
+    Ok((arb_engine::CapturedPool {
+        capture: arb_domain::DecisionCaptureRef {
+            capture_id: bundle.manifest.capture_id,
+            manifest_digest: bundle.manifest_digest.clone(),
+            snapshot_id: bundle.manifest_digest,
+        },
+        origin,
+        configuration_digest: bundle.manifest.config_digest,
+        state,
+    }, configuration))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReplayCaptureInput {
+    pub path: String,
+    pub manifest_digest: String,
+}
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReplayEvaluationRequest {
+    pub schema_version: u32,
+    pub session_id: String,
+    pub experiment_id: String,
+    pub strategy_id: String,
+    pub network_id: arb_domain::NetworkId,
+    pub generation: u64,
+    pub observed_at_unix_ms: u64,
+    /// Explicit historical batch age. Never derive historical freshness from
+    /// today's wall clock, and never silently use a zero-age default.
+    pub input_age_ms: u64,
+    pub captures: Vec<ReplayCaptureInput>,
+}
+
+struct HistoricalGate {
+    generation: u64,
+    age: u64,
+}
+impl arb_engine::EvaluationGate for HistoricalGate {
+    fn state(&self) -> arb_engine::GateState {
+        arb_engine::GateState {
+            generation: self.generation,
+            admission_open: true,
+            now_monotonic_ms: self.age,
+        }
+    }
+}
+pub fn evaluate_captures(request: &ReplayEvaluationRequest, now_ms: u64) -> Result<Value, CaptureError> {
+    if request.schema_version != 1 || request.captures.is_empty()
+        || request.captures.len() > arb_registry::MAX_POOLS || request.input_age_ms >= 65_000
+    {
+        return Err(CaptureError("unsupported replay evaluation bounds"));
+    }
+    let mut pools = Vec::new();
+    let mut frozen = None;
+    for input in &request.captures {
+        let (pool, configuration) = load_evaluation_capture(Path::new(&input.path), &input.manifest_digest, now_ms)?;
+        if let Some(previous) = &frozen {
+            let previous: &arb_config::ValidatedConfig = previous;
+            if previous.digest() != configuration.digest() {
+                return Err(CaptureError("capture configurations differ"));
+            }
+        } else {
+            frozen = Some(configuration);
+        }
+        pools.push(pool);
+    }
+    let configuration = frozen.ok_or(CaptureError("missing frozen configuration"))?;
+    let dataset_origin = pools[0].origin;
+    let evaluation = arb_engine::EvaluationRequest {
+        session_id: &request.session_id,
+        experiment_id: &request.experiment_id,
+        generation: request.generation,
+        configuration: &configuration,
+        strategy_id: &request.strategy_id,
+        network_id: request.network_id,
+        dataset_origin,
+        observed_at_unix_ms: request.observed_at_unix_ms,
+        observed_monotonic_ms: 0,
+        deadline_monotonic_ms: 65_000,
+        pools: &pools,
+    };
+    let traces = arb_engine::evaluate(&evaluation, &HistoricalGate {
+        generation: request.generation, age: request.input_age_ms,
+    }).map_err(|_| CaptureError("bounded replay evaluation failed"))?;
+    Ok(json!({
+        "schema_version":1,
+        "verification":"ACQUISITION_REDECODE_AND_RESEARCH_EVALUATION",
+        "configuration_digest":configuration.digest(),
+        "dataset_origin":dataset_origin,
+        "timing_policy":"EXPLICIT_HISTORICAL_BATCH_AGE",
+        "input_age_ms":request.input_age_ms,
+        "decisions":traces,
+        "evidence_ceiling":"CANDIDATE",
+        "paper_pnl_available":false,
+        "full_transaction_simulation_available":false,
+        "network_requests":0
     }))
 }

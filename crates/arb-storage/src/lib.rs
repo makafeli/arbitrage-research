@@ -1,5 +1,9 @@
 //! Durable research sessions and revisioned operator intent. No signing or broadcast.
 mod types;
+mod paper;
+mod decisions;
+pub use paper::*;
+pub use decisions::*;
 mod worker;
 
 pub use types::*;
@@ -7,7 +11,7 @@ pub use worker::{WorkerClaim, WorkerUpdate};
 
 use arb_domain::{Action, Mode, Session, SessionSnapshot};
 use chrono::{DateTime, Utc};
-use serde_json::Value;
+use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use sqlx::{
     PgPool, Postgres, Row, Transaction,

@@ -1,5 +1,5 @@
 use crate::{
-    AssetId, AtomicAmount, Decimals, Evidence, FixtureId, Mode, NetworkId, PoolId, SignedAmount,
+    AssetId, AtomicAmount, DatasetOrigin, Decimals, Evidence, FixtureId, Mode, NetworkId, PoolId, SignedAmount,
 };
 use serde::{Deserialize, Serialize};
 use std::{collections::HashSet, fmt};
@@ -123,6 +123,8 @@ pub struct EligibilityChecks {
 pub struct OpportunityRecord {
     pub schema_version: String,
     pub source_kind: SourceKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dataset_origin: Option<DatasetOrigin>,
     pub opportunity_id: String,
     pub session_id: String,
     pub experiment_id: String,
@@ -139,7 +141,7 @@ pub struct OpportunityRecord {
     pub route: Vec<OpportunityLeg>,
     pub costs: Vec<ExplicitCost>,
     pub quoted_output_includes_pool_fees_and_price_impact: bool,
-    pub net_after_explicit_costs_minor: SignedAmount,
+    pub net_after_explicit_costs_minor: Option<SignedAmount>,
     pub simulation_status: SimulationStatus,
     pub inclusion_scenario_id: Option<String>,
     pub finality_status: FinalityStatus,
@@ -181,8 +183,19 @@ impl OpportunityRecord {
     /// Validate wire/domain relationships. This verifies consistency of supplied
     /// evidence, never the truth of a provider response or ledger reconciliation.
     pub fn validate(&self) -> Result<(), OpportunityError> {
-        if self.schema_version != "1.0.0" {
+        if !matches!(self.schema_version.as_str(), "1.0.0" | "1.1.0") {
             return Err(err("schema_version", "unsupported opportunity version"));
+        }
+        if self.schema_version == "1.0.0" && self.net_after_explicit_costs_minor.is_none() {
+            return Err(err("net_after_explicit_costs_minor", "legacy schema requires numeric net"));
+        }
+        if self.schema_version == "1.1.0" {
+            if self.dataset_origin.is_none_or(|origin| origin.source_kind() != self.source_kind) {
+                return Err(err("dataset_origin", "version 1.1 requires explicit matching origin"));
+            }
+            if self.eligibility_checks.costs_complete != self.net_after_explicit_costs_minor.is_some() {
+                return Err(err("net_after_explicit_costs_minor", "unknown costs require null net; complete costs require exact net"));
+            }
         }
         if self.mode != Mode::Live
             && (self.evidence_label == Evidence::Realized
@@ -287,7 +300,7 @@ impl OpportunityRecord {
                 .checked_sub_cost(&cost.in_start_asset_minor)
                 .map_err(|_| err("costs", "net result overflows supported signed magnitude"))?;
         }
-        if net != self.net_after_explicit_costs_minor {
+        if self.net_after_explicit_costs_minor.as_ref().is_some_and(|provided| provided != &net) {
             return Err(err(
                 "net_after_explicit_costs_minor",
                 "net must equal quoted output minus input minus explicit costs exactly",
@@ -314,6 +327,7 @@ impl OpportunityRecord {
                 || !e.state_fresh_and_coherent
                 || !e.final_balance_guard_present
                 || !e.costs_complete
+                || self.net_after_explicit_costs_minor.is_none()
                 || !e.principal_and_fee_reservations_valid
             {
                 return Err(err(
@@ -450,7 +464,7 @@ mod tests {
             assert!(bad.validate().is_err());
         }
         let mut bad = sample();
-        bad.net_after_explicit_costs_minor = "60000".parse().unwrap();
+        bad.net_after_explicit_costs_minor = Some("60000".parse().unwrap());
         assert!(bad.validate().is_err());
         let mut bad = sample();
         bad.route[1].pool_id = bad.route[0].pool_id.clone();

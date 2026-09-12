@@ -388,7 +388,7 @@ impl Store {
     }
 }
 
-async fn locked_worker(
+pub(crate) async fn locked_worker(
     tx: &mut Transaction<'_, Postgres>,
     claim: &WorkerClaim,
 ) -> Result<PgRow, StoreError> {

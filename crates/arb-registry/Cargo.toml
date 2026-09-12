@@ -1,18 +1,18 @@
 [package]
-name = "arb-evm"
+name = "arb-registry"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 
-[lints]
-workspace = true
-
 [dependencies]
 arb-domain.workspace = true
-primitive-types = { version = "=0.14.0", default-features = false, features = ["std"] }
-arb-adapter-api = { path = "../arb-adapter-api" }
+arb-config.workspace = true
+arb-capture.workspace = true
+arb-evm.workspace = true
+arb-solana.workspace = true
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-sha2 = "0.10"
-hex = "0.4"
+
+[lints]
+workspace = true

@@ -114,6 +114,12 @@ impl HttpReadRpc {
             records: Vec::new(),
         })
     }
+    /// Begin another independently replayable pool transcript. Session request,
+    /// byte and elapsed-time limits remain cumulative across all pool captures.
+    /// Requests are synchronous, so no previous response can arrive after reset.
+    pub fn take_records(&mut self) -> Vec<RpcRecord> {
+        std::mem::take(&mut self.records)
+    }
     pub fn into_records(self) -> Vec<RpcRecord> {
         self.records
     }
@@ -278,6 +284,21 @@ impl SnapshotQuality {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn draining_records_preserves_transport_budgets_and_deadline() {
+        let mut rpc = HttpReadRpc::new("http://127.0.0.1:9", Duration::from_secs(1), 1024, 1).unwrap();
+        rpc.requests_sent = 1;
+        rpc.retained_bytes = 123;
+        let started = rpc.started;
+        assert!(rpc.take_records().is_empty());
+        assert_eq!(rpc.started, started);
+        assert_eq!(rpc.retained_bytes, 123);
+        assert_eq!(rpc.call(ReadMethod::EthChainId, json!([])).unwrap_err().0, "RPC request quota exhausted");
+        rpc.requests_sent = 0;
+        rpc.started = Instant::now().checked_sub(Duration::from_secs(61)).unwrap();
+        assert!(rpc.take_records().is_empty());
+        assert_eq!(rpc.call(ReadMethod::EthChainId, json!([])).unwrap_err().0, "capture RPC deadline exceeded");
+    }
     #[test]
     fn wire_enum_cannot_deserialize_broadcast() {
         assert!(serde_json::from_str::<ReadMethod>("\"sendTransaction\"").is_err());
