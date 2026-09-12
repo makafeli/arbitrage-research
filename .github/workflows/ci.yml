@@ -27,7 +27,23 @@ jobs:
       - run: python scripts/github_bootstrap.py --repo "$GITHUB_REPOSITORY" --dry-run
   rust:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17.11
+        env:
+          POSTGRES_USER: arb_test
+          POSTGRES_PASSWORD: local_ci_only
+          POSTGRES_DB: arb_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U arb_test -d arb_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://arb_test:local_ci_only@127.0.0.1:5432/arb_test
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -45,6 +61,28 @@ jobs:
         run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --workspace --locked
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: '24'
+      - name: Verify the real browser client against the Rust HTTP service
+        env:
+          ARB_OPERATOR_SECRET: isolated-ci-only-operator-secret-00000000
+          ARB_PUBLIC_ORIGIN: http://127.0.0.1:5173
+          ARB_ALLOW_INSECURE_LOOPBACK: 'true'
+          ARB_DATABASE_URL: postgres://arb_test:local_ci_only@127.0.0.1:5432/arb_http_smoke
+        run: |
+          docker exec '${{ job.services.postgres.id }}' createdb -U arb_test arb_http_smoke
+          npm ci --prefix apps/web
+          cargo build --locked -p control-api
+          target/debug/control-api > control-api-smoke.log 2>&1 &
+          arb_api_pid=$!
+          trap 'kill "$arb_api_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8080/healthz > /dev/null; then break; fi
+            kill -0 "$arb_api_pid" || { cat control-api-smoke.log; exit 1; }
+            sleep 1
+          done
+          npm run test:service --prefix apps/web
       - name: Prepare the formatting patch for review
         if: always()
         run: |
@@ -63,6 +101,21 @@ jobs:
       - name: Require formatting to pass
         if: always() && steps.formatting.outcome == 'failure'
         run: exit 1
+  containers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Build the Railway API image
+        run: docker build -f deploy/Dockerfile.api -t arb-api:test .
+      - name: Build the isolated observation worker image
+        run: docker build -f deploy/Dockerfile.worker -t arb-worker:test .
+      - name: Build and validate the Railway web image
+        run: |
+          docker build -f deploy/Dockerfile.web -t arb-web:test .
+          docker run --rm -e ARB_API_HOST=control-api.railway.internal arb-web:test caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
   web:
     runs-on: ubuntu-latest
     timeout-minutes: 20

@@ -4,13 +4,18 @@
 //! serialize it with their actual worker gate and journal before integration.
 
 mod amount;
+mod identity;
 mod lifecycle;
+mod opportunity;
 
-pub use amount::{AmountError, AtomicAmount};
-pub use lifecycle::{Action, ControlError, Mode, Progress, Session, State};
+pub use amount::{AmountError, AtomicAmount, Decimals, Rounding, SignedAmount};
+pub use identity::{AssetId, FixtureId, IdentityError, NetworkId, PoolId, Route, RouteLeg};
+pub use lifecycle::{Action, ControlError, Mode, Progress, Session, SessionSnapshot, State};
+pub use opportunity::*;
 
 /// Evidence names are classifications, not an automatic proof of eligibility.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum Evidence {
     Candidate,
     Simulated,

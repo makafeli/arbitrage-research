@@ -1,0 +1,14 @@
+.git
+target
+**/target
+**/node_modules
+**/dist
+**/test-results
+**/playwright-report
+.env
+.env.*
+config/local.toml
+data
+captures
+*.key
+*.pem

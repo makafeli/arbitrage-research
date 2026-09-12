@@ -12,7 +12,8 @@
     "build": "npm run typecheck && vite build",
     "preview": "vite preview --host 127.0.0.1",
     "test": "node --test tests/*.test.ts",
-    "test:browser": "playwright test"
+    "test:browser": "playwright test",
+    "test:service": "node tests/service-smoke.ts"
   },
   "dependencies": {
     "react": "19.3.0",

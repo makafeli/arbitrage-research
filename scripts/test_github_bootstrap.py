@@ -180,5 +180,79 @@ class ImportTests(unittest.TestCase):
             self.assertFalse(execute.call_args.kwargs.get("shell", False))
             self.assertIn("`echo dangerous`", execute.call_args.kwargs["input"])
 
+class ProjectMetadataTests(unittest.TestCase):
+    def fixture(self):
+        spec = setup.read_json(setup.ROOT / "planning/github-project.json")
+        _, items = setup.load_backlog(setup.ROOT / "planning/backlog.json")
+        definitions = setup.validate_project_spec(spec, items)
+        known = {name: {"id": "field:" + name, "name": name, "dataType": definition["type"],
+                       "options": [{"id": name + ":" + option, "name": option} for option in definition.get("options", [])]}
+                 for name, definition in definitions.items()}
+        return spec, items, definitions, known
+
+    def test_all_real_tickets_fit_field_options_and_exact_dependency_ids(self):
+        spec, items, definitions, known = self.fixture()
+        self.assertEqual(len(items), 76)
+        self.assertLessEqual(len(definitions["Role"]["options"]), 50)
+        for item in items:
+            values = setup.project_defaults(item)
+            self.assertEqual(values["Role"], item["role"].split(" / ")[0])
+            self.assertEqual(values["Dependency IDs"], ", ".join(item["deps"]) or "None")
+            updates = setup.missing_project_updates(item, None, known, definitions)
+            self.assertEqual(len(updates), 6)
+            self.assertEqual(next(value for field, value in updates if field == "field:Dependency IDs"), {"text": values["Dependency IDs"]})
+
+    def test_existing_text_and_select_values_are_preserved_while_missing_values_initialize(self):
+        _, items, definitions, known = self.fixture()
+        existing = {"fieldValues": {"nodes": [
+            {"field": {"name": "Delivery status"}, "name": "Review"},
+            {"field": {"name": "Role"}, "name": "Operator override"},
+            {"field": {"name": "Dependency IDs"}, "text": "ARB-002, operator note"},
+            {}, {"field": None},
+        ]}}
+        updates = setup.missing_project_updates(items[0], existing, known, definitions)
+        self.assertEqual({field for field, _ in updates}, {"field:Priority", "field:Stage", "field:Release gate"})
+        self.assertEqual(existing["fieldValues"]["nodes"][2]["text"], "ARB-002, operator note")
+
+    def test_intentionally_empty_text_is_not_reinitialized_on_rerun(self):
+        _, items, definitions, known = self.fixture()
+        row = {"fieldValues": {"nodes": [{"field": {"name": "Dependency IDs"}, "text": ""}]}}
+        self.assertNotIn("field:Dependency IDs", {field for field, _ in setup.missing_project_updates(items[0], row, known, definitions)})
+
+    def test_wrong_existing_field_type_stops_before_returning_any_write_plan(self):
+        _, items, definitions, known = self.fixture()
+        known["Dependency IDs"]["dataType"] = "NUMBER"
+        with self.assertRaisesRegex(setup.SetupError, "incompatible type"):
+            setup.missing_project_updates(items[0], None, known, definitions)
+        known["Dependency IDs"]["dataType"] = "TEXT"
+        known["Role"]["dataType"] = "TEXT"
+        with self.assertRaisesRegex(setup.SetupError, "incompatible type"):
+            setup.missing_project_updates(items[0], None, known, definitions)
+
+    def test_missing_select_option_is_actionable_and_does_not_change_operator_value(self):
+        _, items, definitions, known = self.fixture()
+        known["Role"]["options"] = []
+        with self.assertRaisesRegex(setup.SetupError, "lacks option"):
+            setup.missing_project_updates(items[0], None, known, definitions)
+        row = {"fieldValues": {"nodes": [{"field": {"name": "Role"}, "name": "Preserved custom role"}]}}
+        self.assertNotIn("field:Role", {field for field, _ in setup.missing_project_updates(items[0], row, known, definitions)})
+
+    def test_select_option_limit_and_missing_backlog_role_are_rejected(self):
+        spec, items, _, _ = self.fixture()
+        next(field for field in spec["fields"] if field["name"] == "Role")["options"] = ["Role " + str(index) for index in range(51)]
+        with self.assertRaisesRegex(setup.SetupError, "1..50"):
+            setup.validate_project_spec(spec, items)
+        missing = dict(items[0], role="")
+        with self.assertRaisesRegex(setup.SetupError, "responsible role"):
+            setup.project_defaults(missing)
+
+    def test_second_pass_with_all_values_assigned_plans_no_field_writes(self):
+        _, items, definitions, known = self.fixture()
+        item = next(item for item in items if item["id"] == "ARB-006")
+        values = setup.project_defaults(item)
+        nodes = [{"field": {"name": name}, "text" if definitions[name]["type"] == "TEXT" else "name": value}
+                 for name, value in values.items()]
+        self.assertEqual(setup.missing_project_updates(item, {"fieldValues": {"nodes": nodes}}, known, definitions), [])
+
 if __name__ == "__main__":
     unittest.main()

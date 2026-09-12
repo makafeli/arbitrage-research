@@ -1,0 +1,19 @@
+[package]
+name = "arb-control"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+arb-domain.workspace = true
+arb-storage = { path = "../arb-storage" }
+tokio = { workspace = true, features = ["sync", "time"] }
+
+[dev-dependencies]
+uuid = { version = "1.18", features = ["v4"] }
+serde_json = "1.0"
+sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio", "postgres"] }
+
+[lints]
+workspace = true

@@ -1,0 +1,1061 @@
+{
+  "schema_version": 1,
+  "goal": "Implement a reproducible Rust research and paper platform on Base and Solana, using the approved dashboard, with evidence-backed ticket delivery.",
+  "updated_on": "2026-09-12",
+  "branch": "feat/research-foundations",
+  "autonomous_background_runner": false,
+  "completion_rule": "A source implementation is not completion. Original ticket acceptance and dependency gates must have reviewable evidence before closing its GitHub issue.",
+  "tickets": [
+    {
+      "id": "ARB-001",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/14",
+      "state": "completed",
+      "owner_role": "Product Owner",
+      "dependencies": [],
+      "evidence": [
+        "docs/15-FOUNDATION-REVIEW.md maps all four original scope/gate criteria to the PRD and decision register and recommends acceptance of the implementation baseline.",
+        "The dated FQ-01..FQ-11 register records accountable roles, due milestones and consequences for budget, provider qualification, Railway capacity, campaign assumptions and later live authorization. It is an agent-assisted product/technical review, not an operator spending or trading decision.",
+        "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Passing runtime checkpoint and test scope are recorded in docs/14-IMPLEMENTATION-VERIFICATION.md; original ticket dependencies and unfulfilled acceptance gates remain authoritative.",
+        "Foundation scope was accepted through the agent-assisted review in docs/15-FOUNDATION-REVIEW.md; the subsequent full runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988) passed all four jobs. This is foundation-establishment acceptance, not an external security audit or acceptance of downstream gates.",
+        "Original acceptance checklist independently checked against native issue body and committed review. All prerequisites for this foundation ticket are accepted in this progress register."
+      ],
+      "remaining_acceptance": "",
+      "acceptance_review": "Accepted on 2026-09-12 by root integration under the user-authorized build scope, using the agent-assisted product/technical criterion review in docs/15-FOUNDATION-REVIEW.md and applicable successful specification/Rust/container checks in run 34712579037. This accepts only the original foundation-establishment scope. Native issue closure follows merge of PR #83; downstream provider, deployment, simulation, campaign, independent security and live gates remain open."
+    },
+    {
+      "id": "ARB-002",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/15",
+      "state": "in_progress",
+      "owner_role": "Operations engineer",
+      "dependencies": [
+        "ARB-001"
+      ],
+      "evidence": [
+        "docs/16-PROVIDER-QUALIFICATION.md records the dated official Base/Solana endpoint references, capability gaps and RPC-versus-Railway spending distinction.",
+        "docs/qualification-fixtures/public-rpc-probe-2026-09-12.json and its probe source record two credential-free, bounded identity requests. Both ended in transport errors; no chain response, market capture or provider latency measurement was obtained.",
+        "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Passing runtime checkpoint and test scope are recorded in docs/14-IMPLEMENTATION-VERIFICATION.md; original ticket dependencies and unfulfilled acceptance gates remain authoritative."
+      ],
+      "remaining_acceptance": "Select provider accounts/services and a spending ceiling; obtain complete required state on both chains or record each blocking feature gap. Measure representative request latency/coverage, reconnect/backfill and quota behavior from the intended environment, preserving redacted provenance. The failed public probes cannot qualify or rank providers.",
+      "external_prerequisite": "Dedicated provider selection/access and spending envelope are unset. Both credential-free identity probes returned transport errors without a response; provider versus environment cause is unresolved."
+    },
+    {
+      "id": "ARB-003",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/16",
+      "state": "in_progress",
+      "owner_role": "Chain engineers",
+      "dependencies": [
+        "ARB-001",
+        "ARB-002"
+      ],
+      "evidence": [
+        "docs/16-PROVIDER-QUALIFICATION.md cross-references primary documentation for Base chain/factory/WETH/USDC and Solana Whirlpool/wSOL/USDC identities; these are documented identities, not verified runtime state.",
+        "The bounded probe prepares two Base factory fee-tier searches and a Solana pool-layout/mint-filter discovery request, but stops before discovery after identity transport failures. Zero pools have been qualified; config/research.example.toml remains disabled.",
+        "crates/arb-domain and crates/arb-config reject ticker-only/fixture production identities and require typed same-network allowlists plus a registry qualification digest before an enabled network is structurally accepted.",
+        "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Passing runtime checkpoint and test scope are recorded in docs/14-IMPLEMENTATION-VERIFICATION.md; original ticket dependencies and unfulfilled acceptance gates remain authoritative."
+      ],
+      "remaining_acceptance": "Obtain and independently review read-only mainnet identity, current factory/program-code hashes, owners, token behavior and quote-relevant pool/account state. Seek at least two distinct eligible pools on each chain; keep two-pool experiments blocked if absent. Verify Solana genesis and registry evidence from actual responses; do not enable from documented addresses or constructed fixtures alone.",
+      "external_prerequisite": "No real pool has been qualified on either chain. Mainnet responses, independently reviewed runtime/program identities, asset behavior and at least two eligible pools per chain remain required."
+    },
+    {
+      "id": "ARB-004",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/17",
+      "state": "in_progress",
+      "owner_role": "Technical Lead / Operations",
+      "dependencies": [
+        "ARB-001",
+        "ARB-002"
+      ],
+      "evidence": [
+        "The user selected Railway on 2026-09-12. deploy/RAILWAY.md and .railway/railway.ts define the private API/PostgreSQL and same-origin dashboard foundation, with independent qualified workers and dedicated capture volumes described separately.",
+        "docs/15-FOUNDATION-REVIEW.md FQ-02/FQ-03/FQ-11 assigns budget, region/capacity and retention/backup decisions to the operator and Operations/Technical Lead; docs/12-IMPLEMENTATION-STATUS.md explicitly withholds deployment and performance claims.",
+        "Capture manifests record raw expiry and reject expired bundles; worker documentation limits each capture volume to one controlled writer. No Redis/Kafka/Kubernetes service or universal latency guarantee is introduced.",
+        "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Passing runtime checkpoint and test scope are recorded in docs/14-IMPLEMENTATION-VERIFICATION.md; original ticket dependencies and unfulfilled acceptance gates remain authoritative."
+      ],
+      "remaining_acceptance": "Select the actual Railway project/environment, region, budget and service resources. Publish the reproducible benchmark-host manifest and a transparent 24-hour storage estimate from measured/declared input rates; review retention consequences and recovery targets. Run an authenticated Railway plan and capacity/RTT measurements before deployment assumptions can be accepted.",
+      "external_prerequisite": "Railway is selected, but authenticated target project/environment, region, service budget, retention capacity and measured host/provider benchmark remain unqualified."
+    },
+    {
+      "id": "ARB-005",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/18",
+      "state": "completed",
+      "owner_role": "Security reviewer / Technical Lead",
+      "dependencies": [
+        "ARB-001"
+      ],
+      "evidence": [
+        "docs/15-FOUNDATION-REVIEW.md records the uploaded artifact fingerprint, manifest/source dependency review, capability-boundary matrix and attack surfaces; the uploaded script is excluded from trusted execution code.",
+        "Research configuration and API reject LIVE/signing/broadcast toggles; read-only RPC methods, bounded imports and validated captures remain separate from execution capabilities. Focused Orca archive/license provenance is recorded, without claiming a full dependency audit.",
+        "The review lists FR-01..FR-09 with severity, accountable role and downstream gate, including corrected control/storage defects and open provider, simulation, deployment, dependency and native-GitHub limitations.",
+        "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Passing runtime checkpoint and test scope are recorded in docs/14-IMPLEMENTATION-VERIFICATION.md; original ticket dependencies and unfulfilled acceptance gates remain authoritative.",
+        "Foundation scope was accepted through the agent-assisted review in docs/15-FOUNDATION-REVIEW.md; the subsequent full runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988) passed all four jobs. This is foundation-establishment acceptance, not an external security audit or acceptance of downstream gates.",
+        "Original acceptance checklist independently checked against native issue body and committed review. All prerequisites for this foundation ticket are accepted in this progress register."
+      ],
+      "remaining_acceptance": "",
+      "acceptance_review": "Accepted on 2026-09-12 by root integration under the user-authorized build scope, using the agent-assisted product/technical criterion review in docs/15-FOUNDATION-REVIEW.md and applicable successful specification/Rust/container checks in run 34712579037. This accepts only the original foundation-establishment scope. Native issue closure follows merge of PR #83; downstream provider, deployment, simulation, campaign, independent security and live gates remain open."
+    },
+    {
+      "id": "ARB-006",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/19",
+      "state": "completed",
+      "owner_role": "Technical Lead / Product Owner",
+      "dependencies": [
+        "ARB-001",
+        "ARB-005"
+      ],
+      "evidence": [
+        "docs/15-FOUNDATION-REVIEW.md verifies 8 epics, 68 stable task IDs, unchanged resolvable prerequisites, an acyclic graph and the concrete PR/acceptance conventions.",
+        "scripts/github_bootstrap.py and planning/github-project.json now include Role, Release gate and Dependency IDs; 19 regression cases cover reconciliation, metadata initialization, preservation and failure handling.",
+        "docs/13-GITHUB-SETUP-STATUS.md explicitly distinguishes repository/issue sources from native owner Project, Wiki and administrative enforcement; the reviewed dry-run performs no unrelated repository mutation.",
+        "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Passing runtime checkpoint and test scope are recorded in docs/14-IMPLEMENTATION-VERIFICATION.md; original ticket dependencies and unfulfilled acceptance gates remain authoritative.",
+        "Foundation scope was accepted through the agent-assisted review in docs/15-FOUNDATION-REVIEW.md; the subsequent full runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988) passed all four jobs. This is foundation-establishment acceptance, not an external security audit or acceptance of downstream gates.",
+        "Original acceptance checklist independently checked against native issue body and committed review. All prerequisites for this foundation ticket are accepted in this progress register."
+      ],
+      "remaining_acceptance": "",
+      "acceptance_review": "Accepted on 2026-09-12 by root integration under the user-authorized build scope, using the agent-assisted product/technical criterion review in docs/15-FOUNDATION-REVIEW.md and applicable successful specification/Rust/container checks in run 34712579037. This accepts only the original foundation-establishment scope. Native issue closure follows merge of PR #83; downstream provider, deployment, simulation, campaign, independent security and live gates remain open."
+    },
+    {
+      "id": "ARB-007",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/20",
+      "state": "implemented_pending_acceptance",
+      "owner_role": "integration",
+      "dependencies": [
+        "ARB-004",
+        "ARB-005",
+        "ARB-006"
+      ],
+      "evidence": [
+        "Cargo.toml/Cargo.lock contain the implemented 15-member research workspace and Cargo-generated dependency resolution; .github/workflows/ci.yml retains Rust 1.90.0 and explicit formatting, Clippy, Rust, PostgreSQL, frontend/browser and container checks.",
+        "docs/14-IMPLEMENTATION-VERIFICATION.md distinguishes local Rust 1.91.1 checks from required remote database/browser execution and records the initial CI failures plus source corrections. docs/15-FOUNDATION-REVIEW.md inspects the no-signer/no-broadcast process graph.",
+        "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Passing runtime checkpoint and test scope are recorded in docs/14-IMPLEMENTATION-VERIFICATION.md; original ticket dependencies and unfulfilled acceptance gates remain authoritative.",
+        "Validated runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988): all four GitHub CI jobs passed; 139 Rust tests with zero failures/ignored/filtered tests, real PostgreSQL 17.11 API/control/storage/worker-process integration and client smoke, 20/20 browser scenarios, 13 Node tests, 19 importer tests, specification checks and all three container images. These results apply to this exact checkpoint and do not establish provider qualification, deployment or profitability."
+      ],
+      "remaining_acceptance": "The clean-checkout Rust/PostgreSQL, frontend/browser, specification and container CI requirement passed at c77af2e. ARB-004 deployment/retention/benchmark assumptions remain unaccepted, so ARB-007 cannot close despite accepted ARB-005/006 and passing CI. Complete ARB-004 and maintainer acceptance without presenting a source checkpoint as a deployed research release."
+    },
+    {
+      "id": "ARB-008",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/22",
+      "state": "implemented_pending_acceptance",
+      "owner_role": "domain-config",
+      "dependencies": [
+        "ARB-007"
+      ],
+      "evidence": [
+        "crates/arb-domain implements canonical string-serialized unsigned amounts, signed P&L, explicit decimals, checked arithmetic with 512-bit multiply/divide intermediates and explicit rounding/overflow errors.",
+        "Typed network/asset/pool identities and two-leg route validation reject ticker-only identity, cross-network discontinuity and repeated pools. Opportunity validation enforces research/REALIZED separation and declared full-simulation/estimated-executable gates; native fees remain distinct from wrapped assets.",
+        "Boundary/exhaustive bounded property tests, shared opportunity JSON round-trip, explicit missing/unknown variants and lifecycle snapshot/restart tests are present; evidence consistency validation is not proof of provider truth or settlement.",
+        "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Passing runtime checkpoint and test scope are recorded in docs/14-IMPLEMENTATION-VERIFICATION.md; original ticket dependencies and unfulfilled acceptance gates remain authoritative.",
+        "Validated runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988): all four GitHub CI jobs passed; 139 Rust tests with zero failures/ignored/filtered tests, real PostgreSQL 17.11 API/control/storage/worker-process integration and client smoke, 20/20 browser scenarios, 13 Node tests, 19 importer tests, specification checks and all three container images. These results apply to this exact checkpoint and do not establish provider qualification, deployment or profitability."
+      ],
+      "remaining_acceptance": "Maintainer must review the passing c77af2e domain/Rust and specification evidence after ARB-007 is accepted. Provider truth and transaction-simulation/ledger proof remain later producer responsibilities; local arithmetic must never be promoted to SIMULATED."
+    },
+    {
+      "id": "ARB-009",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/23",
+      "state": "implemented_pending_acceptance",
+      "owner_role": "domain-config",
+      "dependencies": [
+        "ARB-003",
+        "ARB-008"
+      ],
+      "evidence": [
+        "crates/arb-config parses bounded TOML/effective JSON with unknown-field and unsafe capability rejection, canonical effective defaults/digests, validated secret references and redacted field/parse errors.",
+        "FrozenSessionConfig has immutable mode/network/starting-asset/digest getters; replacement requires STOPPED. Structural enabled-network checks require same-network allowlists and a qualification digest; the shipped example remains inert.",
+        "Configuration tests cover stable hashes across equivalent serialization, unsafe limits/capabilities, fixture/unqualified registries, secret redaction, frozen replacement and effective JSON revalidation; API/storage bind sessions to registered configuration digests.",
+        "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Passing runtime checkpoint and test scope are recorded in docs/14-IMPLEMENTATION-VERIFICATION.md; original ticket dependencies and unfulfilled acceptance gates remain authoritative.",
+        "Validated runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988): all four GitHub CI jobs passed; 139 Rust tests with zero failures/ignored/filtered tests, real PostgreSQL 17.11 API/control/storage/worker-process integration and client smoke, 20/20 browser scenarios, 13 Node tests, 19 importer tests, specification checks and all three container images. These results apply to this exact checkpoint and do not establish provider qualification, deployment or profitability."
+      ],
+      "remaining_acceptance": "Accept ARB-003/008 and review the passing c77af2e configuration/API/PostgreSQL evidence for frozen persisted bindings. Actual runtime registry qualification remains unresolved; structural configuration acceptance cannot grant data readiness or establish pool eligibility."
+    },
+    {
+      "id": "ARB-010",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/24",
+      "state": "implemented_pending_acceptance",
+      "owner_role": "storage-control",
+      "dependencies": [
+        "ARB-008",
+        "ARB-009"
+      ],
+      "evidence": [
+        "migrations/0001_control.sql and crates/arb-storage implement immutable configuration/session storage, operator-scoped idempotency, revision conflicts, durable command receipts and append-only audit.",
+        "Worker storage persists lease/generation state and actual research attempt IDs; duplicate resolution is idempotent, and read/recovery paths reject inconsistent persisted state rather than infer APPLIED from API acceptance.",
+        "migrations/README.md documents forward recovery and compatibility limits. crates/arb-storage/tests/postgres.rs requires a real database and covers concurrent duplicates/revisions, immutable records, recovery and durable acknowledgement paths.",
+        "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Passing runtime checkpoint and test scope are recorded in docs/14-IMPLEMENTATION-VERIFICATION.md; original ticket dependencies and unfulfilled acceptance gates remain authoritative.",
+        "Validated runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988): all four GitHub CI jobs passed; 139 Rust tests with zero failures/ignored/filtered tests, real PostgreSQL 17.11 API/control/storage/worker-process integration and client smoke, 20/20 browser scenarios, 13 Node tests, 19 importer tests, specification checks and all three container images. These results apply to this exact checkpoint and do not establish provider qualification, deployment or profitability."
+      ],
+      "remaining_acceptance": "Maintainer must review the passing c77af2e PostgreSQL concurrency, persistence, corruption and restart evidence together with migration/recovery instructions and accept ARB-008/009. The durable control journal does not establish the separately planned financial paper ledger."
+    },
+    {
+      "id": "ARB-011",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/25",
+      "state": "implemented_pending_acceptance",
+      "owner_role": "storage-control",
+      "dependencies": [
+        "ARB-010"
+      ],
+      "evidence": [
+        "crates/arb-control coordinates PostgreSQL research leases with an exclusive local admission gate, generation-tagged work and worker-only acknowledgements. STOP keeps outstanding attempts DRAINING; the API cannot acknowledge its own intent.",
+        "Peer-review fixes latch the gate closed before cancellable database awaits, fault on lost readiness, reject stale generations and reconcile actual unresolved attempt rows during restart.",
+        "apps/research-worker integrates OBSERVE control polling independently from bounded read-only capture; process tests block RPC while applying STOP and ensure the late bundle remains unadmitted. Independent one-shot capture CLIs are explicitly outside dashboard control.",
+        "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Passing runtime checkpoint and test scope are recorded in docs/14-IMPLEMENTATION-VERIFICATION.md; original ticket dependencies and unfulfilled acceptance gates remain authoritative.",
+        "Validated runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988): all four GitHub CI jobs passed; 139 Rust tests with zero failures/ignored/filtered tests, real PostgreSQL 17.11 API/control/storage/worker-process integration and client smoke, 20/20 browser scenarios, 13 Node tests, 19 importer tests, specification checks and all three container images. These results apply to this exact checkpoint and do not establish provider qualification, deployment or profitability."
+      ],
+      "remaining_acceptance": "Accept ARB-010 and review the passing c77af2e database/control, real worker-process and browser evidence for cancellation, delayed ACK, stale results, idempotent resolution, draining, pause/resume and restart. Already-started RPC calls cannot be recalled; there is no live execution fence."
+    },
+    {
+      "id": "ARB-012",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/26",
+      "state": "implemented_pending_acceptance",
+      "owner_role": "control-api",
+      "dependencies": [
+        "ARB-008",
+        "ARB-010",
+        "ARB-011"
+      ],
+      "evidence": [
+        "apps/control-api implements registered-configuration research sessions, revisioned command acceptance/receipts, capabilities and schema-shaped redacted errors with correlation IDs.",
+        "Operator cookies are secure by default; exact Origin/CSRF, login/request rate limits, bounded bodies/concurrency/deadlines, token rotation/logout and explicit LIVE/DISARM capability denials are implemented.",
+        "Unit/virtual-time cases and a mandatory PostgreSQL router/coordinator integration case cover authentication, forbidden mutations, conflicts, idempotency and PENDING-to-worker-APPLIED semantics; specs/openapi.yaml includes the implemented 11-operation contract.",
+        "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Passing runtime checkpoint and test scope are recorded in docs/14-IMPLEMENTATION-VERIFICATION.md; original ticket dependencies and unfulfilled acceptance gates remain authoritative.",
+        "Validated runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988): all four GitHub CI jobs passed; 139 Rust tests with zero failures/ignored/filtered tests, real PostgreSQL 17.11 API/control/storage/worker-process integration and client smoke, 20/20 browser scenarios, 13 Node tests, 19 importer tests, specification checks and all three container images. These results apply to this exact checkpoint and do not establish provider qualification, deployment or profitability."
+      ],
+      "remaining_acceptance": "Maintainer must review the passing c77af2e API/PostgreSQL integration, contract, real client smoke and browser evidence after ARB-008/010/011 acceptance. Opportunity production/query integration remains empty and separate; HTTP/schema success is not market-data availability or proof of deployed HTTPS."
+    },
+    {
+      "id": "ARB-013",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/27",
+      "state": "implemented_pending_acceptance",
+      "owner_role": "integration",
+      "dependencies": [
+        "ARB-007",
+        "ARB-008",
+        "ARB-011"
+      ],
+      "evidence": [
+        "crates/arb-scheduler implements bounded per-network queues, round-robin dispatch, reserved cross-chain in-flight capacity, generation/age checks, cancellable permits and fixed-cardinality stage snapshots.",
+        "Deterministic overload, blocked-Solana/Base-dispatch, stale completion, abandonment and stop-ordering tests exercise bounded work and isolation. Payload destruction and external I/O stay outside the scheduler lock.",
+        "The scheduler README explicitly states that it does not create the fixed CPU thread pool or export a metrics backend; the OBSERVE worker separately bounds capture concurrency and control polling.",
+        "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Passing runtime checkpoint and test scope are recorded in docs/14-IMPLEMENTATION-VERIFICATION.md; original ticket dependencies and unfulfilled acceptance gates remain authoritative.",
+        "Validated runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988): all four GitHub CI jobs passed; 139 Rust tests with zero failures/ignored/filtered tests, real PostgreSQL 17.11 API/control/storage/worker-process integration and client smoke, 20/20 browser scenarios, 13 Node tests, 19 importer tests, specification checks and all three container images. These results apply to this exact checkpoint and do not establish provider qualification, deployment or profitability."
+      ],
+      "remaining_acceptance": "Integrate the scheduler with a fixed-size CPU pool, per-process resource budgets, real evaluation/control paths and asynchronous stage-metric export. Record measured p50/p95/p99 and bounded-memory overload evidence on the named deployment host; test slow analytics/dashboard isolation. Complete ARB-007/008/011 acceptance before closure."
+    },
+    {
+      "id": "ARB-014",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/28",
+      "state": "implemented_pending_acceptance",
+      "owner_role": "acquisition",
+      "dependencies": [
+        "ARB-008",
+        "ARB-009",
+        "ARB-010"
+      ],
+      "evidence": [
+        "crates/arb-capture writes immutable versioned bundles with fsynced objects/manifest, an INCOMPLETE marker, input/build/config/source provenance, bounded flat filenames and SHA-256 integrity checks.",
+        "Load/round-trip tests reject corrupt/missing objects, invalid versions, traversal, quota failures, incomplete writes and expired raw retention. Synthetic/manually constructed origins remain distinguishable from recorded-live provenance.",
+        "OBSERVE admissions store manifest digest/path/generation only after the bundle commits; orphaned raw captures remain unadmitted. Replay rechecks the original manifest/configuration and exact recorded inputs.",
+        "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Passing runtime checkpoint and test scope are recorded in docs/14-IMPLEMENTATION-VERIFICATION.md; original ticket dependencies and unfulfilled acceptance gates remain authoritative.",
+        "Validated runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988): all four GitHub CI jobs passed; 139 Rust tests with zero failures/ignored/filtered tests, real PostgreSQL 17.11 API/control/storage/worker-process integration and client smoke, 20/20 browser scenarios, 13 Node tests, 19 importer tests, specification checks and all three container images. These results apply to this exact checkpoint and do not establish provider qualification, deployment or profitability."
+      ],
+      "remaining_acceptance": "Capture/control/replay CI passed at c77af2e. Review a real provider-backed export for provenance, secret redaction and decision-to-bundle lookup once ARB-008/009/010 and production qualification pass. Wire retention and decision/report references without rewriting historical evidence; constructed fixtures do not establish real capture completeness or market performance."
+    },
+    {
+      "id": "ARB-015",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/29",
+      "state": "planned",
+      "owner_role": "Technical Lead / QA",
+      "dependencies": [
+        "ARB-012",
+        "ARB-013",
+        "ARB-014",
+        "ARB-016",
+        "ARB-018",
+        "ARB-022",
+        "ARB-023"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-016",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/30",
+      "state": "implemented_pending_acceptance",
+      "owner_role": "acquisition",
+      "dependencies": [
+        "ARB-002",
+        "ARB-003",
+        "ARB-008",
+        "ARB-009",
+        "ARB-014"
+      ],
+      "evidence": [
+        "crates/arb-evm performs bounded Base Uniswap V3 read-only acquisition: chain/factory/pool identity checks, runtime-code hashes, block-hash-pinned state calls and configured tick bitmap/tick reads.",
+        "Manually constructed transcript fixtures exercise deterministic ABI decoding, wrong identities and incomplete state; the adapter reports acquisition capability and withholds quote completeness.",
+        "docs/16-PROVIDER-QUALIFICATION.md records that the public Base identity probe obtained no response and discovered no qualified pools; documented addresses are not enabled production registry evidence.",
+        "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Passing runtime checkpoint and test scope are recorded in docs/14-IMPLEMENTATION-VERIFICATION.md; original ticket dependencies and unfulfilled acceptance gates remain authoritative.",
+        "Validated runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988): all four GitHub CI jobs passed; 139 Rust tests with zero failures/ignored/filtered tests, real PostgreSQL 17.11 API/control/storage/worker-process integration and client smoke, 20/20 browser scenarios, 13 Node tests, 19 importer tests, specification checks and all three container images. These results apply to this exact checkpoint and do not establish provider qualification, deployment or profitability."
+      ],
+      "remaining_acceptance": "Qualify ARB-002/003 providers and at least two real pools; capture complete amount-relevant state and compare decoded values with official ABI/state queries. Implement and test bounded reconnect/backfill, missing-log/gap handling and coherent quote coverage after ARB-008/009/014. Static transcript decoding alone does not satisfy read-only ingestion acceptance."
+    },
+    {
+      "id": "ARB-017",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/31",
+      "state": "implemented_pending_acceptance",
+      "owner_role": "acquisition",
+      "dependencies": [
+        "ARB-002",
+        "ARB-003",
+        "ARB-008",
+        "ARB-009",
+        "ARB-014"
+      ],
+      "evidence": [
+        "crates/arb-solana decodes the pinned Orca legacy SPL-token/fixed tick-array layout with configured program-data hash, owner, mint/vault and account-set checks.",
+        "Acquisition uses one finalized getMultipleAccounts response for declared account context; manually constructed fixtures cover decoding/identity failures and preserve the layout/source revision in capture provenance.",
+        "docs/16-PROVIDER-QUALIFICATION.md leaves mainnet genesis, provider semantics and every actual pool unqualified after the failed bounded identity probe; no sample registry is promoted to production.",
+        "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Passing runtime checkpoint and test scope are recorded in docs/14-IMPLEMENTATION-VERIFICATION.md; original ticket dependencies and unfulfilled acceptance gates remain authoritative.",
+        "Validated runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988): all four GitHub CI jobs passed; 139 Rust tests with zero failures/ignored/filtered tests, real PostgreSQL 17.11 API/control/storage/worker-process integration and client smoke, 20/20 browser scenarios, 13 Node tests, 19 importer tests, specification checks and all three container images. These results apply to this exact checkpoint and do not establish provider qualification, deployment or profitability."
+      ],
+      "remaining_acceptance": "Complete ARB-002/003/008/009/014 qualification and compare representative real account captures with the pinned official layout. Exercise missing arrays, duplicate/out-of-order writes and bounded reconnect gaps; qualify the provider account-coherence semantics and current program before claiming complete valid quote state."
+    },
+    {
+      "id": "ARB-018",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/32",
+      "state": "implemented_pending_acceptance",
+      "owner_role": "acquisition",
+      "dependencies": [
+        "ARB-016",
+        "ARB-017"
+      ],
+      "evidence": [
+        "Adapter snapshots record chain-specific finalized context: Base block/hash ancestry and Solana genesis/slot plus single-response account context. SnapshotQuality carries coherent, complete-for-quote and explicit missing inputs.",
+        "Domain evidence gates reject stale/incomplete/inconsistent declared state for estimated-executable labels; capture/replay retain original provenance and compare normalized snapshot/context/quality exactly.",
+        "Current adapters deliberately report unqualified quote completeness; similar wall-clock timestamps never establish a shared cross-chain atomic snapshot.",
+        "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Passing runtime checkpoint and test scope are recorded in docs/14-IMPLEMENTATION-VERIFICATION.md; original ticket dependencies and unfulfilled acceptance gates remain authoritative.",
+        "Validated runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988): all four GitHub CI jobs passed; 139 Rust tests with zero failures/ignored/filtered tests, real PostgreSQL 17.11 API/control/storage/worker-process integration and client smoke, 20/20 browser scenarios, 13 Node tests, 19 importer tests, specification checks and all three container images. These results apply to this exact checkpoint and do not establish provider qualification, deployment or profitability."
+      ],
+      "remaining_acceptance": "Implement the rolling snapshot state machine, versioned freshness policy and durable rollback/gap invalidation of dependent work. Replay real reorgs, out-of-order updates and mismatched account dependencies; prove formerly valid work becomes ineligible without altering captured provenance. Accept ARB-016/017 and attach current-commit integration evidence."
+    },
+    {
+      "id": "ARB-019",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/33",
+      "state": "planned",
+      "owner_role": "EVM engineer",
+      "dependencies": [
+        "ARB-008",
+        "ARB-016",
+        "ARB-018"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-020",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/34",
+      "state": "implemented_pending_acceptance",
+      "owner_role": "Solana engineer",
+      "dependencies": [
+        "ARB-008",
+        "ARB-017",
+        "ARB-018"
+      ],
+      "evidence": [
+        "crates/arb-solana/src/math.rs wraps a pinned Apache-licensed historical Orca static-fee exact-input primitive and two-leg fixture composition; unsupported adaptive-fee/array behavior remains rejected.",
+        "docs/14-IMPLEMENTATION-VERIFICATION.md records the initial nonterminating boundary regression and the fix: constrain the SDK swap to captured tick coverage, reject partial consumption and validate liquidity transitions.",
+        "All eight local math regressions passed after correction, including the formerly hanging case, both directions and malformed liquidity. Focused third-party archive/license provenance is recorded in the foundation review.",
+        "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Passing runtime checkpoint and test scope are recorded in docs/14-IMPLEMENTATION-VERIFICATION.md; original ticket dependencies and unfulfilled acceptance gates remain authoritative.",
+        "Validated runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988): all four GitHub CI jobs passed; 139 Rust tests with zero failures/ignored/filtered tests, real PostgreSQL 17.11 API/control/storage/worker-process integration and client smoke, 20/20 browser scenarios, 13 Node tests, 19 importer tests, specification checks and all three container images. These results apply to this exact checkpoint and do not establish provider qualification, deployment or profitability."
+      ],
+      "remaining_acceptance": "The corrected math/workspace CI passed at c77af2e. Qualify current deployed-program equivalence with golden/randomized differential cases, real complete captured state and the supported token-behavior matrix. Finish overflow/truncation, tick-boundary/empty-liquidity and unavailable-array review after ARB-008/017/018; the historical primitive is not a current-program qualification."
+    },
+    {
+      "id": "ARB-021",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/35",
+      "state": "planned",
+      "owner_role": "Technical Lead / Chain engineers",
+      "dependencies": [
+        "ARB-003",
+        "ARB-009",
+        "ARB-019",
+        "ARB-020"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-022",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/36",
+      "state": "planned",
+      "owner_role": "Engine engineer",
+      "dependencies": [
+        "ARB-008",
+        "ARB-009",
+        "ARB-019",
+        "ARB-020",
+        "ARB-021"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-023",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/37",
+      "state": "planned",
+      "owner_role": "Engine engineer / Data engineer",
+      "dependencies": [
+        "ARB-010",
+        "ARB-014",
+        "ARB-018",
+        "ARB-022"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-024",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/38",
+      "state": "planned",
+      "owner_role": "QA / Chain engineers",
+      "dependencies": [
+        "ARB-013",
+        "ARB-015",
+        "ARB-019",
+        "ARB-020",
+        "ARB-021",
+        "ARB-023"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-025",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/39",
+      "state": "implemented_pending_acceptance",
+      "owner_role": "Engine engineer",
+      "dependencies": [
+        "ARB-008",
+        "ARB-023"
+      ],
+      "evidence": [
+        "crates/arb-paper/src/cost.rs computes exact transaction economics from quotes that already include pool fees/impact; its deductible expense vocabulary excludes those included costs and rejects duplicate components.",
+        "Native fee amounts retain asset identity and timestamped exact-ratio valuation; missing execution/funding/valuation inputs yield no complete net result. Gross, transaction-net and disclosed method/version overhead allocation remain separate and denominated in the actual starting asset.",
+        "Hand-calculated Base L1/execution and Solana execution/priority/tip fixtures preserve rounding, negative failed-attempt scenarios and missing-versus-zero distinctions. No USDC-to-guaranteed-USD claim is made.",
+        "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Passing runtime checkpoint and test scope are recorded in docs/14-IMPLEMENTATION-VERIFICATION.md; original ticket dependencies and unfulfilled acceptance gates remain authoritative.",
+        "Validated runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988): all four GitHub CI jobs passed; 139 Rust tests with zero failures/ignored/filtered tests, real PostgreSQL 17.11 API/control/storage/worker-process integration and client smoke, 20/20 browser scenarios, 13 Node tests, 19 importer tests, specification checks and all three container images. These results apply to this exact checkpoint and do not establish provider qualification, deployment or profitability."
+      ],
+      "remaining_acceptance": "Connect the core to the persisted ARB-023 evaluation pipeline and complete scenario fee/funding inputs; reproduce conversions and aggregate conservation from recorded decisions/reports. Review the passing c77af2e core tests and ARB-008/023 dependencies. In-memory fixture calculations do not establish complete transaction simulation or a deployed cost ledger."
+    },
+    {
+      "id": "ARB-026",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/40",
+      "state": "implemented_pending_acceptance",
+      "owner_role": "Engine engineer",
+      "dependencies": [
+        "ARB-010",
+        "ARB-025"
+      ],
+      "evidence": [
+        "crates/arb-paper/src/portfolio.rs freezes initial balances per run, separates token principal from native fee inventory and atomically applies reservations, explicit scenario outcomes and paired debit/credit postings.",
+        "Concurrent Mutex-mediated candidates cannot overreserve; unknown outcomes retain funds, failed included attempts spend fees while releasing atomic principal, and known non-inclusion releases both. Reset requires a different run.",
+        "Idempotent command/body replay, prefix reconstruction, tamper/gap/mixed-run rejection, conflicting-capital and bounded conservation tests cover the deterministic single-owner in-memory reducer.",
+        "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Passing runtime checkpoint and test scope are recorded in docs/14-IMPLEMENTATION-VERIFICATION.md; original ticket dependencies and unfulfilled acceptance gates remain authoritative.",
+        "Validated runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988): all four GitHub CI jobs passed; 139 Rust tests with zero failures/ignored/filtered tests, real PostgreSQL 17.11 API/control/storage/worker-process integration and client smoke, 20/20 browser scenarios, 13 Node tests, 19 importer tests, specification checks and all three container images. These results apply to this exact checkpoint and do not establish provider qualification, deployment or profitability."
+      ],
+      "remaining_acceptance": "Integrate reservations/settlements with PostgreSQL transactions and the evaluation/worker pipeline, then run real crash/restart and concurrent persistent-reservation tests. Verify report balances and mutually exclusive decisions using recorded inputs after ARB-010/025. Journal-prefix replay is not disk durability or cross-process ownership proof."
+    },
+    {
+      "id": "ARB-027",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/41",
+      "state": "implemented_pending_acceptance",
+      "owner_role": "Engine engineer",
+      "dependencies": [
+        "ARB-014",
+        "ARB-019",
+        "ARB-020",
+        "ARB-023"
+      ],
+      "evidence": [
+        "apps/replay verifies original manifest/object digests and re-decodes ordered RPC transcripts offline, requiring matching methods/parameters, complete consumption and exact snapshot/context/quality equality.",
+        "Recorded-live effective configuration and registry bindings are revalidated; protocol source revision, original build and replay build identities are distinguished. The report explicitly marks quote replay, paper P&L and full-transaction simulation unavailable.",
+        "docs/14-IMPLEMENTATION-VERIFICATION.md records four passing local strict capture replay regressions, including self-consistently rehashed mismatches, configuration/source/sequence changes and repeated deterministic acquisition output.",
+        "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Passing runtime checkpoint and test scope are recorded in docs/14-IMPLEMENTATION-VERIFICATION.md; original ticket dependencies and unfulfilled acceptance gates remain authoritative.",
+        "Validated runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988): all four GitHub CI jobs passed; 139 Rust tests with zero failures/ignored/filtered tests, real PostgreSQL 17.11 API/control/storage/worker-process integration and client smoke, 20/20 browser scenarios, 13 Node tests, 19 importer tests, specification checks and all three container images. These results apply to this exact checkpoint and do not establish provider qualification, deployment or profitability."
+      ],
+      "remaining_acceptance": "Build complete route/evaluation/economic replay over qualified Base/Orca math and persisted ARB-023 records; retain missing-input rejection and CANDIDATE evidence for mathematical results. Compare canonical full outputs in isolated environments with network denied, record platform/version limits and accept ARB-014/019/020/023. Acquisition re-decoding alone is not full deterministic trading replay."
+    },
+    {
+      "id": "ARB-028",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/42",
+      "state": "planned",
+      "owner_role": "EVM engineer",
+      "dependencies": [
+        "ARB-019",
+        "ARB-021",
+        "ARB-025"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-029",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/43",
+      "state": "planned",
+      "owner_role": "Solana engineer",
+      "dependencies": [
+        "ARB-020",
+        "ARB-021",
+        "ARB-025"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-030",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/44",
+      "state": "planned",
+      "owner_role": "EVM engineer",
+      "dependencies": [
+        "ARB-018",
+        "ARB-027",
+        "ARB-028"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-031",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/45",
+      "state": "planned",
+      "owner_role": "Solana engineer",
+      "dependencies": [
+        "ARB-018",
+        "ARB-027",
+        "ARB-029"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-032",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/46",
+      "state": "planned",
+      "owner_role": "Research engineer",
+      "dependencies": [
+        "ARB-025",
+        "ARB-026",
+        "ARB-027",
+        "ARB-030",
+        "ARB-031"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-033",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/47",
+      "state": "planned",
+      "owner_role": "Engine engineer / QA",
+      "dependencies": [
+        "ARB-024",
+        "ARB-025",
+        "ARB-026",
+        "ARB-030",
+        "ARB-031",
+        "ARB-032"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-034",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/48",
+      "state": "planned",
+      "owner_role": "Research engineer / Product Owner",
+      "dependencies": [
+        "ARB-023",
+        "ARB-025",
+        "ARB-026",
+        "ARB-032",
+        "ARB-033"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-035",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/49",
+      "state": "planned",
+      "owner_role": "QA / Technical Lead",
+      "dependencies": [
+        "ARB-024",
+        "ARB-026",
+        "ARB-027",
+        "ARB-030",
+        "ARB-031",
+        "ARB-033",
+        "ARB-034"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-036",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/50",
+      "state": "planned",
+      "owner_role": "Frontend engineer / UI Designer",
+      "dependencies": [
+        "ARB-006",
+        "ARB-008"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-037",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/51",
+      "state": "implemented_pending_acceptance",
+      "owner_role": "dashboard",
+      "dependencies": [
+        "ARB-012",
+        "ARB-023",
+        "ARB-036"
+      ],
+      "evidence": [
+        "apps/web/src/ConnectedApp.tsx and src/api/client.ts add explicit Connected mode, authenticated queries, loading/empty/unavailable/stale/disconnected states and safe retries while preserving the approved synthetic Demo mode.",
+        "RecordedOpportunities.tsx displays exact string amounts, snapshot/plan/valuation provenance, missing costs as unknown and failed simulations as rejection; disconnected snapshots do not invent continued activity.",
+        "API-client/unit and Connected browser fixtures cover data-quality and failure states. The native-fetch receiver defect is corrected with a regression test; the corrected full browser suite passed at the recorded c77af2e checkpoint.",
+        "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Passing runtime checkpoint and test scope are recorded in docs/14-IMPLEMENTATION-VERIFICATION.md; original ticket dependencies and unfulfilled acceptance gates remain authoritative.",
+        "Validated runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988): all four GitHub CI jobs passed; 139 Rust tests with zero failures/ignored/filtered tests, real PostgreSQL 17.11 API/control/storage/worker-process integration and client smoke, 20/20 browser scenarios, 13 Node tests, 19 importer tests, specification checks and all three container images. These results apply to this exact checkpoint and do not establish provider qualification, deployment or profitability."
+      ],
+      "remaining_acceptance": "Connected browser/service-client CI passed at c77af2e. Inspect one real persisted captured decision end-to-end against its API trace after the original dependencies pass and wire actual opportunity production/query persistence. An empty endpoint and mocked evidence inspector do not complete the real-data dashboard acceptance."
+    },
+    {
+      "id": "ARB-038",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/52",
+      "state": "implemented_pending_acceptance",
+      "owner_role": "dashboard",
+      "dependencies": [
+        "ARB-009",
+        "ARB-012",
+        "ARB-021",
+        "ARB-036"
+      ],
+      "evidence": [
+        "ConnectedApp creates research sessions from server-registered configuration digests, enabled networks, immutable mode and allowlisted strategy IDs; historical settings remain attached to the stored configuration.",
+        "The API revalidates selections and rejects hidden-field/URL LIVE attempts, unsupported modes/networks/strategies and invalid requests. Disabled/unqualified defaults cannot be used to start an active session.",
+        "Frontend creation/error fixtures and configuration/API tests exercise invalid selection and immutable-binding behavior without exposing RPC/database secrets.",
+        "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Passing runtime checkpoint and test scope are recorded in docs/14-IMPLEMENTATION-VERIFICATION.md; original ticket dependencies and unfulfilled acceptance gates remain authoritative.",
+        "Validated runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988): all four GitHub CI jobs passed; 139 Rust tests with zero failures/ignored/filtered tests, real PostgreSQL 17.11 API/control/storage/worker-process integration and client smoke, 20/20 browser scenarios, 13 Node tests, 19 importer tests, specification checks and all three container images. These results apply to this exact checkpoint and do not establish provider qualification, deployment or profitability."
+      ],
+      "remaining_acceptance": "Complete the full experiment review flow, including explicit virtual principal, separate native-fee reserves, sizes/delay/cost assumptions and capability feedback for pool/token models. Existing registered-session creation/browser/API checks passed at c77af2e; revised-experiment history and review flows still need their actual immutable experiment records. Current registered-session creation is narrower than the full ticket."
+    },
+    {
+      "id": "ARB-039",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/53",
+      "state": "implemented_pending_acceptance",
+      "owner_role": "dashboard",
+      "dependencies": [
+        "ARB-011",
+        "ARB-012",
+        "ARB-036",
+        "ARB-037"
+      ],
+      "evidence": [
+        "Connected controls submit revisioned idempotent commands and poll per-session receipts; PENDING acceptance is distinct from worker APPLIED and unresolved work remains DRAINING.",
+        "Demo controls explicitly remain local; Connected mode handles delayed/lost ACK, stale revision, disconnect, uncertain request retry and per-session stop-all outcomes without claiming an atomic global stop.",
+        "The passing c77af2e runtime checkpoint exercises browser/control fixtures for pending stop, command acknowledgement, unresolved attempts and focus/accessibility, together with real PostgreSQL/coordinator and worker-process tests. Root integration visually confirmed the 320-pixel mobile button fix in the successful CI artifact.",
+        "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Passing runtime checkpoint and test scope are recorded in docs/14-IMPLEMENTATION-VERIFICATION.md; original ticket dependencies and unfulfilled acceptance gates remain authoritative.",
+        "Validated runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988): all four GitHub CI jobs passed; 139 Rust tests with zero failures/ignored/filtered tests, real PostgreSQL 17.11 API/control/storage/worker-process integration and client smoke, 20/20 browser scenarios, 13 Node tests, 19 importer tests, specification checks and all three container images. These results apply to this exact checkpoint and do not establish provider qualification, deployment or profitability."
+      ],
+      "remaining_acceptance": "The c77af2e checkpoint passed the corrected browser suite and real API/PostgreSQL/worker-process acknowledgement tests, with the 320-pixel button fix visually confirmed. Complete original dependency acceptance and maintainer review of command/stop-all/pause/resume evidence. Infrastructure shutdown or local demo state must never stand in for a worker fence."
+    },
+    {
+      "id": "ARB-040",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/54",
+      "state": "planned",
+      "owner_role": "Frontend engineer / Research engineer",
+      "dependencies": [
+        "ARB-026",
+        "ARB-034",
+        "ARB-037",
+        "ARB-038"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-041",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/55",
+      "state": "planned",
+      "owner_role": "Data engineer / Frontend engineer",
+      "dependencies": [
+        "ARB-023",
+        "ARB-027",
+        "ARB-034",
+        "ARB-040"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-042",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/56",
+      "state": "planned",
+      "owner_role": "Operations engineer / Frontend engineer",
+      "dependencies": [
+        "ARB-013",
+        "ARB-024",
+        "ARB-037"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-043",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/57",
+      "state": "planned",
+      "owner_role": "UI/UX Designer / QA",
+      "dependencies": [
+        "ARB-037",
+        "ARB-038",
+        "ARB-039",
+        "ARB-040",
+        "ARB-041",
+        "ARB-042"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-044",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/58",
+      "state": "in_progress",
+      "owner_role": "Operations engineer / QA",
+      "dependencies": [
+        "ARB-035",
+        "ARB-039",
+        "ARB-041",
+        "ARB-042",
+        "ARB-043"
+      ],
+      "evidence": [
+        "deploy/Dockerfile.api, Dockerfile.web, Dockerfile.worker, Caddyfile and .railway/railway.ts prepare the private research deployment; deploy/RAILWAY.md records same-origin HTTPS, private services, dedicated worker volumes and one-owner restrictions.",
+        "The final c77af2e runtime checkpoint passed all three container-image jobs and the complete four-job CI suite; docs/14-IMPLEMENTATION-VERIFICATION.md separates image/runtime verification from actual Railway deployment.",
+        "The runbook documents inert startup, operator STOP versus process shutdown, fenced recovery, raw-capture expiry and outstanding configuration/volume/provider prerequisites. No authenticated Railway project or billable deployment was created.",
+        "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Passing runtime checkpoint and test scope are recorded in docs/14-IMPLEMENTATION-VERIFICATION.md; original ticket dependencies and unfulfilled acceptance gates remain authoritative.",
+        "Validated runtime checkpoint c77af2e1b8156c9bac9cf290d0a950a991f357e7 (https://github.com/makafeli/arbitrage-research/actions/runs/34712934988): all four GitHub CI jobs passed; 139 Rust tests with zero failures/ignored/filtered tests, real PostgreSQL 17.11 API/control/storage/worker-process integration and client smoke, 20/20 browser scenarios, 13 Node tests, 19 importer tests, specification checks and all three container images. These results apply to this exact checkpoint and do not establish provider qualification, deployment or profitability."
+      ],
+      "remaining_acceptance": "After ARB-035/039/041/042/043, execute a reviewed authenticated Railway plan/deployment, verify volume permissions and clean inert startup, implement backup/retention jobs and perform an isolated restore drill comparing configurations, commands, ledger and replay references. Exercise abrupt restart/degraded providers and end-to-end STOP, record immutable release/image hashes and actual recovery evidence. Prepared images/runbooks are not deployment acceptance."
+    },
+    {
+      "id": "ARB-045",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/59",
+      "state": "planned",
+      "owner_role": "Product Owner / Research engineer",
+      "dependencies": [
+        "ARB-034",
+        "ARB-044"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure.",
+      "external_prerequisite": "Requires completed paper platform and registered comparison protocol."
+    },
+    {
+      "id": "ARB-046",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/60",
+      "state": "planned",
+      "owner_role": "Operations engineer",
+      "dependencies": [
+        "ARB-045"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure.",
+      "external_prerequisite": "Requires actual elapsed observation under the registered protocol."
+    },
+    {
+      "id": "ARB-047",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/61",
+      "state": "planned",
+      "owner_role": "QA / Research engineer",
+      "dependencies": [
+        "ARB-046"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure.",
+      "external_prerequisite": "Requires captured campaign and independent accounting review."
+    },
+    {
+      "id": "ARB-048",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/62",
+      "state": "planned",
+      "owner_role": "Research engineer / Product Owner",
+      "dependencies": [
+        "ARB-046",
+        "ARB-047"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure.",
+      "external_prerequisite": "Requires actual comparable campaign evidence."
+    },
+    {
+      "id": "ARB-049",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/63",
+      "state": "planned",
+      "owner_role": "Technical Lead / Security reviewer",
+      "dependencies": [
+        "ARB-044",
+        "ARB-047"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure.",
+      "external_prerequisite": "Requires deployed recovery evidence and operational/security review."
+    },
+    {
+      "id": "ARB-050",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/64",
+      "state": "planned",
+      "owner_role": "Operator / Product Owner",
+      "dependencies": [
+        "ARB-048",
+        "ARB-049"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure.",
+      "external_prerequisite": "Requires research report and operator go/revise/stop decision."
+    },
+    {
+      "id": "ARB-051",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/65",
+      "state": "planned",
+      "owner_role": "Architect / Operator",
+      "dependencies": [
+        "ARB-050"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure.",
+      "external_prerequisite": "Requires explicit concrete live design and risk limits after research decision."
+    },
+    {
+      "id": "ARB-052",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/66",
+      "state": "planned",
+      "owner_role": "Security engineer",
+      "dependencies": [
+        "ARB-051"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-053",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/67",
+      "state": "planned",
+      "owner_role": "Chain engineer / Security reviewer",
+      "dependencies": [
+        "ARB-028",
+        "ARB-029",
+        "ARB-051"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-054",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/68",
+      "state": "planned",
+      "owner_role": "Engine engineer",
+      "dependencies": [
+        "ARB-026",
+        "ARB-051"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-055",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/69",
+      "state": "planned",
+      "owner_role": "Backend engineer",
+      "dependencies": [
+        "ARB-010",
+        "ARB-052",
+        "ARB-054"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-056",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/70",
+      "state": "planned",
+      "owner_role": "Chain engineer",
+      "dependencies": [
+        "ARB-053",
+        "ARB-055"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-057",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/71",
+      "state": "planned",
+      "owner_role": "Chain engineer / Backend engineer",
+      "dependencies": [
+        "ARB-055",
+        "ARB-056"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-058",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/72",
+      "state": "planned",
+      "owner_role": "Systems engineer / QA",
+      "dependencies": [
+        "ARB-011",
+        "ARB-052",
+        "ARB-055",
+        "ARB-057"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-059",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/73",
+      "state": "planned",
+      "owner_role": "Frontend engineer / Security engineer",
+      "dependencies": [
+        "ARB-039",
+        "ARB-051",
+        "ARB-052",
+        "ARB-054",
+        "ARB-057",
+        "ARB-058"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-060",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/74",
+      "state": "planned",
+      "owner_role": "Independent reviewer / Implementers",
+      "dependencies": [
+        "ARB-052",
+        "ARB-053",
+        "ARB-054",
+        "ARB-055",
+        "ARB-056",
+        "ARB-057",
+        "ARB-058",
+        "ARB-059"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure.",
+      "external_prerequisite": "Independent review cannot be substituted with author self-review."
+    },
+    {
+      "id": "ARB-061",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/75",
+      "state": "planned",
+      "owner_role": "Technical Lead / Operator",
+      "dependencies": [
+        "ARB-050",
+        "ARB-060"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure.",
+      "external_prerequisite": "Requires independently reviewed pilot release packet."
+    },
+    {
+      "id": "ARB-062",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/76",
+      "state": "planned",
+      "owner_role": "Operator / Operations engineer",
+      "dependencies": [
+        "ARB-061"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure.",
+      "external_prerequisite": "Requires approved funded pilot and real observation."
+    },
+    {
+      "id": "ARB-063",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/77",
+      "state": "planned",
+      "owner_role": "Product Owner / Operator",
+      "dependencies": [
+        "ARB-062"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure.",
+      "external_prerequisite": "Requires actual pilot results."
+    },
+    {
+      "id": "ARB-064",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/78",
+      "state": "planned",
+      "owner_role": "Chain engineers",
+      "dependencies": [
+        "ARB-035",
+        "ARB-048",
+        "ARB-050"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-065",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/79",
+      "state": "planned",
+      "owner_role": "Engine engineer / Chain engineers",
+      "dependencies": [
+        "ARB-064"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-066",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/80",
+      "state": "planned",
+      "owner_role": "Architect / Chain engineer",
+      "dependencies": [
+        "ARB-048",
+        "ARB-050",
+        "ARB-064"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-067",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/81",
+      "state": "planned",
+      "owner_role": "EVM or Solana engineer / Security reviewer",
+      "dependencies": [
+        "ARB-051",
+        "ARB-053",
+        "ARB-060",
+        "ARB-063"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    },
+    {
+      "id": "ARB-068",
+      "issue_url": "https://github.com/makafeli/arbitrage-research/issues/82",
+      "state": "planned",
+      "owner_role": "Technical Lead / Operations / Operator",
+      "dependencies": [
+        "ARB-044",
+        "ARB-050"
+      ],
+      "evidence": [],
+      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+    }
+  ],
+  "deployment_platform": "Railway (user confirmed 2026-09-12)"
+}

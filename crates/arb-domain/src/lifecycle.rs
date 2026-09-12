@@ -1,6 +1,8 @@
+use serde::{Deserialize, Serialize};
 use std::fmt;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum Mode {
     Observe,
     Paper,
@@ -9,7 +11,8 @@ pub enum Mode {
     Live,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum State {
     Recovering,
     Stopped,
@@ -20,7 +23,8 @@ pub enum State {
     Faulted,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum Action {
     Start,
     Pause,
@@ -29,7 +33,8 @@ pub enum Action {
     Disarm,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum Progress {
     Pending,
     Applied,
@@ -49,6 +54,7 @@ pub enum ControlError {
     NoOutstandingAttempt,
     CounterOverflow,
     RealizedRequiresLive,
+    InvalidSnapshot,
 }
 
 impl fmt::Display for ControlError {
@@ -59,7 +65,8 @@ impl fmt::Display for ControlError {
 
 impl std::error::Error for ControlError {}
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Pending {
     action: Action,
     revision: u64,
@@ -83,7 +90,118 @@ pub struct Session {
     progress: Option<Progress>,
 }
 
+/// Persisted reducer state. Deserialization is untrusted until `restore_research` validates it.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SessionSnapshot {
+    mode: Mode,
+    state: State,
+    desired_revision: u64,
+    applied_revision: u64,
+    outstanding: u32,
+    local_fence: bool,
+    generation: u64,
+    pending: Option<Pending>,
+    progress: Option<Progress>,
+}
+
 impl Session {
+    /// A restarted worker discards pending admission commands, fences and reconciles.
+    pub fn restart_research(&self) -> Result<Self, ControlError> {
+        if self.mode == Mode::Live {
+            return Err(ControlError::CapabilityUnavailable);
+        }
+        let mut next = self.clone();
+        next.generation = self
+            .generation
+            .checked_add(1)
+            .ok_or(ControlError::CounterOverflow)?;
+        next.state = State::Recovering;
+        next.local_fence = true;
+        if next.pending.take().is_some() {
+            next.progress = Some(Progress::Rejected);
+        }
+        Ok(next)
+    }
+
+    pub fn snapshot(&self) -> SessionSnapshot {
+        SessionSnapshot {
+            mode: self.mode,
+            state: self.state,
+            desired_revision: self.desired_revision,
+            applied_revision: self.applied_revision,
+            outstanding: self.outstanding,
+            local_fence: self.local_fence,
+            generation: self.generation,
+            pending: self.pending,
+            progress: self.progress,
+        }
+    }
+
+    /// Restore a trusted coordinator's durable reducer state after validating its invariants.
+    /// A worker process restart must independently enter RECOVERING with its gate closed;
+    /// a stored RUNNING snapshot is never permission to resume worker admissions.
+    pub fn restore_research(s: SessionSnapshot) -> Result<Self, ControlError> {
+        if s.mode == Mode::Live {
+            return Err(ControlError::CapabilityUnavailable);
+        }
+        let invalid = || Err(ControlError::InvalidSnapshot);
+        if s.applied_revision > s.desired_revision
+            || (s.state != State::Running && !s.local_fence)
+            || (s.state == State::Stopped && s.outstanding != 0)
+            || (s.state == State::Draining && s.outstanding == 0)
+            || (s.state == State::Running && s.local_fence)
+        {
+            return invalid();
+        }
+        if let Some(p) = s.pending {
+            if p.revision != s.desired_revision
+                || p.revision <= s.applied_revision
+                || s.progress != Some(Progress::Pending)
+                || p.action == Action::Disarm
+                || (p.fence_started
+                    && (!s.local_fence || !matches!(p.action, Action::Pause | Action::Stop)))
+            {
+                return invalid();
+            }
+            let valid_state = match p.action {
+                Action::Start => s.state == State::Stopped,
+                Action::Resume => s.state == State::Paused,
+                Action::Pause => {
+                    if p.fence_started {
+                        s.state == State::Pausing
+                    } else {
+                        s.state == State::Running
+                    }
+                }
+                Action::Stop => {
+                    !p.fence_started
+                        || matches!(s.state, State::Pausing | State::Recovering | State::Faulted)
+                }
+                Action::Disarm => false,
+            };
+            if !valid_state {
+                return invalid();
+            }
+        } else if s.progress == Some(Progress::Pending)
+            || s.state == State::Pausing
+            || (s.progress == Some(Progress::Applied) && s.applied_revision != s.desired_revision)
+        {
+            return invalid();
+        }
+        Ok(Self {
+            mode: s.mode,
+            state: s.state,
+            desired_revision: s.desired_revision,
+            applied_revision: s.applied_revision,
+            outstanding: s.outstanding,
+            local_fence: s.local_fence,
+            generation: s.generation,
+            pending: s.pending,
+            progress: s.progress,
+        })
+    }
+
     pub fn new_research(mode: Mode) -> Result<Self, ControlError> {
         Self::recover_research(mode, 0)
     }

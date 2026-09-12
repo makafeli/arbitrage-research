@@ -261,3 +261,44 @@ fn stop_during_fault_does_not_clear_the_fault() {
     assert!(applied.local_fence_engaged());
     assert_eq!(applied.resolve_attempt().unwrap().state(), State::Faulted);
 }
+
+#[test]
+fn durable_snapshot_roundtrips_validate_and_worker_restart_fences() {
+    let states = [
+        stopped(),
+        running(),
+        running().request(Action::Pause, 1).unwrap(),
+        running()
+            .request(Action::Stop, 1)
+            .unwrap()
+            .begin_fence(2)
+            .unwrap(),
+        running().fault().unwrap(),
+    ];
+    for session in states {
+        let json = serde_json::to_string(&session.snapshot()).unwrap();
+        let snapshot = serde_json::from_str(&json).unwrap();
+        assert_eq!(Session::restore_research(snapshot).unwrap(), session);
+        let restart = session.restart_research().unwrap();
+        assert_eq!(restart.state(), State::Recovering);
+        assert!(restart.local_fence_engaged());
+        assert!(!restart.allows_evaluation());
+        assert_eq!(restart.generation(), session.generation() + 1);
+    }
+}
+
+#[test]
+fn corrupt_snapshot_cannot_restore_an_open_stopped_gate() {
+    let mut snapshot = serde_json::to_value(stopped().snapshot()).unwrap();
+    snapshot["local_fence"] = serde_json::json!(false);
+    assert_eq!(
+        Session::restore_research(serde_json::from_value(snapshot).unwrap()),
+        Err(ControlError::InvalidSnapshot)
+    );
+    let mut snapshot = serde_json::to_value(running().snapshot()).unwrap();
+    snapshot["applied_revision"] = serde_json::json!(99);
+    assert_eq!(
+        Session::restore_research(serde_json::from_value(snapshot).unwrap()),
+        Err(ControlError::InvalidSnapshot)
+    );
+}

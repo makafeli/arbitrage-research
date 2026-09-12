@@ -1,0 +1,15 @@
+# Base Uniswap V3 acquisition
+
+`capture_pool` reads a configured pool at one finalized Base block, verifies chain ID 8453, pinned factory address, caller-reviewed pool/factory runtime hashes, the pool's factory/token/fee/tick-spacing identities and the factory's `getPool` result. All contract reads use EIP-1898 `blockHash` with `requireCanonical: true`; an unsupported provider fails instead of falling back to `latest`. A final canonical block lookup rejects a block changed during acquisition.
+
+The reader decodes exact Q64.96 price bytes, signed ticks, active liquidity, a configured bounded bitmap window and every initialized tick within that window. ABI lengths, integer/sign bounds, initialization and liquidity consistency are checked. The operator supplies the actual independently verified pool identities and SHA-256 hashes. No example pool here has been verified on Base. Runtime hashes are SHA-256 over decoded `eth_getCode` bytes, not Ethereum's Keccak code hash.
+
+Both quote completeness and quote implementation qualification remain **false**. A bounded bitmap window is not proof that an arbitrary input amount can be quoted. Streaming logs, reconnect/backfill, continuous rollback invalidation, token behavior qualification, real captured fixture comparison and protocol math qualification remain unfinished ARB-016/018/019 work.
+
+Protocol facts were checked against these primary sources on 2026-09-12:
+
+- [Uniswap Base deployment registry](https://developers.uniswap.org/docs/protocols/v3/deployments/v3-base-deployments) lists factory `0x33128a8fC17869897dcE68Ed026d694621f6FDfD` and Base chain ID.
+- [Pinned pool state interface](https://github.com/Uniswap/v3-core/blob/d0831dc6b8a318df3872b6d68f6de135c9f3ec29/contracts/interfaces/pool/IUniswapV3PoolState.sol) defines `slot0`, liquidity, tick and bitmap units and types. The implementation uses interface facts and does not vendor protocol source.
+- [EIP-1898](https://eips.ethereum.org/EIPS/eip-1898) defines hash-pinned canonical state reads.
+
+`tests/fixtures` contains explicitly **manually constructed**, non-market data. Run the worker's `fixture` command to produce an integrity-checked demonstration bundle.

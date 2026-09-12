@@ -1,10 +1,20 @@
 [workspace]
 members = [
   "crates/arb-domain",
+  "crates/arb-config",
+  "crates/arb-storage",
+  "crates/arb-control",
+  "crates/arb-adapter-api",
+  "crates/arb-capture",
+  "crates/arb-evm",
+  "crates/arb-solana",
+  "crates/arb-scheduler",
+  "crates/arb-paper",
   "apps/control-api",
   "apps/evm-worker",
   "apps/solana-worker",
   "apps/replay",
+  "apps/research-worker",
 ]
 resolver = "3"
 
@@ -16,6 +26,15 @@ publish = false
 
 [workspace.dependencies]
 arb-domain = { path = "crates/arb-domain" }
+arb-config = { path = "crates/arb-config" }
+arb-storage = { path = "crates/arb-storage" }
+arb-control = { path = "crates/arb-control" }
+arb-adapter-api = { path = "crates/arb-adapter-api" }
+arb-capture = { path = "crates/arb-capture" }
+arb-evm = { path = "crates/arb-evm" }
+arb-solana = { path = "crates/arb-solana" }
+arb-scheduler = { path = "crates/arb-scheduler" }
+arb-paper = { path = "crates/arb-paper" }
 axum = { version = "=0.8.9", default-features = false, features = ["http1", "tokio"] }
 tokio = { version = "=1.53.1", default-features = false, features = ["macros", "rt", "net", "signal"] }
 
