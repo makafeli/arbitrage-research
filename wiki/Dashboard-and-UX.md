@@ -2,7 +2,7 @@
 
 The user selected the existing [dashboard design](https://github.com/makafeli/arbitrage-research/blob/main/design/dashboard-wireframe.html) as the implementation reference. The React application in `apps/web` follows its quiet navy surfaces, lime accent, dark/light themes, six destinations and equal Solana/Base emphasis.
 
-The current application displays synthetic fixtures. Its counts, opportunities, timestamps and command transitions explain intended behavior; they are not live market observations or trading results. The synthetic label must remain visible wherever those examples appear.
+The application has explicit Demo and Connected modes. Demo fixtures remain labeled synthetic. Connected mode uses authenticated API records for session creation, durable command receipts, raw/grouped decisions, coverage and virtual paper accounts. Captured records retain their own origin, so a connected view is not evidence that all its inputs came from a live market. Current browser acceptance and any pending CI are recorded in [integration verification](https://github.com/makafeli/arbitrage-research/blob/main/docs/17-RESEARCH-INTEGRATION-VERIFICATION.md).
 
 ## Screens
 
@@ -10,8 +10,8 @@ The current application displays synthetic fixtures. Its counts, opportunities, 
 |---|---|
 | Overview | Mode/state, chain coverage, data quality and recent observations |
 | Opportunities | Filter candidates, inspect route/state/costs and explain rejection |
-| Experiments | Compare equivalent windows and assumptions without inventing a winning chain |
-| Runs | Inspect immutable configuration, controls and unresolved outcomes |
+| Experiments | Create an immutable configured research session; comparable campaign analysis remains a target |
+| Runs | Inspect controls and immutable virtual accounts, balances, journal and reservations |
 | Strategies | Explain allowed routes, sizes, assets and readiness |
 | System | Show feed/service health, freshness and gaps |
 
@@ -25,9 +25,11 @@ Opportunity details show route order, pool/state references, size, gross estimat
 
 ## Controls
 
-Start creates/starts a specific immutable session. Pause closes evaluation/admission/submission, while feeds and reconciliation continue. Resume revalidates fresh state rather than reusing stale queued trades. Stop shows PENDING until the worker applies the local fence, then DRAINING if previously dispatched outcomes remain unresolved, and STOPPED only after resolution.
+Create session records a specific immutable configuration and mode; it does not issue START. START is a separate command after worker recovery. Pause closes evaluation/admission/submission, while feeds and reconciliation continue. Resume revalidates fresh state rather than reusing stale queued trades. Stop shows PENDING until the worker applies the local fence, then DRAINING if previously dispatched outcomes remain unresolved, and STOPPED only after resolution.
 
-A demo timer may illustrate that flow; production UI must use durable command and observed worker responses. API acceptance and worker application are separate fields. A disconnected worker is unavailable, not presumed stopped. Stopping cannot recall a transaction already sent.
+Demo transitions are local examples; the connected UI uses durable command and observed worker responses. API acceptance and worker application are separate fields. A disconnected worker is unavailable, not presumed stopped. Current workers perform reads and candidate evaluation only. STOP fences new evaluations; raw acquisition can continue, and standalone capture CLIs are outside session controls. The later live design also cannot recall a transaction already sent.
+
+Virtual-account creation is available only for a STOPPED PAPER session with matching enabled configuration. An unresolved creation locks the original session, amounts and idempotency key for retry. Bounded JSON exports describe selected received records; they do not claim complete collection, a full ledger audit or complete raw retention. See [Using research and paper accounts](./Using-Research-and-Paper-Accounts.md).
 
 ## Accessibility and review
 

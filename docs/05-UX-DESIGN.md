@@ -1,6 +1,10 @@
 # UX and interface specification
 
-Status: v0.2 approved dashboard design reference and implementation handoff. Audience: product, engineering, design and QA. Scope: a private operator researching same-chain arbitrage on Solana and Base, beginning with paper trading. The user selected the existing dashboard design for implementation. `design/dashboard-wireframe.html` remains the reference; `apps/web` carries the React/TypeScript scaffold. Both use synthetic data. This specification includes future production behavior and does not claim a working bot or measured performance.
+Status: v0.3 approved design and TARGET product behavior. The selected `design/dashboard-wireframe.html` remains the visual reference. `apps/web` now contains explicit Demo and Connected modes: Demo uses labeled examples, while Connected authenticates to durable controls, decision/coverage queries and virtual-account endpoints. Browser and API validation for the current source is tracked in [integration verification](17-RESEARCH-INTEGRATION-VERIFICATION.md); pending checks are not claimed as completed. The full comparison, simulation and live behaviors below remain gated requirements.
+
+## Current connected experience
+
+Connected mode presents raw decision pages, grouped observations, coverage, trace inspection, PAPER account balances/journal/reservations and bounded JSON export of selected received data. Unknown net amounts and missing execution denominators stay visibly unavailable. Page counts are not full-history or collection coverage. A PAPER account is initialized only on a stopped PAPER session; an unresolved create request retains its original idempotency key for retry. Session command receipt remains separate from worker acknowledgement. See the [operating guide](../wiki/Using-Research-and-Paper-Accounts.md) for the current flow.
 
 ## 1. Product experience
 
@@ -94,13 +98,13 @@ Honor reduced-motion preferences. Theme selection must preserve text contrast, f
 
 `design/dashboard-wireframe.html` is self-contained and makes no network requests. All numbers, routes, times, histories and outcomes are synthetic examples. No wallet connection, private-key input, signing, transaction submission or real market observation is implemented.
 
-Reviewers can navigate all six screens, filter by chain, inspect opportunities, switch theme and exercise illustrative run controls. A persistent synthetic-data label remains visible, and individual research panels identify their examples. Acceptance requires working keyboard interactions, correct chain filtering, consistent labels, no false realized returns, no external dependencies and clear pending-outcome behavior. This prototype is the approved design reference. The React scaffold carries that design into components, but production data integration, authenticated commands, browser accessibility checks and real worker acknowledgements remain engineering deliverables. Local demonstration transitions must never be presented as a durable worker result.
+Reviewers can navigate all six screens, filter by chain, inspect opportunities, switch theme and exercise illustrative run controls. A persistent synthetic-data label remains visible, and individual research panels identify their examples. Acceptance requires working keyboard interactions, correct chain filtering, consistent labels, no false realized returns, no external dependencies and clear pending-outcome behavior. This prototype is the approved design reference. The React implementation carries that design into separate Demo and Connected components. Connected mode uses authenticated backend records and real worker command receipts; full browser/accessibility evidence belongs to the current CI checkpoint. Local demonstration transitions must never be presented as a durable worker result.
 
 
 ## 11. Implementation and review contract
 
 Maintain the reference design: muted navy surfaces, lime primary action, dark and light themes, six primary destinations, equal Solana/Base panels, clear evidence labels and inspectable cost detail. Keep the synthetic-data badge visible in the demo. Any change to visual tokens, primary navigation or control placement is reviewed against this reference and documented in the ticket.
 
-The React implementation must have an explicit data-source boundary. A demo fixture provider may drive local interactions, while an eventual API provider consumes typed responses and displays connectivity and command status honestly. A frontend-only timer can illustrate pending/application behavior but cannot satisfy the durable acknowledgement requirement. The chain filter changes the displayed content only.
+The React implementation has an explicit data-source boundary: Demo components use labeled local fixtures, while Connected components consume validated API responses and display connectivity and command status. Preserve that separation as the product grows. A frontend-only timer can illustrate pending/application behavior but cannot satisfy the durable acknowledgement requirement. The chain filter changes the displayed content only.
 
 Production acceptance combines source checks with a rendered browser review at 320, 390, 768 and 1440 pixels, keyboard navigation, 200% zoom, theme contrast and dialog focus restoration. Passing a JavaScript syntax check or a mocked interaction test does not establish those visual/accessibility results. Attach browser evidence before closing the corresponding UI tickets.

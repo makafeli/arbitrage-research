@@ -833,10 +833,10 @@ mod tests {
     fn mismatched_context_and_stale_data_are_rejections_without_fake_outputs() {
         let mut pools = vec![base_pool(3), base_pool(4)];
         let config = config(&mut pools, &[100_000]);
-        if let PoolState::Base { snapshot, .. } = &mut pools[1].state {
-            if let StateContext::Evm { block_number, .. } = &mut snapshot.context {
-                *block_number = 2;
-            }
+        if let PoolState::Base { snapshot, .. } = &mut pools[1].state
+            && let StateContext::Evm { block_number, .. } = &mut snapshot.context
+        {
+            *block_number = 2;
         }
         let result = evaluate(&request(&config, &pools), &gate()).unwrap();
         assert!(result.iter().all(|t|matches!(&t.result,DecisionResult::Rejected {reason_codes} if reason_codes==&["CAPTURE_CONTEXT_MISMATCH"])));

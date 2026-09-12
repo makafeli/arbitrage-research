@@ -1,6 +1,6 @@
 # Getting started
 
-Clone [makafeli/arbitrage-research](https://github.com/makafeli/arbitrage-research) and read the root README for the current executable commands and pinned prerequisites. The [implementation status](https://github.com/makafeli/arbitrage-research/blob/main/docs/12-IMPLEMENTATION-STATUS.md) distinguishes current source from the full planned product.
+Clone [makafeli/arbitrage-research](https://github.com/makafeli/arbitrage-research) and read the root README for executable commands and pinned prerequisites. [Implementation status](https://github.com/makafeli/arbitrage-research/blob/main/docs/12-IMPLEMENTATION-STATUS.md) distinguishes current source from the full product; [integration verification](https://github.com/makafeli/arbitrage-research/blob/main/docs/17-RESEARCH-INTEGRATION-VERIFICATION.md) records checks and remaining acceptance.
 
 ```sh
 git clone https://github.com/makafeli/arbitrage-research.git
@@ -9,40 +9,46 @@ cd arbitrage-research
 
 ## Review the dashboard
 
-The original design is `design/dashboard-wireframe.html`, a self-contained local reference. The React/TypeScript implementation is in `apps/web`. Start the development application using that package's documented script. Run the relevant package checks before changing the interface.
+The original design is `design/dashboard-wireframe.html`. The React/TypeScript application is in `apps/web`; use its README for development and package checks. Demo mode uses visibly synthetic fixtures and local command transitions. Connected mode authenticates to the control API and reads actual stored sessions, receipts, decisions, coverage and virtual accounts. A stored record can itself have synthetic provenance; connection to the API does not turn it into market evidence.
 
-The six views use explicitly synthetic examples. A demonstration start/pause/stop transition operates only on the local demo state. It is not a command to a blockchain worker, durable acknowledgement, balance change or trading result. The chain filter changes the view, not worker scope. No wallet is required to review the design.
+The chain selector filters the view and does not change worker scope. No trading wallet is needed for either research interface. Follow [Using research and paper accounts](./Using-Research-and-Paper-Accounts.md) for the current controls and evidence limits.
 
-## Work on the Rust foundation
+## Work on the Rust implementation
 
-Use the toolchain and Cargo workspace declared at the repository root. The baseline Rust checks are:
+Use the pinned toolchain and Cargo workspace at the repository root. Baseline checks are:
 
 ```sh
 cargo fmt --all --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
+cargo clippy --locked --workspace --all-targets -- -D warnings
+cargo test --locked --workspace
+python scripts/validate_project.py
 ```
 
-These are instructions for a development environment with Rust installed, not a statement that they ran during scaffold generation. A check result belongs in CI or the validation record. If lockfiles or toolchain components need resolution, follow the README and first-build ticket rather than assuming the initial handoff is a reproducibly built release.
+The full Rust test suite requires a disposable PostgreSQL database configured through `TEST_DATABASE_URL`; follow the root README and CI setup. These commands describe how to validate a checkout, not evidence that its exact commit passed. Rust 1.90 CI, database behavior and browser/container checks must be recorded against that commit. Earlier foundation test counts do not verify the current integration.
 
-Research configuration examples have networks disabled and empty allowlists. They provide a fail-closed starting point, not verified market identities. A `fixture:` address is synthetic and cannot become a production allowlist entry.
+Research examples ship with disabled networks and empty allowlists. They are inert templates, not verified market identities. A `fixture:` address cannot become a production allowlist entry. Before enabling capture, independently qualify actual registry identities, provider behavior and supported pool state, then freeze the matching configuration and registry digests.
+
+## Prepare the selected host
+
+Railway is the selected host. The prepared definition contains a public web origin, private API and PostgreSQL; separately qualified research workers need their own persistent capture volumes and no public ports. It has not been deployed by this implementation. Use the [Railway runbook](https://github.com/makafeli/arbitrage-research/blob/main/deploy/RAILWAY.md) to review the project/environment, variables, volumes and service plan. A healthy API with the shipped disabled configurations correctly rejects market sessions.
 
 ## Choose the next issue
 
-Use the [structured backlog](https://github.com/makafeli/arbitrage-research/blob/main/planning/backlog.json) and the corresponding published issue. Begin with unblocked qualification/foundation work, then complete one integrated observation slice. Adapter qualification, durable control storage and real UI integration remain explicit work items even when related scaffolding exists.
+Use the [structured backlog](https://github.com/makafeli/arbitrage-research/blob/main/planning/backlog.json) and published issue. Source now connects capture, exact quote math, durable controls, virtual accounts and the UI; acceptance still depends on the relevant integrated tests and qualification evidence. Provider/deployed-pool qualification, complete atomic-route simulation, automatic paper scenarios and a comparable observation campaign remain separate work.
 
-Local development needs no production trading key or funded wallet. Provider credentials become necessary only when implementing a selected read/simulate integration; use the configured secret mechanism and keep them out of commits, logs and exports. Live execution belongs to later milestones and cannot be activated through the demo.
+Local development needs no trading key or funded wallet. Read-only provider credentials, when required, belong in the configured environment-secret mechanism and must stay out of commits, logs and exports. The research applications expose no signing or transaction-broadcast capability.
 
 ## Orient yourself
 
 | Location | What to inspect |
 |---|---|
-| `apps/web` | React shell, screens, fixtures and local interaction model |
-| `apps` and `crates` | Rust applications and shared types; exact implemented scope varies by milestone |
-| `docs` | Canonical PRD, architecture, economics, UX, operations and handoff |
-| `specs` | Proposed HTTP and opportunity contracts; implementation may cover a subset |
-| `config` | Inert research examples and explicit capability defaults |
-| `planning` | Stable work-item definitions and publication metadata |
-| `wiki` | These navigational pages and their source |
+| `apps/web` | Explicit Demo/Connected UI, session controls, decision inspection and virtual accounts |
+| `apps/research-worker` | Controlled OBSERVE/PAPER capture and candidate evaluation |
+| `apps/evm-worker`, `apps/solana-worker`, `apps/replay` | Standalone capture tools and offline verification/evaluation |
+| `crates` | Exact domain/math, capture, registry, scheduler, engine, ledger, storage and control boundaries |
+| `docs` and `specs` | Canonical requirements, current verification and API/data contracts |
+| `config` | Inert examples and explicit capability defaults |
+| `deploy` | Container definitions and Railway preparation |
+| `planning` and `wiki` | Stable work definitions, publication metadata and onboarding source |
 
-See [development workflow](./Development-Workflow.md) for acceptance, branch/review practice and evidence requirements.
+See [development workflow](./Development-Workflow.md) for acceptance, review and evidence requirements.

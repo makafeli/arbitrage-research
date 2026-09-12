@@ -2,11 +2,12 @@
 
 A Rust-first research platform for investigating same-chain arbitrage on Base and Solana, with an approved React dashboard design and a staged path from observation to paper experiments. It is intended for one private operator. The GitHub repository is the project delivery source; application access and repository visibility are separate settings.
 
-The current handoff contains source scaffolding and synthetic demonstrations. It does not yet collect blockchain data, run a complete arbitrage strategy, maintain a paper trading ledger or submit transactions. Read the [current implementation status](https://github.com/makafeli/arbitrage-research/blob/main/docs/12-IMPLEMENTATION-STATUS.md) before running a service or interpreting an example.
+Current source includes bounded read-only capture, exact two-pool quote research, retained-input replay, PostgreSQL controls and virtual accounts, and a connected dashboard beside the synthetic demo. It does not submit transactions, automatically settle paper trades or establish market profitability. Shipped network configurations remain disabled until their actual providers and pool identities are qualified. Read [implementation status](https://github.com/makafeli/arbitrage-research/blob/main/docs/12-IMPLEMENTATION-STATUS.md) for scope and [integration verification](https://github.com/makafeli/arbitrage-research/blob/main/docs/17-RESEARCH-INTEGRATION-VERIFICATION.md) for the current evidence and pending CI.
 
 ## Start here
 
-- [Getting started](./Getting-Started.md): repository, development commands and the demo boundary.
+- [Getting started](./Getting-Started.md): repository, development commands and deployment preparation.
+- [Using research and paper accounts](./Using-Research-and-Paper-Accounts.md): actual session controls, candidate evidence, virtual capital and exports.
 - [Product and roadmap](./Product-and-Roadmap.md): outcomes, scope, milestones and work tracking.
 - [Architecture](./Architecture.md): Rust boundaries, data flow and durable control design.
 - [Dashboard and UX](./Dashboard-and-UX.md): approved design, screens, evidence and controls.
@@ -23,6 +24,8 @@ The current handoff contains source scaffolding and synthetic demonstrations. It
 | [Implementation handoff](https://github.com/makafeli/arbitrage-research/blob/main/docs/10-BUILD-HANDOFF.md) | Team responsibilities and first integrated slice |
 | [Structured backlog](https://github.com/makafeli/arbitrage-research/blob/main/planning/backlog.json) | Stable epic/ticket IDs, dependencies, scope and acceptance |
 | [Issues](https://github.com/makafeli/arbitrage-research/issues) | Published work items and evidence links |
+| [Integration verification](https://github.com/makafeli/arbitrage-research/blob/main/docs/17-RESEARCH-INTEGRATION-VERIFICATION.md) | Current test evidence, review corrections and remaining acceptance |
+| [Railway runbook](https://github.com/makafeli/arbitrage-research/blob/main/deploy/RAILWAY.md) | Selected hosting layout and preparation; no deployment is claimed |
 | [Dashboard reference](https://github.com/makafeli/arbitrage-research/blob/main/design/dashboard-wireframe.html) | Original approved visual/interaction reference |
 
 ## Documentation conventions

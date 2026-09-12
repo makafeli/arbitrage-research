@@ -1,6 +1,6 @@
 # Product requirements: private arbitrage research platform
 
-Version: 0.2 — implementation handoff, 12 September 2026. Owner: Product Owner. The approved dashboard reference now guides a React/TypeScript scaffold; Rust foundation code and the complete delivery backlog accompany this specification. The requirements below describe the intended product. Live observations, exchange adapters, paper accounting and trading are not implemented by the scaffold. See [implementation status](12-IMPLEMENTATION-STATUS.md) for the boundary and [delivery plan](07-DELIVERY-PLAN.md) for release gates.
+Version: 0.3 — research integration handoff, 12 September 2026. Owner: Product Owner. The implementation now includes bounded read-only adapters, exact candidate calculations, retained replay inputs, durable virtual accounts and a connected React/TypeScript dashboard. The requirements below remain the TARGET product and release acceptance contract. Provider/deployed-protocol qualification, complete transaction simulation, automatic paper execution and live trading remain unfinished. See [implementation status](12-IMPLEMENTATION-STATUS.md), the [integration verification record](17-RESEARCH-INTEGRATION-VERIFICATION.md) for pending CI, and the [delivery plan](07-DELIVERY-PLAN.md).
 
 ## 1. Product outcome
 

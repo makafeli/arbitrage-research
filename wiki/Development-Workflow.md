@@ -8,7 +8,7 @@ A stable ticket ID survives import and project migration. GitHub issue numbers a
 
 Select unblocked work, confirm its dependencies have actual evidence, create a branch and update the issue as implementation progresses. If a spike disproves an assumption, record the result and adjust dependent scope. A legitimate “unsupported” result is better than silently widening a capability claim.
 
-The initial code scaffold does not automatically close implementation tickets. Durable commands need restart/idempotency evidence; adapters need protocol fixtures; paper needs complete accounting/simulation gates; UI needs rendered interaction/accessibility evidence.
+Integrated source does not automatically close implementation tickets. Durable commands need restart/idempotency evidence; adapters need protocol fixtures; paper needs complete accounting/simulation gates; UI needs rendered interaction/accessibility evidence.
 
 ## Pull requests
 
@@ -18,7 +18,7 @@ Review domain arithmetic and state/control changes separately from visual change
 
 ## Validation
 
-Rust checks cover formatting, linting and meaningful unit/integration behavior. Protocol math uses golden, boundary and differential fixtures from pinned sources. Replay tests inject time/state and never fetch current prices to fill old gaps. Fault tests exercise unknown dispatch, restart, stop races, stale revisions and invalid state.
+Rust checks cover formatting, linting and meaningful unit/integration behavior. Protocol math uses golden, boundary and differential fixtures from pinned sources. Replay tests inject time/state and never fetch current prices to fill old gaps. Current fault tests exercise restart, durable command idempotency, stop/generation races, stale revisions and invalid state. Unknown live-dispatch/reconciliation tests remain requirements for the future execution implementation.
 
 Frontend checks include type/build validation and behavior appropriate to the change. Production UI acceptance also requires a real browser at narrow/wide widths, keyboard use, zoom, theme contrast, stale/disconnected states and correct command acknowledgements. A source assertion cannot establish visual layout.
 
@@ -37,6 +37,8 @@ Report not-run checks honestly. Document toolchain/environment constraints and u
 | `docs/08-DATA-AND-API-CONTRACTS.md` and `specs` | Versioned data/process contracts |
 | `docs/09-DECISIONS-AND-OPEN-QUESTIONS.md` | Decisions, rationale and revisit triggers |
 | `docs/12-IMPLEMENTATION-STATUS.md` | Source-present versus implemented/verified capability boundary |
+| `docs/17-RESEARCH-INTEGRATION-VERIFICATION.md` | Current integration checks, exact evidence and pending acceptance |
+| `deploy/RAILWAY.md` | Selected-host preparation and operational deployment checks |
 | `wiki` | Concise navigation and onboarding summaries |
 
 When behavior changes, update its canonical source and relevant Wiki summary in the same pull request. Record actual repository/issue/Project/Wiki publication separately from generated files. Preparing an import script is not proof that a native GitHub feature exists.
