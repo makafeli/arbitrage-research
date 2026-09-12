@@ -6,7 +6,7 @@ Verified on 12 September 2026 for [makafeli/arbitrage-research](https://github.c
 
 | Resource | Result | Location |
 |---|---|---|
-| Source repository | React/TypeScript dashboard, five-member Rust workspace, dependency lockfiles, design system, configuration and proposed contracts | [Repository](https://github.com/makafeli/arbitrage-research) |
+| Source repository | React/TypeScript dashboard, 17-member Rust workspace, dependency lockfiles, design system, configuration and proposed contracts | [Repository](https://github.com/makafeli/arbitrage-research) |
 | Product and engineering handoff | PRD, architecture, file structure, economics, UX, operations/security, delivery, decisions and capability status | [Documentation](https://github.com/makafeli/arbitrage-research/tree/main/docs) |
 | Delivery specifications | Eight epics and 68 detailed tickets; all 26 PRD/NFR requirements mapped; dependency graph acyclic | [Backlog](../planning/BACKLOG.md) |
 | Native issues | 76 uniquely marked issues, with stable planning IDs, full bodies, linked sources, priorities and roles | [Published issue index](../planning/GITHUB-ISSUES.md) |
@@ -15,10 +15,10 @@ Verified on 12 September 2026 for [makafeli/arbitrage-research](https://github.c
 | Native hierarchy | All 68 implementation tasks linked as children of their eight epics | [Issues](https://github.com/makafeli/arbitrage-research/issues) |
 | Native blocking relationships | All 219 specified dependency links present | [Planning workflow](https://github.com/makafeli/arbitrage-research/actions/runs/34708957300) |
 | Development workflow | Issue forms, PR template, security guidance, Dependabot and CI source | [GitHub configuration](https://github.com/makafeli/arbitrage-research/tree/main/.github) |
-| CI | Specification, Rust and browser/frontend jobs passed | [Verified code run](https://github.com/makafeli/arbitrage-research/actions/runs/34709107929) |
+| CI | PR #90 passed all four jobs: 225 Rust tests including 52 PostgreSQL tests, 36 Chromium scenarios, 25 Node tests, specifications and three Railway containers | [Verified code run](https://github.com/makafeli/arbitrage-research/actions/runs/34724475794) |
 | Wiki source | Nine navigable Markdown source files published | [Wiki source Home](../wiki/Home.md) |
 
-Ticket creation does not complete the implementation acceptance criteria. Tickets remain planned/open, and later live milestones remain gated. Dependabot pull requests are separate from the 76 project issues and have not been merged as part of setup.
+Ticket creation does not complete the implementation acceptance criteria. The current register contains three completed tasks, 22 with implementation present and acceptance pending, ten in progress and 33 planned: 65 implementation issues remain open. Later live milestones retain their original gates. [Implementation progress](../planning/implementation-progress.json) and the native managed implementation sections record the evidence and outstanding criteria. Dependabot pull requests are separate from the 76 project issues and have not been merged as part of setup.
 
 ## Remaining native Project and Wiki steps
 
@@ -45,4 +45,4 @@ Repository rulesets/required-review enforcement and private vulnerability report
 
 ## Recheck after changes
 
-Run the relevant CI checks after implementation edits, and rerun the idempotent planning workflow after changing canonical issue specifications. Operator notes belong outside managed issue body delimiters. The importer preserves issue state/comments and existing extra labels and does not automatically remove relationships or close work.
+Run the relevant CI checks after implementation edits, and rerun the idempotent planning workflow after changing canonical issue specifications. Operator notes belong outside managed issue body delimiters. The importer preserves issue state/comments, current workflow labels and existing extra labels and does not automatically remove relationships or close work. Closed issues retain their entire existing bodies, so completed status and checked acceptance records cannot be overwritten by the original planned specification. Open issues continue to receive managed specification updates while preserving outside notes. After an import, compare both body content and metadata; a successful workflow alone does not establish preservation.
