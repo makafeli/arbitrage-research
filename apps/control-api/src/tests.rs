@@ -152,6 +152,7 @@ fn setup_with(store: Arc<MockStore>, insecure: bool) -> Router {
             public_origin: ORIGIN.into(),
             allow_insecure_loopback: insecure,
             operator_secret_hash: hash(SECRET),
+            adapter_support: support::AdapterSupport::empty(),
             configurations: vec![RegisteredConfiguration {
                 configuration_digest: DIGEST.into(),
                 mode: "PAPER".into(),
@@ -181,6 +182,7 @@ async fn export_limit_and_concurrency_refusals_preserve_control_capacity_and_no_
             public_origin: ORIGIN.into(),
             allow_insecure_loopback: true,
             operator_secret_hash: hash(SECRET),
+            adapter_support: support::AdapterSupport::empty(),
             configurations: vec![],
         },
     );
@@ -785,6 +787,7 @@ async fn postgres_http_contract_survives_api_restart_and_deduplicates_intent() {
         public_origin: ORIGIN.into(),
         allow_insecure_loopback: true,
         operator_secret_hash: hash(SECRET),
+        adapter_support: support::AdapterSupport::empty(),
         configurations: vec![RegisteredConfiguration {
             configuration_digest: digest.clone(),
             mode: "PAPER".into(),
@@ -1030,6 +1033,7 @@ async fn accepted_create_retry_survives_removal_of_active_configuration() {
         public_origin: ORIGIN.into(),
         allow_insecure_loopback: true,
         operator_secret_hash: hash(SECRET),
+        adapter_support: support::AdapterSupport::empty(),
         configurations: vec![],
     };
     let restarted = router(AppState::with_store(store, settings));
@@ -1583,6 +1587,7 @@ async fn postgres_paper_http_immutable_runs_survive_restart_and_enforce_scope() 
         public_origin: ORIGIN.into(),
         allow_insecure_loopback: true,
         operator_secret_hash: hash(SECRET),
+        adapter_support: support::AdapterSupport::empty(),
         configurations: if include_config {
             vec![configuration.clone()]
         } else {
@@ -1917,6 +1922,7 @@ fn http_trace_fixture(
         dataset_origin: DatasetOrigin::ManuallyConstructed,
         observed_at_unix_ms: 1_700_000_000_100,
         input_age_ms: Some(17),
+        chain_freshness: None,
         capture_refs: captures,
         route: vec![
             DecisionLeg {
@@ -1997,6 +2003,7 @@ async fn postgres_decision_http_counts_rejections_without_undercounting_eligible
         public_origin: ORIGIN.into(),
         allow_insecure_loopback: true,
         operator_secret_hash: hash(SECRET),
+        adapter_support: support::AdapterSupport::empty(),
         configurations: vec![],
     };
     let app = router(AppState::new(store.clone(), settings()));
@@ -2746,5 +2753,87 @@ async fn cost_assessment_http_rejects_auth_csrf_source_overrides_and_malformed_i
         .status(),
         StatusCode::BAD_REQUEST
     );
+    assert_eq!(store.calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn adapter_support_is_authenticated_read_only_and_independent_of_database_health() {
+    let config = arb_config::ValidatedConfig::from_toml(include_str!(
+        "../../../config/research.example.toml"
+    ))
+    .unwrap();
+    let catalog = support::build(std::slice::from_ref(&config), &[]).unwrap();
+    let store = Arc::new(MockStore {
+        fail: true,
+        ..Default::default()
+    });
+    let app = router(AppState::with_store(
+        store.clone(),
+        ServerConfig {
+            listen_address: "127.0.0.1:8080".parse().unwrap(),
+            public_origin: ORIGIN.into(),
+            allow_insecure_loopback: true,
+            operator_secret_hash: hash(SECRET),
+            configurations: vec![],
+            adapter_support: catalog,
+        },
+    ));
+    let denied = call(
+        &app,
+        Method::GET,
+        "/v1/adapter-support",
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(denied.status(), StatusCode::UNAUTHORIZED);
+    let (cookie, csrf) = authenticate(&app).await;
+    let response = call(
+        &app,
+        Method::GET,
+        "/v1/adapter-support",
+        None,
+        Some(&cookie),
+        None,
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+    let data = value(response).await;
+    assert_eq!(data["schema_version"], "1.0.0");
+    assert_eq!(
+        data["configurations"][0]["configuration_digest"],
+        config.digest()
+    );
+    assert_eq!(
+        data["configurations"][0]["networks"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    for network in data["configurations"][0]["networks"].as_array().unwrap() {
+        assert_eq!(network["registry"]["status"], "NOT_LOADED");
+        assert_eq!(network["registry"]["pools"], json!([]));
+        assert_eq!(network["capability"]["submit"], false);
+        assert_eq!(network["chain_freshness"]["status"], "NOT_CONFIGURED");
+    }
+    let mutation = call(
+        &app,
+        Method::POST,
+        "/v1/adapter-support",
+        Some(json!({"submit":true})),
+        Some(&cookie),
+        Some(&csrf),
+        Some(ORIGIN),
+        None,
+    )
+    .await;
+    assert_eq!(mutation.status(), StatusCode::METHOD_NOT_ALLOWED);
     assert_eq!(store.calls.load(Ordering::SeqCst), 0);
 }

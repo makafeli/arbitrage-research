@@ -4,11 +4,21 @@
 use arb_adapter_api::StateContext;
 use arb_config::ValidatedConfig;
 use arb_domain::{
-    AssetId, AtomicAmount, DECISION_SCHEMA_VERSION, DatasetOrigin, DecisionCaptureRef,
-    DecisionGrouping, DecisionLeg, DecisionResult, DecisionTrace, NetworkId, PoolId, SignedAmount,
+    AssetId, AtomicAmount, ChainFreshnessReport, ChainTimeInput, ChainTimeSource,
+    DECISION_SCHEMA_VERSION, DatasetOrigin, DecisionCaptureRef, DecisionGrouping, DecisionLeg,
+    DecisionResult, DecisionTrace, FRESHNESS_DECISION_SCHEMA_VERSION, NetworkId, PoolId,
+    SignedAmount,
 };
 use std::{collections::HashSet, fmt};
 
+pub use arb_domain::FRESHNESS_CALCULATION_VERSION;
+pub fn calculation_version(config: &ValidatedConfig, network: NetworkId) -> &'static str {
+    if config.chain_freshness(network).is_some() {
+        FRESHNESS_CALCULATION_VERSION
+    } else {
+        CALCULATION_VERSION
+    }
+}
 pub const CALCULATION_VERSION: &str = "capture-pair-research-v1;bounds8x63;group1000";
 pub const MAX_POOLS: usize = 8;
 pub const MAX_TRACES: usize = 64;
@@ -324,19 +334,108 @@ fn same_context(first: &StateContext, second: &StateContext) -> bool {
         _ => false,
     }
 }
+fn freshness_report(
+    request: &EvaluationRequest<'_>,
+    captures: &[DecisionCaptureRef],
+    elapsed: u64,
+) -> Result<Option<ChainFreshnessReport>, EngineError> {
+    let Some(policy) = request.configuration.chain_freshness(request.network_id) else {
+        return Ok(None);
+    };
+    let inputs = captures
+        .iter()
+        .map(|capture| {
+            let pool = request
+                .pools
+                .iter()
+                .find(|pool| pool.capture.capture_id == capture.capture_id)
+                .ok_or_else(|| error("CHAIN_TIME_INVALID"))?;
+            let (source, chain_time_seconds) = match &pool.state {
+                PoolState::Base { snapshot, .. } => {
+                    let StateContext::Evm {
+                        block_number,
+                        block_hash,
+                        parent_hash,
+                        block_timestamp_seconds,
+                        finality,
+                    } = &snapshot.context
+                    else {
+                        return Err(error("CHAIN_TIME_INVALID"));
+                    };
+                    if finality != "finalized" {
+                        return Err(error("CHAIN_TIME_INVALID"));
+                    }
+                    (
+                        ChainTimeSource::BaseFinalizedBlockTimestamp {
+                            block_number: block_number.to_string(),
+                            block_hash: block_hash.clone(),
+                            parent_hash: parent_hash.clone(),
+                        },
+                        Some(*block_timestamp_seconds),
+                    )
+                }
+                PoolState::Solana { snapshot, .. } => {
+                    let StateContext::Solana {
+                        slot,
+                        genesis_hash,
+                        commitment,
+                        account_context,
+                    } = &snapshot.context
+                    else {
+                        return Err(error("CHAIN_TIME_INVALID"));
+                    };
+                    if commitment != "finalized" {
+                        return Err(error("CHAIN_TIME_INVALID"));
+                    }
+                    (
+                        ChainTimeSource::SolanaEstimatedBlockTime {
+                            slot: slot.to_string(),
+                            genesis_hash: genesis_hash.clone(),
+                            account_context: account_context.clone(),
+                        },
+                        snapshot.block_time_seconds,
+                    )
+                }
+            };
+            Ok(ChainTimeInput {
+                capture_id: capture.capture_id.clone(),
+                source,
+                chain_time_seconds,
+            })
+        })
+        .collect::<Result<Vec<_>, EngineError>>()?;
+    ChainFreshnessReport::assess(policy.clone(), request.observed_at_unix_ms, elapsed, inputs)
+        .map(Some)
+        .map_err(|_| error("CHAIN_TIME_INVALID"))
+}
+fn freshness_failure(report: &Option<ChainFreshnessReport>) -> Option<EngineError> {
+    report
+        .as_ref()
+        .and_then(|report| report.status.reason_code())
+        .map(error)
+}
 fn base_trace(
     request: &EvaluationRequest<'_>,
     captures: Vec<DecisionCaptureRef>,
     result: DecisionResult,
 ) -> DecisionTrace {
     DecisionTrace {
-        schema_version: DECISION_SCHEMA_VERSION.into(),
+        schema_version: if request
+            .configuration
+            .chain_freshness(request.network_id)
+            .is_some()
+        {
+            FRESHNESS_DECISION_SCHEMA_VERSION
+        } else {
+            DECISION_SCHEMA_VERSION
+        }
+        .into(),
         observation_id: String::new(),
         session_id: request.session_id.into(),
         experiment_id: request.experiment_id.into(),
         generation: request.generation,
         configuration_digest: request.configuration.digest().into(),
-        calculation_version: CALCULATION_VERSION.into(),
+        calculation_version: calculation_version(request.configuration, request.network_id).into(),
         strategy_id: request.strategy_id.into(),
         network_id: request.network_id,
         mode: request.configuration.mode(),
@@ -344,6 +443,7 @@ fn base_trace(
         dataset_origin: request.dataset_origin,
         observed_at_unix_ms: request.observed_at_unix_ms,
         input_age_ms: None,
+        chain_freshness: None,
         capture_refs: captures,
         route: Vec::new(),
         amount_in_minor: None,
@@ -362,6 +462,7 @@ fn seal(trace: DecisionTrace) -> Result<DecisionTrace, EngineError> {
 }
 fn coverage(
     request: &EvaluationRequest<'_>,
+    gate: &impl EvaluationGate,
     refs: Vec<DecisionCaptureRef>,
     code: &'static str,
     no_route: bool,
@@ -375,7 +476,28 @@ fn coverage(
             reason_codes: vec![code.into()],
         }
     };
-    seal(base_trace(request, refs, result))
+    let mut trace = base_trace(request, refs, result);
+    if request
+        .configuration
+        .chain_freshness(request.network_id)
+        .is_some()
+    {
+        let age = check_gate(request, gate)?;
+        trace.chain_freshness = freshness_report(request, &trace.capture_refs, age)?;
+        trace.input_age_ms = Some(age);
+        if let Some(failure) = freshness_failure(&trace.chain_freshness) {
+            match &mut trace.result {
+                DecisionResult::NoRoute { reason_codes }
+                | DecisionResult::DataUnavailable { reason_codes } => {
+                    if !reason_codes.iter().any(|code| code == failure.code) {
+                        reason_codes.push(failure.code.into());
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    seal(trace)
 }
 fn route_trace(
     request: &EvaluationRequest<'_>,
@@ -393,6 +515,7 @@ fn route_trace(
         result,
     );
     trace.input_age_ms = Some(age);
+    trace.chain_freshness = freshness_report(request, &trace.capture_refs, age)?;
     trace.amount_in_minor = Some(amount.clone());
     trace.route = vec![
         DecisionLeg {
@@ -432,8 +555,33 @@ fn evaluate_with(
     gate: &impl EvaluationGate,
     quoter: &impl Quoter,
 ) -> Result<Vec<DecisionTrace>, EngineError> {
-    let output = evaluate_inner(request, gate, quoter)?;
-    check_gate(request, gate)?;
+    let mut output = evaluate_inner(request, gate, quoter)?;
+    let terminal_age = check_gate(request, gate)?;
+    if request
+        .configuration
+        .chain_freshness(request.network_id)
+        .is_some()
+    {
+        // Earlier routes must not leave the batch as fresh after a later route
+        // exhausts the declared chain-time window. Legacy observations are untouched.
+        for trace in &mut output {
+            if matches!(trace.result, DecisionResult::Quoted { .. }) {
+                trace.input_age_ms = Some(terminal_age);
+                trace.chain_freshness =
+                    freshness_report(request, &trace.capture_refs, terminal_age)?;
+                if let Some(failure) = freshness_failure(&trace.chain_freshness) {
+                    trace.result = DecisionResult::Rejected {
+                        reason_codes: vec![failure.code.into()],
+                    };
+                } else if terminal_age > u64::from(request.configuration.maximum_state_age_ms()) {
+                    trace.result = DecisionResult::Rejected {
+                        reason_codes: vec!["STALE_INPUT".into()],
+                    };
+                }
+                *trace = seal(trace.clone())?;
+            }
+        }
+    }
     if serde_json::to_vec(&output)
         .map_err(|_| error("EVALUATION_BUDGET_EXHAUSTED"))?
         .len()
@@ -461,6 +609,7 @@ fn evaluate_inner(
     if request.pools.len() > MAX_POOLS {
         return Ok(vec![coverage(
             request,
+            gate,
             Vec::new(),
             "MAX_POOL_BOUND_EXCEEDED",
             false,
@@ -539,11 +688,22 @@ fn evaluate_inner(
     views.sort_by_key(|p| p.id.to_string());
     refs.sort_by(|a, b| a.capture_id.cmp(&b.capture_id));
     if views.is_empty() {
-        return Ok(vec![coverage(request, refs, "NO_CAPTURE_INPUTS", false)?]);
+        return Ok(vec![coverage(
+            request,
+            gate,
+            refs,
+            "NO_CAPTURE_INPUTS",
+            false,
+        )?]);
+    }
+    let initial_report = freshness_report(request, &refs, check_gate(request, gate)?)?;
+    if let Some(failure) = freshness_failure(&initial_report) {
+        return Ok(vec![coverage(request, gate, refs, failure.code, false)?]);
     }
     let Some(start) = request.configuration.starting_asset(request.network_id) else {
         return Ok(vec![coverage(
             request,
+            gate,
             refs,
             "NO_CONFIGURED_START_ASSET",
             true,
@@ -553,6 +713,7 @@ fn evaluate_inner(
     if sizes.is_empty() {
         return Ok(vec![coverage(
             request,
+            gate,
             refs,
             "NO_CONFIGURED_TRADE_SIZES",
             true,
@@ -584,6 +745,7 @@ fn evaluate_inner(
     if routes.is_empty() {
         return Ok(vec![coverage(
             request,
+            gate,
             refs,
             "NO_ELIGIBLE_POOL_PAIRS",
             true,
@@ -600,12 +762,26 @@ fn evaluate_inner(
                 exhausted = true;
                 break 'routes;
             }
-            let quoted = if age > u64::from(request.configuration.maximum_state_age_ms()) {
+            let route_refs = vec![
+                route.first.input.capture.clone(),
+                route.second.input.capture.clone(),
+            ];
+            let initial_report = freshness_report(request, &route_refs, age)?;
+            let quoted = if let Some(failure) = freshness_failure(&initial_report) {
+                Err(failure)
+            } else if age > u64::from(request.configuration.maximum_state_age_ms()) {
                 Err(error("STALE_INPUT"))
             } else if !same_context(
                 route.first.input.state.context(),
                 route.second.input.state.context(),
-            ) {
+            ) || request
+                .configuration
+                .chain_freshness(request.network_id)
+                .is_some()
+                && matches!((&route.first.input.state, &route.second.input.state),
+                    (PoolState::Solana { snapshot: a, .. }, PoolState::Solana { snapshot: b, .. })
+                    if a.block_time_seconds != b.block_time_seconds)
+            {
                 Err(error("CAPTURE_CONTEXT_MISMATCH"))
             } else {
                 let first = quoter.quote(&route.first.input.state, amount, &route.start);
@@ -622,7 +798,10 @@ fn evaluate_inner(
                 }
             };
             let final_age = check_gate(request, gate)?;
-            let quoted = if final_age > u64::from(request.configuration.maximum_state_age_ms()) {
+            let final_report = freshness_report(request, &route_refs, final_age)?;
+            let quoted = if let Some(failure) = freshness_failure(&final_report) {
+                Err(failure)
+            } else if final_age > u64::from(request.configuration.maximum_state_age_ms()) {
                 Err(error("STALE_INPUT"))
             } else {
                 quoted
@@ -656,6 +835,7 @@ fn evaluate_inner(
     if exhausted {
         output.push(coverage(
             request,
+            gate,
             refs,
             "EVALUATION_BUDGET_EXHAUSTED",
             false,
@@ -790,6 +970,167 @@ mod tests {
             generation: 7,
             admission_open: true,
             now_monotonic_ms: 10,
+        }
+    }
+    fn with_freshness(
+        config: &ValidatedConfig,
+        pools: &mut [CapturedPool],
+        network: NetworkId,
+        limit: u64,
+    ) -> ValidatedConfig {
+        let mut value: serde_json::Value = serde_json::from_str(config.effective_json()).unwrap();
+        let key = if network == NetworkId::BaseMainnet {
+            "base"
+        } else {
+            "solana"
+        };
+        value["networks"][key]["chain_freshness"] = serde_json::json!({
+            "version": arb_domain::CHAIN_FRESHNESS_VERSION, "max_chain_age_ms": limit,
+        });
+        let config = ValidatedConfig::from_effective_json(&value.to_string()).unwrap();
+        for pool in pools {
+            pool.configuration_digest = config.digest().into();
+        }
+        config
+    }
+    #[test]
+    fn unchanged_finalized_state_becomes_stale_despite_new_capture_receipt() {
+        let mut pools = vec![base_pool(3), base_pool(4)];
+        let legacy = config(&mut pools, &[100_000]);
+        let config = with_freshness(&legacy, &mut pools, NetworkId::BaseMainnet, 1000);
+        let fresh = evaluate(&request(&config, &pools), &gate()).unwrap();
+        assert_eq!(fresh.len(), 2);
+        assert!(
+            fresh
+                .iter()
+                .all(|trace| matches!(trace.result, DecisionResult::Quoted { .. }))
+        );
+        for pool in &mut pools {
+            if let PoolState::Base { snapshot, .. } = &mut pool.state {
+                snapshot.quality.observed_at_ms += 1001;
+            }
+        }
+        let mut later = request(&config, &pools);
+        later.observed_at_unix_ms += 1001;
+        let stale = evaluate(&later, &gate()).unwrap();
+        assert_eq!(stale.len(), 1);
+        assert!(
+            matches!(&stale[0].result, DecisionResult::DataUnavailable {reason_codes} if reason_codes == &["CHAIN_TIME_STALE"])
+        );
+        let report = stale[0].chain_freshness.as_ref().unwrap();
+        assert_eq!(report.sources[0].age_ms, Some(1011));
+        assert!(stale[0].to_opportunity().unwrap().is_none());
+    }
+    #[test]
+    fn future_and_extreme_chain_time_never_become_zero_age_quotes() {
+        for seconds in [1_700_000_001, u64::MAX] {
+            let mut pools = vec![base_pool(3), base_pool(4)];
+            let legacy = config(&mut pools, &[100_000]);
+            let config = with_freshness(&legacy, &mut pools, NetworkId::BaseMainnet, 1000);
+            for pool in &mut pools {
+                if let PoolState::Base { snapshot, .. } = &mut pool.state
+                    && let StateContext::Evm {
+                        block_timestamp_seconds,
+                        ..
+                    } = &mut snapshot.context
+                {
+                    *block_timestamp_seconds = seconds;
+                }
+            }
+            let result = evaluate(&request(&config, &pools), &gate());
+            if seconds == u64::MAX {
+                assert_eq!(result.unwrap_err().code, "CHAIN_TIME_INVALID");
+            } else {
+                let traces = result.unwrap();
+                assert_eq!(
+                    traces[0].chain_freshness.as_ref().unwrap().sources[0].age_ms,
+                    None
+                );
+                assert!(
+                    matches!(&traces[0].result, DecisionResult::DataUnavailable {reason_codes} if reason_codes == &["CHAIN_TIME_FUTURE"])
+                );
+            }
+        }
+    }
+    struct ExpiringQuoter<'a> {
+        gate: &'a ChangingGate,
+        calls: Cell<usize>,
+        expire_after: usize,
+    }
+    impl Quoter for ExpiringQuoter<'_> {
+        fn quote(
+            &self,
+            _: &PoolState,
+            input: &AtomicAmount,
+            _: &AssetId,
+        ) -> Result<LegQuote, EngineError> {
+            let calls = self.calls.get() + 1;
+            self.calls.set(calls);
+            if calls == self.expire_after {
+                let mut state = self.gate.state.get();
+                state.now_monotonic_ms = 101;
+                self.gate.state.set(state);
+            }
+            Ok(LegQuote {
+                output: input.clone(),
+                fee: AtomicAmount::from(0),
+            })
+        }
+    }
+    #[test]
+    fn last_leg_and_later_route_expiry_reject_every_previously_fresh_quote() {
+        let mut pools = vec![base_pool(3), base_pool(4)];
+        let legacy = config(&mut pools, &[100_000]);
+        let config = with_freshness(&legacy, &mut pools, NetworkId::BaseMainnet, 100);
+        for expire_after in [2, 4] {
+            let gate = ChangingGate {
+                state: Cell::new(gate()),
+            };
+            let quoter = ExpiringQuoter {
+                gate: &gate,
+                calls: Cell::new(0),
+                expire_after,
+            };
+            let traces = evaluate_with(&request(&config, &pools), &gate, &quoter).unwrap();
+            assert_eq!(traces.len(), 2);
+            for trace in traces {
+                assert!(
+                    matches!(&trace.result, DecisionResult::Rejected { reason_codes } if reason_codes == &["CHAIN_TIME_STALE"])
+                );
+                assert_eq!(
+                    trace.chain_freshness.as_ref().unwrap().sources[0].age_ms,
+                    Some(101)
+                );
+                assert!(trace.to_opportunity().unwrap().is_none());
+            }
+        }
+    }
+    #[test]
+    fn absent_policy_preserves_legacy_trace_schema_and_future_timestamp_behavior() {
+        let mut pools = vec![base_pool(3), base_pool(4)];
+        let config = config(&mut pools, &[100_000]);
+        for pool in &mut pools {
+            if let PoolState::Base { snapshot, .. } = &mut pool.state
+                && let StateContext::Evm {
+                    block_timestamp_seconds,
+                    ..
+                } = &mut snapshot.context
+            {
+                *block_timestamp_seconds += 100;
+            }
+        }
+        for trace in evaluate(&request(&config, &pools), &gate()).unwrap() {
+            assert_eq!(trace.schema_version, DECISION_SCHEMA_VERSION);
+            assert_eq!(trace.calculation_version, CALCULATION_VERSION);
+            assert!(trace.chain_freshness.is_none());
+            assert!(
+                !serde_json::to_string(&trace)
+                    .unwrap()
+                    .contains("chain_freshness")
+            );
+            assert!(matches!(trace.result, DecisionResult::Quoted { .. }));
+            let opportunity = trace.to_opportunity().unwrap().unwrap();
+            assert!(!opportunity.eligibility_checks.state_fresh_and_coherent);
         }
     }
     #[test]
@@ -1096,6 +1437,7 @@ mod tests {
                     initialized_ticks: Vec::new(),
                 })
                 .collect(),
+            block_time_seconds: None,
             account_write_provenance: "synthetic fixture".into(),
             quality: SnapshotQuality {
                 coherent: false,
@@ -1170,5 +1512,43 @@ mod tests {
                 assert!(opportunity.net_after_explicit_costs_minor.is_none());
             }
         }
+        let fresh_config = with_freshness(&config, &mut pools, NetworkId::SolanaMainnet, 1000);
+        let mut request = super::tests::request(&fresh_config, &pools);
+        request.network_id = NetworkId::SolanaMainnet;
+        let unknown = evaluate(&request, &gate()).unwrap();
+        assert_eq!(unknown.len(), 1);
+        assert!(
+            matches!(&unknown[0].result, DecisionResult::DataUnavailable {reason_codes} if reason_codes == &["CHAIN_TIME_UNAVAILABLE"])
+        );
+        for pool in &mut pools {
+            if let PoolState::Solana { snapshot, .. } = &mut pool.state {
+                snapshot.block_time_seconds = Some(1_700_000_000);
+            }
+        }
+        let mut request = super::tests::request(&fresh_config, &pools);
+        request.network_id = NetworkId::SolanaMainnet;
+        let quotes = evaluate(&request, &gate()).unwrap();
+        assert_eq!(
+            quotes
+                .iter()
+                .filter(|trace| matches!(trace.result, DecisionResult::Quoted { .. }))
+                .count(),
+            2
+        );
+        assert!(
+            quotes
+                .iter()
+                .all(|trace| trace.chain_freshness.as_ref().unwrap().status
+                    == arb_domain::ChainFreshnessStatus::WithinPolicy)
+        );
+        if let PoolState::Solana { snapshot, .. } = &mut pools[1].state {
+            snapshot.block_time_seconds = Some(1_699_999_999);
+        }
+        let relaxed_config =
+            with_freshness(&fresh_config, &mut pools, NetworkId::SolanaMainnet, 2000);
+        let mut request = super::tests::request(&relaxed_config, &pools);
+        request.network_id = NetworkId::SolanaMainnet;
+        let conflicting = evaluate(&request, &gate()).unwrap();
+        assert!(conflicting.iter().all(|trace| matches!(&trace.result, DecisionResult::Rejected {reason_codes} if reason_codes == &["CAPTURE_CONTEXT_MISMATCH"])));
     }
 }

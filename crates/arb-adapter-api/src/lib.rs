@@ -32,6 +32,7 @@ pub enum ReadMethod {
     EthCall,
     GetGenesisHash,
     GetMultipleAccounts,
+    GetBlockTime,
 }
 impl ReadMethod {
     pub fn wire_name(self) -> &'static str {
@@ -42,6 +43,7 @@ impl ReadMethod {
             Self::EthCall => "eth_call",
             Self::GetGenesisHash => "getGenesisHash",
             Self::GetMultipleAccounts => "getMultipleAccounts",
+            Self::GetBlockTime => "getBlockTime",
         }
     }
 }

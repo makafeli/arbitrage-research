@@ -496,3 +496,257 @@ fn economic_replay_preserves_origin_and_explicit_historical_age() {
         fs::remove_dir_all(p).unwrap();
     }
 }
+
+/// Version 3 freezes the exact account-context slot's estimated time and policy.
+/// All data is manually constructed; the timestamps model history, not uptime.
+fn chain_time_fixture(selected: usize, block_time: Value) -> (PathBuf, String) {
+    let (source, source_hash) = batch_fixture(Chain::SolanaMainnet, selected);
+    let mut bundle = arb_capture::load_bundle(&source, Some(&source_hash), 101).unwrap();
+    let registry_bytes = bundle
+        .objects
+        .iter()
+        .find(|(n, _)| n == "registry.json")
+        .unwrap()
+        .1
+        .clone();
+    let document = arb_registry::RegistryDocument::from_bytes(
+        &registry_bytes,
+        arb_domain::NetworkId::SolanaMainnet,
+    )
+    .unwrap();
+    let registries = document
+        .pools()
+        .iter()
+        .map(|pool| {
+            let arb_registry::PoolRegistry::Solana(registry) = pool else {
+                panic!("Solana fixture")
+            };
+            registry.clone()
+        })
+        .collect::<Vec<_>>();
+    let baseline = arb_config::ValidatedConfig::from_toml(include_str!(
+        "../../../config/research.example.toml"
+    ))
+    .unwrap();
+    let mut config: Value = serde_json::from_str(baseline.effective_json()).unwrap();
+    config["deployment"]["mode"] = json!("OBSERVE");
+    config["research"]["trade_sizes_minor"] = json!(["10000"]);
+    config["simulation"]["maximum_state_age_ms"] = json!(60000);
+    let solana = &mut config["networks"]["solana"];
+    solana["enabled"] = json!(true);
+    solana["rpc_secret_reference"] = json!("env:OFFLINE_TEST_RPC");
+    solana["expected_genesis_identity"] = json!(registries[0].expected_genesis_hash);
+    solana["registry_qualification_digest"] = json!(digest(&registry_bytes));
+    solana["verified_pool_ids"] = json!(
+        registries
+            .iter()
+            .map(|r| format!("solana-mainnet:{}", r.pool))
+            .collect::<Vec<_>>()
+    );
+    solana["verified_asset_ids"] = json!(
+        registries
+            .iter()
+            .flat_map(|r| [&r.mint_a, &r.mint_b])
+            .map(|mint| format!("solana-mainnet:{mint}"))
+            .collect::<std::collections::BTreeSet<_>>()
+    );
+    solana["starting_asset_id"] = json!(format!("solana-mainnet:{}", registries[0].mint_a));
+    solana["chain_freshness"] =
+        json!({"version":"finalized-chain-time-v1","max_chain_age_ms":30000});
+    let config = arb_config::ValidatedConfig::from_effective_json(&config.to_string()).unwrap();
+    document.authorize(&config).unwrap();
+    let mut records: Vec<RpcRecord> = serde_json::from_slice(
+        &bundle
+            .objects
+            .iter()
+            .find(|(n, _)| n == "rpc.json")
+            .unwrap()
+            .1,
+    )
+    .unwrap();
+    let account_response: Value = serde_json::from_str(&records[1].response).unwrap();
+    let sequence = records.len() as u64;
+    records.push(RpcRecord {
+        sequence,
+        method: arb_adapter_api::ReadMethod::GetBlockTime,
+        params: json!([account_response["result"]["context"]["slot"]]),
+        response: json!({"jsonrpc":"2.0","id":sequence,"result":block_time}).to_string(),
+    });
+    let mut rpc = TranscriptRpc::new(records.clone());
+    let snapshot = arb_solana::capture_pools_with_chain_time(&mut rpc, &registries, 100000)
+        .unwrap()
+        .remove(selected);
+    rpc.finish().unwrap();
+    bundle.manifest.adapter_version = "arb_solana-pool-set-v3".into();
+    bundle.manifest.capture_id = format!("chain-time-source-{selected}");
+    bundle.manifest.config_digest = config.digest().into();
+    bundle.manifest.created_at_ms = 100000;
+    bundle.manifest.raw_expires_at_ms = Some(1000000);
+    bundle.manifest.last_sequence = sequence;
+    bundle.manifest.objects.clear();
+    for (name, bytes) in &mut bundle.objects {
+        match name.as_str() {
+            "effective-config.json" => *bytes = config.effective_json().as_bytes().to_vec(),
+            "rpc.json" => *bytes = serde_json::to_vec(&records).unwrap(),
+            "snapshot.json" => *bytes = serde_json::to_vec(&snapshot).unwrap(),
+            _ => {}
+        }
+    }
+    let path = source.with_extension("chain-time-v3");
+    let hash = write_bundle(&path, bundle.manifest, bundle.objects, 64 * 1024 * 1024).unwrap();
+    fs::remove_dir_all(source).unwrap();
+    (path, hash)
+}
+
+#[test]
+fn solana_chain_time_replay_preserves_estimated_and_unknown_time_without_network() {
+    for block_time in [json!(90), Value::Null] {
+        for selected in [0, 1] {
+            let (path, hash) = chain_time_fixture(selected, block_time.clone());
+            let first = replay::verify_capture(&path, &hash, 100001).unwrap();
+            assert_eq!(first, replay::verify_capture(&path, &hash, 999999).unwrap());
+            assert_eq!(first["rpc_records_consumed"], 3);
+            assert_eq!(first["network_requests"], 0);
+            assert_eq!(first["quality"]["coherent"], false);
+            assert_eq!(first["quality"]["quote_implementation_qualified"], false);
+            let (pool, config) = replay::load_evaluation_capture(&path, &hash, 100001).unwrap();
+            assert!(
+                config
+                    .chain_freshness(arb_domain::NetworkId::SolanaMainnet)
+                    .is_some()
+            );
+            let arb_engine::PoolState::Solana { snapshot, .. } = pool.state else {
+                panic!("Solana")
+            };
+            assert_eq!(snapshot.block_time_seconds, block_time.as_u64());
+            fs::remove_dir_all(path).unwrap();
+        }
+    }
+}
+
+#[test]
+fn solana_chain_time_replay_rejects_tampering_trailing_calls_and_policy_downgrade() {
+    for mutation in 0..7 {
+        let (source, source_hash) = chain_time_fixture(0, json!(90));
+        let mut bundle = arb_capture::load_bundle(&source, Some(&source_hash), 100001).unwrap();
+        let entry = bundle
+            .objects
+            .iter_mut()
+            .find(|(n, _)| n == "rpc.json")
+            .unwrap();
+        let mut records: Vec<RpcRecord> = serde_json::from_slice(&entry.1).unwrap();
+        match mutation {
+            0 => records[2].params = json!([999999]),
+            1 => records[2].response = json!({"jsonrpc":"2.0","id":2,"result":91}).to_string(),
+            2 => records[2].response = json!({"jsonrpc":"2.0","id":2,"result":"90"}).to_string(),
+            3 => {
+                records.pop();
+            }
+            4 => {
+                let mut extra = records[2].clone();
+                extra.sequence = 3;
+                extra.response = json!({"jsonrpc":"2.0","id":3,"result":90}).to_string();
+                records.push(extra);
+            }
+            5 => bundle.manifest.adapter_version = "arb_solana-pool-set-v2".into(),
+            6 => {
+                bundle.manifest.adapter_version = "arb_solana-pool-set-v2".into();
+                records.pop();
+            }
+            _ => unreachable!(),
+        }
+        entry.1 = serde_json::to_vec(&records).unwrap();
+        if mutation == 6 {
+            let entry = bundle
+                .objects
+                .iter_mut()
+                .find(|(n, _)| n == "snapshot.json")
+                .unwrap();
+            let mut snapshot: Value = serde_json::from_slice(&entry.1).unwrap();
+            snapshot
+                .as_object_mut()
+                .unwrap()
+                .remove("block_time_seconds");
+            entry.1 = serde_json::to_vec(&snapshot).unwrap();
+        }
+        bundle.manifest.last_sequence = records.len() as u64 - 1;
+        bundle.manifest.objects.clear();
+        let path = source.with_extension("tampered-time");
+        let hash = write_bundle(&path, bundle.manifest, bundle.objects, 64 * 1024 * 1024).unwrap();
+        assert!(
+            replay::verify_capture(&path, &hash, 100001).is_err(),
+            "mutation {mutation}"
+        );
+        fs::remove_dir_all(source).unwrap();
+        fs::remove_dir_all(path).unwrap();
+    }
+}
+
+#[test]
+fn solana_chain_time_economic_replay_uses_frozen_historical_reference_and_age() {
+    for block_time in [json!(90), Value::Null] {
+        let fixtures = [
+            chain_time_fixture(0, block_time.clone()),
+            chain_time_fixture(1, block_time.clone()),
+        ];
+        let (_, config) =
+            replay::load_evaluation_capture(&fixtures[0].0, &fixtures[0].1, 100001).unwrap();
+        let mut request = replay::ReplayEvaluationRequest {
+            schema_version: 1,
+            session_id: "offline-chain-time".into(),
+            experiment_id: "manual-chain-time-fixture".into(),
+            strategy_id: config.strategy_ids()[0].clone(),
+            network_id: arb_domain::NetworkId::SolanaMainnet,
+            generation: 1,
+            observed_at_unix_ms: 100000,
+            input_age_ms: 1,
+            captures: fixtures
+                .iter()
+                .map(|(path, hash)| replay::ReplayCaptureInput {
+                    path: path.to_str().unwrap().into(),
+                    manifest_digest: hash.clone(),
+                })
+                .collect(),
+        };
+        let first = replay::evaluate_captures(&request, 100001).unwrap();
+        assert_eq!(first, replay::evaluate_captures(&request, 999999).unwrap());
+        assert_eq!(first["network_requests"], 0);
+        for decision in first["decisions"].as_array().unwrap() {
+            assert_eq!(decision["schema_version"], "1.1.0");
+            assert_eq!(
+                decision["chain_freshness"]["reference_observed_at_unix_ms"],
+                100000
+            );
+            assert_eq!(decision["chain_freshness"]["evaluation_elapsed_ms"], 1);
+            assert_eq!(
+                decision["chain_freshness"]["status"],
+                if block_time.is_null() {
+                    "UNKNOWN"
+                } else {
+                    "WITHIN_POLICY"
+                }
+            );
+        }
+        request.input_age_ms = 20001;
+        let aged = replay::evaluate_captures(&request, 100001).unwrap();
+        assert_eq!(aged["decisions"].as_array().unwrap().len(), 1);
+        let decision = &aged["decisions"][0];
+        assert_eq!(decision["result"]["status"], "DATA_UNAVAILABLE");
+        assert_eq!(
+            decision["result"]["reason_codes"],
+            json!([if block_time.is_null() {
+                "CHAIN_TIME_UNAVAILABLE"
+            } else {
+                "CHAIN_TIME_STALE"
+            }])
+        );
+        assert_eq!(decision["chain_freshness"]["evaluation_elapsed_ms"], 20001);
+        assert_ne!(
+            first["decisions"][0]["observation_id"],
+            decision["observation_id"]
+        );
+        for (path, _) in fixtures {
+            fs::remove_dir_all(path).unwrap();
+        }
+    }
+}

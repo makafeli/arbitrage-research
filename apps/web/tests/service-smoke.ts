@@ -23,6 +23,7 @@ const api = new ControlApi(async (path, options) => {
   return response;
 });
 await assert.rejects(api.auth(), e => e instanceof ApiError && e.status === 401);
+await assert.rejects(api.adapterSupport(), e => e instanceof ApiError && e.status === 401);
 try {
   const login = await api.login(secret);
   assert.equal(login.operator_id, 'operator');
@@ -31,6 +32,14 @@ try {
   const session = await api.auth();
   assert.equal(session.csrf_token, login.csrf_token);
   const [caps, sessions, opportunities] = await Promise.all([api.capabilities(), api.sessions(), api.opportunities()]);
+  assert.equal(caps.adapter_support, true);
+  const catalog = await api.adapterSupport();
+  assert.equal(catalog.configurations.length, caps.registered_configurations.length);
+  for (const config of catalog.configurations) {
+    assert.ok(caps.registered_configurations.some(item => item.configuration_digest === config.configuration_digest));
+    assert.equal(config.networks.length, 2);
+    for (const network of config.networks) { assert.equal(network.registry.status, 'NOT_LOADED'); assert.equal(network.capability.qualified_quote, false); assert.equal(network.capability.submit, false); }
+  }
   assert.equal(caps.live_execution, false);
   assert.equal(caps.opportunity_capture, false);
   assert.ok(caps.registered_configurations.length > 0);
@@ -69,7 +78,7 @@ try {
   }
   await api.logout();
   await assert.rejects(api.auth(), e => e instanceof ApiError && e.status === 401);
-  process.stdout.write('UI client / control API interoperability: PASS (auth, CSRF session, capabilities, empty records, rejected configuration' + (researchSmoke ? ', isolated OBSERVE creation without worker start, scoped collection telemetry, empty cost history and missing-source rejection, six-dataset frozen export counts and repeated content digest' : '') + ', logout).\n');
+  process.stdout.write('UI client / control API interoperability: PASS (auth, CSRF session, capabilities, authenticated scoped adapter catalog, empty records, rejected configuration' + (researchSmoke ? ', isolated OBSERVE creation without worker start, scoped collection telemetry, empty cost history and missing-source rejection, six-dataset frozen export counts and repeated content digest' : '') + ', logout).\n');
 } finally {
   // Best-effort cleanup if an assertion failed before the explicit logout.
   if (cookie && cookie !== 'arb_session=') await api.logout().catch(() => {});

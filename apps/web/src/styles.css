@@ -270,3 +270,19 @@ button {touch-action:manipulation;}
 .cost-workspace input,.cost-workspace select {max-width:100%;min-width:0}
 .cost-workspace summary {overflow-wrap:anywhere}
 @media(max-width:540px){.cost-field-grid,.cost-component{grid-template-columns:minmax(0,1fr)}.cost-component{padding:12px}.cost-history{padding:0 12px 12px}}
+
+/* Historical chain time and structural adapter support keep independent evidence visible. */
+.freshness-evidence,.adapter-support {min-width:0}
+.freshness-evidence {border-top:1px solid var(--line);padding-top:22px}
+.freshness-evidence .sectionhead,.support-card .sectionhead {flex-wrap:wrap;gap:12px}
+.freshness-sources,.support-networks {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.freshness-source,.support-card {border:1px solid var(--line);border-radius:10px;background:var(--bg);padding:18px;min-width:0;overflow-wrap:anywhere}
+.freshness-source .research-facts {grid-template-columns:minmax(0,1fr);gap:5px;margin-bottom:0}
+.freshness-source .research-facts dd {margin-bottom:10px}
+.support-capabilities {display:grid;grid-template-columns:minmax(0,1fr) auto;gap:9px 14px;font-size:13px;margin:18px 0}
+.support-capabilities dd {margin:0;text-align:right}.support-capabilities dt{color:var(--muted)}
+.support-config {margin-top:22px;padding:20px}.support-scope{margin-top:16px}.support-scope summary{min-height:44px;cursor:pointer}
+.support-scope ul {padding-left:18px;display:grid;gap:8px;font-size:12px}
+.support-scope li {overflow-wrap:anywhere}.support-config>p{overflow-wrap:anywhere}
+@media(max-width:700px){.freshness-sources,.support-networks{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:540px){.freshness-source,.support-card,.support-config{padding:14px}.support-capabilities{gap:10px}.support-capabilities dd{max-width:110px}}

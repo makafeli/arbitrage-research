@@ -29,6 +29,7 @@ use subtle::ConstantTimeEq;
 use tokio::sync::Semaphore;
 
 mod research;
+mod support;
 use research::{PaperAssetChoice, ResearchStore};
 
 const MAX_INFLIGHT_REQUESTS: usize = 64;
@@ -56,6 +57,7 @@ pub struct ServerConfig {
     pub allow_insecure_loopback: bool,
     operator_secret_hash: [u8; 32],
     pub configurations: Vec<RegisteredConfiguration>,
+    adapter_support: support::AdapterSupport,
 }
 
 impl ServerConfig {
@@ -96,6 +98,7 @@ impl ServerConfig {
         let files = std::env::var("ARB_CONFIG_FILES")
             .unwrap_or_else(|_| "config/research.example.toml".into());
         let mut configurations = Vec::new();
+        let mut validated_configurations = Vec::new();
         for path in files.split(',').map(str::trim) {
             if path.is_empty() || configurations.len() >= 16 {
                 return Err("ARB_CONFIG_FILES requires 1 through 16 paths".into());
@@ -129,8 +132,12 @@ impl ServerConfig {
                 snapshot: serde_json::from_str(config.effective_json())
                     .map_err(|_| "Configuration snapshot invalid")?,
             });
+            validated_configurations.push(config);
         }
+        let registries = support::load_from_env()?;
+        let adapter_support = support::build(&validated_configurations, &registries)?;
         Ok(Self {
+            adapter_support,
             listen_address,
             public_origin: origin,
             allow_insecure_loopback: insecure,
@@ -360,6 +367,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/auth/logout", post(logout))
         .route("/v1/health", get(health))
         .route("/v1/capabilities", get(capabilities))
+        .route("/v1/adapter-support", get(support::adapter_support))
         .route("/v1/sessions", get(list_sessions).post(create_session))
         .route("/v1/sessions/{session_id}", get(get_session))
         .route("/v1/sessions/{session_id}/cost-assessments", get(research::list_cost_assessments).post(research::create_cost_assessment))
@@ -754,7 +762,7 @@ async fn health(
 }
 async fn capabilities(State(state): State<AppState>) -> Json<serde_json::Value> {
     Json(
-        serde_json::json!({"modes":["OBSERVE","PAPER","REPLAY"], "live_execution":false, "market_data":false, "opportunity_capture":false, "decision_history":true, "collection_telemetry":true, "session_export":true, "cost_assessments":true, "paper_ledger":true, "paper_run_creation":true, "command_application":"WORKER_ACK_REQUIRED", "registered_configurations":state.0.config.configurations}),
+        serde_json::json!({"modes":["OBSERVE","PAPER","REPLAY"], "live_execution":false, "market_data":false, "opportunity_capture":false, "decision_history":true, "collection_telemetry":true, "session_export":true, "cost_assessments":true, "adapter_support":true, "paper_ledger":true, "paper_run_creation":true, "command_application":"WORKER_ACK_REQUIRED", "registered_configurations":state.0.config.configurations}),
     )
 }
 fn idempotency(headers: &HeaderMap, id: &RequestId) -> Result<String, ApiError> {

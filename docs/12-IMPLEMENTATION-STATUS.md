@@ -37,3 +37,5 @@ The first complete observation milestone requires qualified production pool iden
 No research process signs or broadcasts transactions. The uploaded untrusted script is excluded. Live keys, deployment of execution contracts/programs, funding, real trading, independent review and pilot approval retain their separate backlog gates. No source file, passing arithmetic test or synthetic screenshot establishes profitability.
 
 The [common-anchor and cost-assessment record](19-ANCHORED-CAPTURE-AND-COST-VERIFICATION.md) describes the current implementation cohort, backward replay compatibility, original-input retention, manual-cost provenance and its remaining acceptance gates.
+
+The [chain-time and support cohort](20-CHAIN-TIME-AND-SUPPORT-VERIFICATION.md) adds optional immutable finalized-chain-time policy, versioned historical reports and authenticated startup adapter diagnostics. Legacy behavior remains explicit when no policy is configured. Full rollback history, provider qualification, calibrated limits and actual operational alerts remain open.

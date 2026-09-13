@@ -9,6 +9,12 @@ async fn setup() -> (Store, String, String, WorkerClaim, u64) {
     setup_mode("OBSERVE").await
 }
 async fn setup_mode(mode: &str) -> (Store, String, String, WorkerClaim, u64) {
+    setup_mode_policy(mode, None).await
+}
+async fn setup_mode_policy(
+    mode: &str,
+    policy: Option<Value>,
+) -> (Store, String, String, WorkerClaim, u64) {
     let store = Store::connect(
         &std::env::var("TEST_DATABASE_URL")
             .expect("TEST_DATABASE_URL is mandatory; decision DB tests must not skip"),
@@ -18,7 +24,11 @@ async fn setup_mode(mode: &str) -> (Store, String, String, WorkerClaim, u64) {
     store.migrate().await.unwrap();
     let operator = format!("decision-{}", Uuid::new_v4());
     store
-        .save_configuration(&operator, &hash("a"), json!({"mode":mode}))
+        .save_configuration(
+            &operator,
+            &hash("a"),
+            json!({"mode":mode,"networks":{"base":{"chain_freshness":policy}}}),
+        )
         .await
         .unwrap();
     let session = store
@@ -720,4 +730,187 @@ async fn export_cost_payload_byte_bound_precedes_typed_decoding() {
         store.export_session(&operator, &id).await,
         Err(StoreError::ExportLimitExceeded)
     ));
+}
+
+fn freshness_trace(mut source: DecisionTrace, max_chain_age_ms: u64) -> DecisionTrace {
+    let policy = arb_domain::ChainFreshnessPolicy {
+        version: arb_domain::CHAIN_FRESHNESS_VERSION.into(),
+        max_chain_age_ms,
+    };
+    let inputs = source
+        .capture_refs
+        .iter()
+        .map(|capture| arb_domain::ChainTimeInput {
+            capture_id: capture.capture_id.clone(),
+            source: arb_domain::ChainTimeSource::BaseFinalizedBlockTimestamp {
+                block_number: "1".into(),
+                block_hash: format!("0x{}", "1".repeat(64)),
+                parent_hash: format!("0x{}", "2".repeat(64)),
+            },
+            chain_time_seconds: Some(1),
+        })
+        .collect();
+    source.chain_freshness = Some(
+        arb_domain::ChainFreshnessReport::assess(
+            policy,
+            source.observed_at_unix_ms,
+            source.input_age_ms.unwrap(),
+            inputs,
+        )
+        .unwrap(),
+    );
+    source.schema_version = arb_domain::FRESHNESS_DECISION_SCHEMA_VERSION.into();
+    source.calculation_version = arb_domain::FRESHNESS_CALCULATION_VERSION.into();
+    source.seal().unwrap()
+}
+
+#[tokio::test]
+async fn immutable_chain_policy_prevents_report_changes_and_legacy_downgrades() {
+    let policy = json!({"version":"finalized-chain-time-v1","max_chain_age_ms":100});
+    let (store, operator, id, claim, generation) = setup_mode_policy("OBSERVE", Some(policy)).await;
+    let legacy = trace(&id, generation, 1001, "QUOTED");
+    assert!(matches!(
+        store
+            .append_decision_traces(&claim, generation, std::slice::from_ref(&legacy))
+            .await,
+        Err(StoreError::InvalidInput(_))
+    ));
+    let fresh = freshness_trace(legacy.clone(), 100);
+    let stored = store
+        .append_decision_traces(&claim, generation, std::slice::from_ref(&fresh))
+        .await
+        .unwrap();
+    let retrieved = store
+        .get_decision_trace(&operator, &fresh.observation_id)
+        .await
+        .unwrap();
+    assert_eq!(
+        serde_json::to_value(&retrieved.trace).unwrap(),
+        serde_json::to_value(&fresh).unwrap()
+    );
+    assert_eq!(retrieved.trace_id, stored[0].trace_id);
+    assert!(matches!(
+        store
+            .get_decision_trace("different-operator", &fresh.observation_id)
+            .await,
+        Err(StoreError::NotFound)
+    ));
+    let changed = freshness_trace(legacy, 200);
+    assert!(matches!(
+        store
+            .append_decision_traces(&claim, generation, std::slice::from_ref(&changed))
+            .await,
+        Err(StoreError::InvalidInput(_))
+    ));
+    let mut downgrade = fresh.clone();
+    downgrade.chain_freshness = None;
+    downgrade.schema_version = arb_domain::DECISION_SCHEMA_VERSION.into();
+    downgrade.calculation_version = "fixture-math-v1".into();
+    let downgrade = downgrade.seal().unwrap();
+    assert!(matches!(
+        store
+            .append_decision_traces(&claim, generation, &[downgrade])
+            .await,
+        Err(StoreError::InvalidInput(_))
+    ));
+    let export = store.export_session(&operator, &id).await.unwrap();
+    assert_eq!(
+        serde_json::to_value(export.data.decisions[0].trace.chain_freshness.clone()).unwrap(),
+        serde_json::to_value(fresh.chain_freshness).unwrap()
+    );
+    let retained = store
+        .create_cost_assessment(
+            &operator,
+            &id,
+            "fresh-cost",
+            arb_storage::NewCostAssessment {
+                observation_id: fresh.observation_id.clone(),
+                scenario: manual_scenario(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        retained.assessment.binding.observation_id,
+        fresh.observation_id
+    );
+}
+
+#[tokio::test]
+async fn self_consistent_policy_tamper_is_rejected_by_reads_costs_and_frozen_exports() {
+    use sha2::{Digest, Sha256};
+    let policy = json!({"version":"finalized-chain-time-v1","max_chain_age_ms":100});
+    let (store, operator, id, _claim, generation) =
+        setup_mode_policy("OBSERVE", Some(policy)).await;
+    let changed = freshness_trace(trace(&id, generation, 1001, "QUOTED"), 200);
+    changed.validate().unwrap(); // Arithmetic and observation hash alone are valid.
+    let payload = serde_json::to_value(&changed).unwrap();
+    let digest = format!(
+        "{:x}",
+        Sha256::digest(serde_json::to_vec(&changed).unwrap())
+    );
+    let pool = sqlx::PgPool::connect(&std::env::var("TEST_DATABASE_URL").unwrap())
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO decision_traces(trace_id,operator_id,session_id,observation_id,payload_digest,configuration_digest,generation,observed_at_unix_ms,result_status,grouping_version,grouping_key,window_start_ms,payload) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)")
+        .bind(Uuid::new_v4().to_string()).bind(&operator).bind(&id).bind(&changed.observation_id).bind(digest).bind(&changed.configuration_digest)
+        .bind(generation as i64).bind(changed.observed_at_unix_ms as i64).bind(changed.result.status())
+        .bind(&changed.grouping.version).bind(&changed.grouping.key).bind(changed.grouping.window_start_ms as i64).bind(payload).execute(&pool).await.unwrap();
+    assert!(matches!(
+        store
+            .get_decision_trace(&operator, &changed.observation_id)
+            .await,
+        Err(StoreError::CorruptState)
+    ));
+    assert!(matches!(
+        store.list_decision_traces(&operator, &id, None, 100).await,
+        Err(StoreError::CorruptState)
+    ));
+    assert!(matches!(
+        store.export_session(&operator, &id).await,
+        Err(StoreError::CorruptState)
+    ));
+    assert!(matches!(
+        store
+            .create_cost_assessment(
+                &operator,
+                &id,
+                "tampered-cost",
+                arb_storage::NewCostAssessment {
+                    observation_id: changed.observation_id,
+                    scenario: manual_scenario(),
+                }
+            )
+            .await,
+        Err(StoreError::CorruptState)
+    ));
+    assert!(
+        store
+            .list_cost_assessments(&operator, &id, None, 100)
+            .await
+            .unwrap()
+            .items
+            .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn malformed_present_snapshot_policy_never_becomes_an_absent_legacy_policy() {
+    for policy in [
+        json!({"version":"unsupported","max_chain_age_ms":100}),
+        json!({"version":"finalized-chain-time-v1","max_chain_age_ms":0}),
+        json!("invalid-policy"),
+    ] {
+        let (store, _, id, claim, generation) = setup_mode_policy("OBSERVE", Some(policy)).await;
+        assert!(matches!(
+            store
+                .append_decision_traces(
+                    &claim,
+                    generation,
+                    &[trace(&id, generation, 1001, "QUOTED")]
+                )
+                .await,
+            Err(StoreError::InvalidInput(_))
+        ));
+    }
 }

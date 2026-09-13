@@ -65,7 +65,7 @@ impl Store {
             }
             return cost_record_in_tx(&mut tx, &row).await;
         }
-        let source = sqlx::query("SELECT * FROM decision_traces WHERE operator_id=$1 AND session_id=$2 AND observation_id=$3")
+        let source = sqlx::query("SELECT *,(SELECT c.snapshot #> ARRAY['networks',CASE decision_traces.payload->>'network_id' WHEN 'base-mainnet' THEN 'base' WHEN 'solana-mainnet' THEN 'solana' END,'chain_freshness'] FROM configuration_snapshots c WHERE c.operator_id=decision_traces.operator_id AND c.configuration_digest=decision_traces.configuration_digest) AS configuration_chain_freshness,(SELECT s.network_id FROM research_sessions s WHERE s.session_id=decision_traces.session_id AND s.operator_id=decision_traces.operator_id) AS session_network_id FROM decision_traces WHERE operator_id=$1 AND session_id=$2 AND observation_id=$3")
             .bind(operator).bind(session_id).bind(&input.observation_id).fetch_optional(&mut *tx).await?.ok_or(StoreError::NotFound)?;
         let decision = decisions::decision_record(&source)?;
         if decision.trace.configuration_digest
@@ -159,7 +159,7 @@ async fn cost_record_in_tx(
     row: &PgRow,
 ) -> Result<StoredCostAssessment, StoreError> {
     let source = sqlx::query(
-        "SELECT * FROM decision_traces WHERE operator_id=$1 AND session_id=$2 AND trace_id=$3",
+        "SELECT *,(SELECT c.snapshot #> ARRAY['networks',CASE decision_traces.payload->>'network_id' WHEN 'base-mainnet' THEN 'base' WHEN 'solana-mainnet' THEN 'solana' END,'chain_freshness'] FROM configuration_snapshots c WHERE c.operator_id=decision_traces.operator_id AND c.configuration_digest=decision_traces.configuration_digest) AS configuration_chain_freshness,(SELECT s.network_id FROM research_sessions s WHERE s.session_id=decision_traces.session_id AND s.operator_id=decision_traces.operator_id) AS session_network_id FROM decision_traces WHERE operator_id=$1 AND session_id=$2 AND trace_id=$3",
     )
     .bind(row.try_get::<String, _>("operator_id")?)
     .bind(row.try_get::<String, _>("session_id")?)

@@ -1,6 +1,8 @@
 //! Immutable, capability-limited research configuration. No RPC, secret loading,
 //! signing or broadcasting. Syntax validation cannot qualify real chain state.
-use arb_domain::{AssetId, AtomicAmount, Evidence, Mode, NetworkId, PoolId, State};
+use arb_domain::{
+    AssetId, AtomicAmount, ChainFreshnessPolicy, Evidence, Mode, NetworkId, PoolId, State,
+};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{collections::HashSet, fmt, net::IpAddr};
@@ -150,6 +152,8 @@ struct BaseNetwork {
     registry_qualification_digest: Option<String>,
     #[serde(default)]
     starting_asset_id: Option<AssetId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    chain_freshness: Option<ChainFreshnessPolicy>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -165,6 +169,8 @@ struct SolanaNetwork {
     registry_qualification_digest: Option<String>,
     #[serde(default)]
     starting_asset_id: Option<AssetId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    chain_freshness: Option<ChainFreshnessPolicy>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -324,6 +330,13 @@ impl ValidatedConfig {
     pub fn expected_evm_chain_id(&self) -> u64 {
         self.inner.networks.base.expected_evm_chain_id
     }
+    /// An explicit frozen research assumption; absence makes no chain-time claim.
+    pub fn chain_freshness(&self, network: NetworkId) -> Option<&ChainFreshnessPolicy> {
+        match network {
+            NetworkId::BaseMainnet => self.inner.networks.base.chain_freshness.as_ref(),
+            NetworkId::SolanaMainnet => self.inner.networks.solana.chain_freshness.as_ref(),
+        }
+    }
     pub fn starting_asset(&self, network: NetworkId) -> Option<&AssetId> {
         match network {
             NetworkId::BaseMainnet => self.inner.networks.base.starting_asset_id.as_ref(),
@@ -467,6 +480,25 @@ fn valid_digest(value: &str) -> bool {
 }
 impl ResearchConfig {
     fn validate(&self) -> Result<(), ConfigError> {
+        for (field, policy) in [
+            (
+                "networks.base.chain_freshness",
+                &self.networks.base.chain_freshness,
+            ),
+            (
+                "networks.solana.chain_freshness",
+                &self.networks.solana.chain_freshness,
+            ),
+        ] {
+            if let Some(policy) = policy {
+                policy.validate().map_err(|_| {
+                    error(
+                        field,
+                        "unsupported chain-time policy or max_chain_age_ms outside 1..86400000",
+                    )
+                })?;
+            }
+        }
         require(
             self.schema_version == "0.1.0",
             "schema_version",
@@ -819,6 +851,69 @@ mod tests {
         base=base.replace("rpc_secret_reference = \"UNCONFIGURED\"","rpc_secret_reference = \"env:BASE_RPC_URL\"\nregistry_qualification_digest = \"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"\nstarting_asset_id = \"base-mainnet:0x0000000000000000000000000000000000000003\"");
         input.replace_range(begin..end, &base);
         input
+    }
+    #[test]
+    fn legacy_effective_bytes_and_digest_survive_optional_policy() {
+        let legacy = include_str!("../tests/fixtures/legacy-effective-config.json");
+        let config = ValidatedConfig::from_toml(EXAMPLE).unwrap();
+        assert_eq!(config.effective_json(), legacy);
+        assert_eq!(
+            config.digest(),
+            "sha256:27e1d1300ba5d5fc77d3c6fd9933df3f880b7345b9071b129eb63d2d8e6b9050"
+        );
+        let decoded = ValidatedConfig::from_effective_json(legacy).unwrap();
+        assert_eq!(decoded.effective_json(), legacy);
+        for network in [NetworkId::BaseMainnet, NetworkId::SolanaMainnet] {
+            assert!(decoded.chain_freshness(network).is_none());
+        }
+    }
+    #[test]
+    fn per_network_policy_is_explicit_frozen_versioned_and_bounded() {
+        let example = ValidatedConfig::from_toml(include_str!(
+            "../../../config/chain-freshness.example.toml"
+        ))
+        .unwrap();
+        assert!(!example.network_enabled(NetworkId::BaseMainnet));
+        assert!(!example.network_enabled(NetworkId::SolanaMainnet));
+        assert_eq!(
+            example
+                .chain_freshness(NetworkId::BaseMainnet)
+                .unwrap()
+                .max_chain_age_ms,
+            1_800_000
+        );
+        assert_eq!(
+            example
+                .chain_freshness(NetworkId::SolanaMainnet)
+                .unwrap()
+                .max_chain_age_ms,
+            60_000
+        );
+        let original = ValidatedConfig::from_toml(EXAMPLE).unwrap();
+        for network in ["base", "solana"] {
+            let mut json: serde_json::Value =
+                serde_json::from_str(original.effective_json()).unwrap();
+            json["networks"][network]["chain_freshness"] = serde_json::json!({
+                "version": arb_domain::CHAIN_FRESHNESS_VERSION, "max_chain_age_ms": 30000,
+            });
+            let with_policy = ValidatedConfig::from_effective_json(&json.to_string()).unwrap();
+            assert_ne!(with_policy.digest(), original.digest());
+            assert_eq!(
+                ValidatedConfig::from_effective_json(with_policy.effective_json())
+                    .unwrap()
+                    .digest(),
+                with_policy.digest()
+            );
+            for invalid in [
+                serde_json::json!({"version":"unknown","max_chain_age_ms":30000}),
+                serde_json::json!({"version":arb_domain::CHAIN_FRESHNESS_VERSION,"max_chain_age_ms":0}),
+                serde_json::json!({"version":arb_domain::CHAIN_FRESHNESS_VERSION,"max_chain_age_ms":86400001}),
+                serde_json::json!({"version":arb_domain::CHAIN_FRESHNESS_VERSION,"max_chain_age_ms":30000,"extra":true}),
+            ] {
+                json["networks"][network]["chain_freshness"] = invalid;
+                assert!(ValidatedConfig::from_effective_json(&json.to_string()).is_err());
+            }
+        }
     }
     #[test]
     fn example_is_valid_inert_and_effective_defaults_are_visible() {

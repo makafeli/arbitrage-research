@@ -34,3 +34,8 @@ Output preserves SYNTHETIC, MANUALLY_CONSTRUCTED or RECORDED_LIVE origin and exa
 Decoder-only synthetic fixtures with arbitrary nonvalidated configuration remain usable for `--verify-capture`; they cannot be promoted to economic evidence by changing their origin label. Raw objects that have expired, mismatch their digests or cannot be deterministically re-decoded are rejected.
 
 `replay --lifecycle-demo` remains an explicitly synthetic in-memory control-state demonstration.
+
+
+Solana `arb_solana-pool-set-v3` additionally consumes the original `getBlockTime` response for the exact account-context slot after replaying every pool. A validated frozen `finalized-chain-time-v1` policy is required, including for manual economic fixtures. This version also supports a legacy one-pool registry represented as a batch of one. A policy-enabled Solana capture cannot be relabelled v1/v2, even if the time call and snapshot field are removed and the bundle is self-consistently rehashed. Null time stays unknown. Wrong-slot requests, altered time results, omitted calls and trailing calls fail verification; no network fallback exists.
+
+Economic replay assesses chain time using `observed_at_unix_ms + input_age_ms`, never the replay machine's current clock. Both fields are explicit historical scenario inputs; changing either is a different scenario. To reproduce a stored decision, retain its exact reference and elapsed age as well as its metadata. Current wall time only controls raw-retention eligibility. New policy reports and schema 1.1.0 remain separate from legacy schema 1.0.0 hashes; absent policy is unmeasured chain freshness. Solana's retained time is an estimate of slot production, not an independent bank-coherence or inclusion proof.

@@ -32,6 +32,13 @@ impl PoolRegistry {
             Self::Solana(_) => NetworkId::SolanaMainnet,
         }
     }
+    /// The adapter's compiled venue identity; registry documents cannot override it.
+    pub fn venue_program_address(&self) -> &'static str {
+        match self {
+            Self::Base(_) => arb_evm::UNISWAP_V3_FACTORY,
+            Self::Solana(_) => arb_solana::WHIRLPOOL_PROGRAM,
+        }
+    }
     fn validate(&self) -> Result<(), RegistryError> {
         match self {
             Self::Base(r) => r

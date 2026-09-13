@@ -759,6 +759,15 @@ fn local_http(
 
 #[tokio::test]
 async fn two_pool_worker_quotes_are_durable_and_visible_through_authenticated_http() {
+    two_pool_worker_http(false).await;
+}
+
+#[tokio::test]
+async fn recently_acquired_old_base_state_is_durable_stale_data_through_http() {
+    two_pool_worker_http(true).await;
+}
+
+async fn two_pool_worker_http(chain_stale: bool) {
     let api_binary = std::env::var("ARB_TEST_CONTROL_API_BIN")
         .expect("build control-api first and set ARB_TEST_CONTROL_API_BIN to its absolute path");
     assert!(std::path::Path::new(&api_binary).is_absolute());
@@ -772,7 +781,11 @@ async fn two_pool_worker_quotes_are_durable_and_visible_through_authenticated_ht
     let capture_root = root.join("captures");
     fs::create_dir(&capture_root).unwrap();
     let (registry, transcripts) = two_pool_fixture();
-    let config = two_pool_config(capture_root.to_str().unwrap(), &registry);
+    let mut config = two_pool_config(capture_root.to_str().unwrap(), &registry);
+    if chain_stale {
+        config.push_str("\n[networks.base.chain_freshness]\nversion = \"finalized-chain-time-v1\"\nmax_chain_age_ms = 30000\n");
+    }
+    let expected_decisions = if chain_stale { 1 } else { 2 };
     let validated = ValidatedConfig::from_toml(&config).unwrap();
     let config_path = root.join("config.toml");
     let registry_path = root.join("registry.json");
@@ -865,7 +878,7 @@ async fn two_pool_worker_quotes_are_durable_and_visible_through_authenticated_ht
                 .unwrap()
                 .items
                 .len()
-                >= 2
+                >= expected_decisions
         },
         20,
     )
@@ -903,32 +916,34 @@ async fn two_pool_worker_quotes_are_durable_and_visible_through_authenticated_ht
     assert!(page.next_cursor.is_none());
     assert_eq!(
         page.items.len(),
-        2,
-        "one admitted batch contains both route directions"
+        expected_decisions,
+        "one admitted batch records the complete expected result"
     );
-    let route_directions = page
-        .items
-        .iter()
-        .map(|stored| {
-            (
-                stored.trace.route[0].pool_id.to_string(),
-                stored.trace.route[1].pool_id.to_string(),
-            )
-        })
-        .collect::<std::collections::BTreeSet<_>>();
-    assert_eq!(
-        route_directions,
-        std::collections::BTreeSet::from([
-            (
-                format!("base-mainnet:{FIRST_POOL}"),
-                format!("base-mainnet:{SECOND_POOL}")
-            ),
-            (
-                format!("base-mainnet:{SECOND_POOL}"),
-                format!("base-mainnet:{FIRST_POOL}")
-            ),
-        ])
-    );
+    if !chain_stale {
+        let route_directions = page
+            .items
+            .iter()
+            .map(|stored| {
+                (
+                    stored.trace.route[0].pool_id.to_string(),
+                    stored.trace.route[1].pool_id.to_string(),
+                )
+            })
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            route_directions,
+            std::collections::BTreeSet::from([
+                (
+                    format!("base-mainnet:{FIRST_POOL}"),
+                    format!("base-mainnet:{SECOND_POOL}")
+                ),
+                (
+                    format!("base-mainnet:{SECOND_POOL}"),
+                    format!("base-mainnet:{FIRST_POOL}")
+                ),
+            ])
+        );
+    }
     let generation = page.items[0].trace.generation;
     for stored in &page.items {
         let trace = &stored.trace;
@@ -943,20 +958,50 @@ async fn two_pool_worker_quotes_are_durable_and_visible_through_authenticated_ht
             arb_domain::DatasetOrigin::ManuallyConstructed
         );
         assert_eq!(trace.source_kind, arb_domain::SourceKind::SyntheticFixture);
-        assert_eq!(trace.amount_in_minor.as_ref().unwrap().as_str(), "10000");
-        assert!(trace.input_age_ms.unwrap() <= 30000);
-        assert_eq!(trace.route.len(), 2);
-        assert_eq!(trace.capture_refs.len(), 2);
-        assert_ne!(trace.route[0].pool_id, trace.route[1].pool_id);
-        assert_ne!(
-            trace.capture_refs[0].capture_id,
-            trace.capture_refs[1].capture_id
-        );
-        let result = serde_json::to_value(&trace.result).unwrap();
-        assert_eq!(result["status"], "QUOTED");
-        assert_eq!(result["quoted_output_minor"], "9963");
-        assert_eq!(result["gross_delta_minor"], "-37");
-        for (capture, leg) in trace.capture_refs.iter().zip(&trace.route) {
+        if chain_stale {
+            assert!(trace.amount_in_minor.is_none());
+            assert!(trace.route.is_empty());
+            assert_eq!(trace.capture_refs.len(), 2);
+            assert!(
+                trace.input_age_ms.unwrap() <= 30000,
+                "acquisition is recent"
+            );
+            let raw = serde_json::to_value(trace).unwrap();
+            assert_eq!(raw["result"]["status"], "DATA_UNAVAILABLE");
+            assert_eq!(raw["result"]["reason_codes"], json!(["CHAIN_TIME_STALE"]));
+            assert_eq!(raw["chain_freshness"]["status"], "STALE");
+            assert_eq!(
+                raw["chain_freshness"]["evaluation_elapsed_ms"],
+                raw["input_age_ms"]
+            );
+            assert!(
+                trace
+                    .calculation_version
+                    .contains("finalized-chain-time-v1")
+            );
+            assert!(raw["result"].get("quoted_output_minor").is_none());
+        } else {
+            assert_eq!(trace.amount_in_minor.as_ref().unwrap().as_str(), "10000");
+            assert!(trace.input_age_ms.unwrap() <= 30000);
+            assert_eq!(trace.route.len(), 2);
+            assert_eq!(trace.capture_refs.len(), 2);
+            assert_ne!(trace.route[0].pool_id, trace.route[1].pool_id);
+            assert_ne!(
+                trace.capture_refs[0].capture_id,
+                trace.capture_refs[1].capture_id
+            );
+            let result = serde_json::to_value(&trace.result).unwrap();
+            assert_eq!(result["status"], "QUOTED");
+            assert_eq!(result["quoted_output_minor"], "9963");
+            assert_eq!(result["gross_delta_minor"], "-37");
+            assert!(
+                serde_json::to_value(trace)
+                    .unwrap()
+                    .get("chain_freshness")
+                    .is_none()
+            );
+        }
+        for (index, capture) in trace.capture_refs.iter().enumerate() {
             let bundle = arb_capture::load_bundle(
                 &capture_root.join(&capture.capture_id),
                 Some(&capture.manifest_digest),
@@ -1011,10 +1056,18 @@ async fn two_pool_worker_quotes_are_durable_and_visible_through_authenticated_ht
                     .1,
             )
             .unwrap();
-            assert_eq!(
-                format!("base-mainnet:{}", raw["pool"].as_str().unwrap()),
-                leg.pool_id.to_string()
-            );
+            if !chain_stale {
+                assert_eq!(
+                    format!("base-mainnet:{}", raw["pool"].as_str().unwrap()),
+                    trace.route[index].pool_id.to_string()
+                );
+            }
+            if chain_stale {
+                let historical_seconds = raw["context"]["block_timestamp_seconds"]
+                    .as_u64()
+                    .expect("retained old block timestamp");
+                assert!(trace.observed_at_unix_ms - historical_seconds * 1000 > 30000);
+            }
         }
     }
     let query_pool = sqlx::postgres::PgPoolOptions::new()
@@ -1027,8 +1080,8 @@ async fn two_pool_worker_quotes_are_durable_and_visible_through_authenticated_ht
     ).bind(&id).fetch_one(&query_pool).await.unwrap();
     assert_eq!(
         collections,
-        (1, 2, 2),
-        "one collection batch records exactly two decisions and two captures atomically"
+        (1, expected_decisions as i64, 2),
+        "received stale data is admitted decision evidence, not an acquisition or route failure"
     );
     assert!(
         rpc.tip_advances.load(Ordering::SeqCst) >= 2,
@@ -1101,7 +1154,12 @@ async fn two_pool_worker_quotes_are_durable_and_visible_through_authenticated_ht
         10,
     )
     .await;
-    let path = format!("/v1/opportunities?session_id={id}&limit=1");
+    let resource = if chain_stale {
+        "decisions"
+    } else {
+        "opportunities"
+    };
+    let path = format!("/v1/{resource}?session_id={id}&limit=1");
     assert_eq!(
         local_http(address, "GET", &path, &[], None).unwrap().status,
         401
@@ -1128,28 +1186,56 @@ async fn two_pool_worker_quotes_are_durable_and_visible_through_authenticated_ht
     let first = local_http(address, "GET", &path, &auth, None).unwrap();
     assert_eq!(first.status, 200);
     assert_eq!(first.body["items"].as_array().unwrap().len(), 1);
-    let cursor = first.body["next_cursor"]
-        .as_str()
-        .expect("second quote requires a cursor");
-    let next = local_http(
-        address,
-        "GET",
-        &format!("{path}&cursor={cursor}"),
-        &auth,
-        None,
-    )
-    .unwrap();
-    assert_eq!(next.status, 200);
-    assert!(next.body["next_cursor"].is_null());
-    assert_eq!(next.body["items"].as_array().unwrap().len(), 1);
+    let mut responses = vec![first];
+    if !chain_stale {
+        let cursor = responses[0].body["next_cursor"]
+            .as_str()
+            .expect("second quote requires a cursor");
+        let next = local_http(
+            address,
+            "GET",
+            &format!("{path}&cursor={cursor}"),
+            &auth,
+            None,
+        )
+        .unwrap();
+        assert_eq!(next.status, 200);
+        assert!(next.body["next_cursor"].is_null());
+        assert_eq!(next.body["items"].as_array().unwrap().len(), 1);
+        responses.push(next);
+    } else {
+        assert!(responses[0].body["next_cursor"].is_null());
+    }
     let expected = page
         .items
         .iter()
         .map(|stored| stored.trace.observation_id.clone())
         .collect::<std::collections::BTreeSet<_>>();
     let mut received = std::collections::BTreeSet::new();
-    for response in [&first, &next] {
+    for response in &responses {
         let raw = &response.body["items"][0];
+        if chain_stale {
+            let stored = &page.items[0];
+            assert_eq!(*raw, serde_json::to_value(stored).unwrap());
+            assert_eq!(raw["trace"]["result"]["status"], "DATA_UNAVAILABLE");
+            assert_eq!(
+                raw["trace"]["result"]["reason_codes"],
+                json!(["CHAIN_TIME_STALE"])
+            );
+            assert_eq!(raw["trace"]["chain_freshness"]["status"], "STALE");
+            let detail = local_http(
+                address,
+                "GET",
+                &format!("/v1/decisions/{}", stored.trace.observation_id),
+                &auth,
+                None,
+            )
+            .unwrap();
+            assert_eq!(detail.status, 200);
+            assert_eq!(detail.body, *raw);
+            received.insert(stored.trace.observation_id.clone());
+            continue;
+        }
         let quote: arb_domain::OpportunityRecord = serde_json::from_value(raw.clone()).unwrap();
         quote.validate_research().unwrap();
         assert_eq!(quote.session_id, id);
@@ -1197,7 +1283,7 @@ async fn two_pool_worker_quotes_are_durable_and_visible_through_authenticated_ht
     let captured = local_http(
         address,
         "GET",
-        &format!("{path}&source_kind=CAPTURED_MARKET_DATA"),
+        &format!("/v1/opportunities?session_id={id}&source_kind=CAPTURED_MARKET_DATA"),
         &auth,
         None,
     )
@@ -1213,10 +1299,30 @@ async fn two_pool_worker_quotes_are_durable_and_visible_through_authenticated_ht
     )
     .unwrap();
     assert_eq!(coverage.status, 200);
-    assert_eq!(coverage.body["raw_observations"], "2");
-    assert_eq!(coverage.body["quoted_candidates"], "2");
+    assert_eq!(
+        coverage.body["raw_observations"],
+        expected_decisions.to_string()
+    );
+    assert_eq!(
+        coverage.body["quoted_candidates"],
+        if chain_stale { "0" } else { "2" }
+    );
     assert!(coverage.body["eligible_attempts"].is_null());
     assert!(coverage.body["reconciled_transactions"].is_null());
+    if chain_stale {
+        assert_eq!(coverage.body["data_unavailable"], "1");
+        assert_eq!(coverage.body["no_route"], "0");
+        let opportunities = local_http(
+            address,
+            "GET",
+            &format!("/v1/opportunities?session_id={id}"),
+            &auth,
+            None,
+        )
+        .unwrap();
+        assert_eq!(opportunities.status, 200);
+        assert!(opportunities.body["items"].as_array().unwrap().is_empty());
+    }
     assert_eq!(coverage.body["execution_accounting_available"], false);
     assert_eq!(coverage.body["collection_completeness"], "UNKNOWN");
     drop(api);

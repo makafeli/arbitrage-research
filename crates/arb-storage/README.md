@@ -33,3 +33,14 @@ concurrent new decisions/assessments cannot change counts or reappear midway thr
 export. Native fees require explicit valuations; negative nets remain exact signed strings
 and missing costs remain null. This adds manual research assumptions, not cost estimates
 from a provider, transaction simulation, execution eligibility or automatic paper fills.
+
+Decision schema 1.1.0 retains optional chain-time observations and recomputes their
+arithmetic, statuses, ordered capture bindings and content-addressed identity when reading.
+The exact `ChainFreshnessPolicy` is also compared with the same operator/configuration's
+immutable snapshot on append, retry, decision/opportunity reads, cost-source reads and
+frozen export. Policy removal or replacement cannot be legitimized by resealing a trace.
+Malformed present policy values fail closed. Existing absent-policy schema 1.0.0 records
+retain their serialization and hashes. Reads project the small policy value and immutable
+session network in the existing SQL query rather than fetching a full configuration per
+record. This verifies policy binding; full configuration validation remains the registration
+caller's responsibility. No schema migration is required.

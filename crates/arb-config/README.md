@@ -52,3 +52,12 @@ The test suite covers inert effective defaults, canonical hashes, unsafe capabil
 and limit rejection, fixture/unqualified registry rejection, secret redaction,
 immutable session replacement and effective JSON revalidation. Runtime registry/provider qualification and persistent
 API enforcement have their own integration checks.
+
+A network can explicitly opt in to `[networks.base.chain_freshness]` or
+`[networks.solana.chain_freshness]` with `version = "finalized-chain-time-v1"` and
+`max_chain_age_ms` in `1..=86400000`. `chain_freshness(network)` returns this immutable
+policy. An absent policy is omitted from effective JSON, preserving historical
+configuration bytes and digests; absence makes no chain-time freshness claim.
+The separate `config/chain-freshness.example.toml` leaves both networks disabled
+and labels its per-chain limits as research assumptions rather than measured lag.
+Changing the policy changes the configuration digest and requires a new session.

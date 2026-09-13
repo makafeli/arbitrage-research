@@ -263,6 +263,10 @@ fn validate_vault(data: &[u8], mint: &str, owner: &str) -> Result<()> {
 pub struct PoolSnapshot {
     pub pool: String,
     pub context: StateContext,
+    /// Estimated production time returned by getBlockTime for this exact context slot.
+    /// Absence preserves legacy snapshot bytes and never implies a zero state age.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub block_time_seconds: Option<u64>,
     pub state: WhirlpoolState,
     pub tick_arrays: Vec<FixedTickArray>,
     pub account_write_provenance: String,
@@ -379,6 +383,39 @@ pub fn capture_pools(
         .collect()
 }
 
+/// Capture one account batch, then ask for the estimated production time of its
+/// exact returned slot. This additional observation does not qualify bank context
+/// or account write coherence. Null time is retained as unknown; lookup failures
+/// reject acquisition instead of being converted into fabricated null evidence.
+/// Representable future timestamps are retained for the engine's frozen policy.
+pub fn capture_pools_with_chain_time(
+    rpc: &mut impl ReadRpc,
+    registries: &[PoolRegistry],
+    observed_at_ms: u64,
+) -> Result<Vec<PoolSnapshot>> {
+    let mut snapshots = capture_pools(rpc, registries, observed_at_ms)?;
+    let StateContext::Solana { slot, .. } = snapshots[0].context else {
+        return Err(AdapterError("invalid Solana batch context"));
+    };
+    let response = rpc.call(ReadMethod::GetBlockTime, json!([slot]))?;
+    let block_time_seconds = if response.is_null() {
+        None
+    } else {
+        // getBlockTime is specified as Unix seconds. Limit to the supported UTC
+        // domain (through year 9999), also exactly representable in JSON clients.
+        Some(
+            response
+                .as_u64()
+                .filter(|seconds| *seconds <= 253_402_300_799)
+                .ok_or(AdapterError("invalid Solana block time"))?,
+        )
+    };
+    for snapshot in &mut snapshots {
+        snapshot.block_time_seconds = block_time_seconds;
+    }
+    Ok(snapshots)
+}
+
 fn decode_pool_accounts(
     registry: &PoolRegistry,
     accounts: &[&Value],
@@ -451,6 +488,7 @@ fn decode_pool_accounts(
             commitment: "finalized".into(),
             account_context: "single-getMultipleAccounts-response".into(),
         },
+        block_time_seconds: None,
         state: pool,
         tick_arrays,
         account_write_provenance: "unavailable-in-poll-response".into(),

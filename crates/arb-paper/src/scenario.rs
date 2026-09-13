@@ -418,6 +418,7 @@ mod tests {
             dataset_origin: DatasetOrigin::ManuallyConstructed,
             observed_at_unix_ms: 1_700_000_000_100,
             input_age_ms: Some(17),
+            chain_freshness: None,
             capture_refs: (3..=4)
                 .map(|n| {
                     let digest = format!("sha256:{}", n.to_string().repeat(64));

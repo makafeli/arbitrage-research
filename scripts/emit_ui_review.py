@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Emit twelve explicitly named synthetic Playwright PNGs for visual review."""
+"""Emit eighteen explicitly named synthetic Playwright PNGs for visual review."""
 import base64
 import hashlib
 import json
@@ -8,7 +8,7 @@ import struct
 
 ROOT = Path(__file__).resolve().parent.parent
 WIDTHS = (320, 390, 1440)
-VIEWS = ("research-dashboard", "frozen-export", "collection-health", "cost-assessment")
+VIEWS = ("research-dashboard", "frozen-export", "collection-health", "cost-assessment", "chain-freshness", "adapter-support")
 MAX_FILE = 1024 * 1024
 CHUNK_BYTES = 2250
 
