@@ -38,4 +38,4 @@ Wiki source lives in the repository's `wiki` directory. Sibling `.md` links work
 
 [Verified repository setup and remaining native Project/Wiki steps](https://github.com/makafeli/arbitrage-research/blob/main/docs/13-GITHUB-SETUP-STATUS.md). All published issue links are in [the GitHub issue index](https://github.com/makafeli/arbitrage-research/blob/main/planning/GITHUB-ISSUES.md).
 
-Current common-anchor collection and immutable manual-cost research are described in the [verification record](../docs/19-ANCHORED-CAPTURE-AND-COST-VERIFICATION.md) and [operator guide](Using-Research-and-Paper-Accounts.md).
+Current common-anchor collection and immutable manual-cost research are described in the [verification record](https://github.com/makafeli/arbitrage-research/blob/main/docs/19-ANCHORED-CAPTURE-AND-COST-VERIFICATION.md) and [operator guide](Using-Research-and-Paper-Accounts.md).

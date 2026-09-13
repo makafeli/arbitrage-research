@@ -73,7 +73,11 @@ policy, context, ordered capture bindings and exact arithmetic are validated; bo
 UTC values reject overflow rather than becoming zero. Aggregate precedence is FUTURE,
 UNKNOWN, STALE, WITHIN_POLICY; an empty source set is UNKNOWN. Known future timestamps
 have a null age. A non-WITHIN_POLICY report requires its matching public failure reason
-and cannot be sealed as QUOTED. Source kind distinguishes a captured finalized Base
+in the result and cannot be sealed as QUOTED. `CHAIN_TIME_STALE`, `CHAIN_TIME_FUTURE`
+and `CHAIN_TIME_UNAVAILABLE` in result reasons or diagnostics require that exact
+aggregate report status; an absent report or a contradictory additional status is
+rejected even if the trace is resealed. `CHAIN_TIME_INVALID` remains an assessment
+error code and does not assert an assessed report status. Source kind distinguishes a captured finalized Base
 block timestamp from an estimated Solana block time. No status implies chain rollback
 tracking, provider qualification or evidence above CANDIDATE.
 

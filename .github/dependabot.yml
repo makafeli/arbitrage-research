@@ -5,11 +5,20 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    ignore:
+      # Keep the verified Apache-2.0 release; 1.0.5 adopts the Orca license.
+      # See third-party/ORCA-CORE-1.0.4.md for the exact upstream evidence.
+      - dependency-name: orca_whirlpools_macros
+        versions: [">=1.0.5"]
   - package-ecosystem: npm
     directory: /apps/web
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    ignore:
+      # CI and the web Docker build target Node 24; keep declarations aligned.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: /
     schedule:

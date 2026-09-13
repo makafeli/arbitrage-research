@@ -35,6 +35,13 @@ def check(s,x,path='$'):
   if len(x)<s.get('minItems',0) or len(x)>s.get('maxItems',float('inf')):fail('array bounds')
   if s.get('uniqueItems') and len({json.dumps(v,sort_keys=True) for v in x})!=len(x):fail('duplicate array values')
   for i,y in enumerate(x):check(s.get('items',{}),y,path+f'[{i}]')
+  if 'contains' in s:
+   matches=0
+   for i,y in enumerate(x):
+    try:check(s['contains'],y,path+f'[{i}]')
+    except AssertionError:pass
+    else:matches+=1
+   if matches<s.get('minContains',1) or matches>s.get('maxContains',float('inf')):fail('contains')
  if isinstance(x,str):
   if len(x)<s.get('minLength',0) or len(x)>s.get('maxLength',float('inf')):fail('string bounds')
   if 'pattern' in s and re.search(s['pattern'],x) is None:fail('pattern')
@@ -42,6 +49,10 @@ def check(s,x,path='$'):
  if isinstance(x,(int,float)) and not isinstance(x,bool):
   if x<s.get('minimum',float('-inf')) or x>s.get('maximum',float('inf')):fail('numeric bounds')
  for child in s.get('allOf',[]):check(child,x,path)
+ if 'not' in s:
+  try:check(s['not'],x,path)
+  except AssertionError:pass
+  else:fail('not')
  for keyword in ('oneOf','anyOf'):
   if keyword in s:
    matches=0
@@ -196,17 +207,41 @@ for name,label,source,mutate in [
  except AssertionError:negatives.append(label)
  else:raise AssertionError('negative example accepted: '+label)
 freshness=json.loads((root/'specs/chain-freshness.example.json').read_text())
-for case in freshness['cases']:
- record=case['record'];check(api['components']['schemas']['StoredDecisionTrace'],record)
- trace=record['trace'];report=trace['chain_freshness'];now=report['reference_observed_at_unix_ms']+report['evaluation_elapsed_ms']
- assert report['reference_observed_at_unix_ms']==trace['observed_at_unix_ms'] and report['evaluation_elapsed_ms']==trace['input_age_ms']
- assert 0<now<=253402300799999 and [s['capture_id'] for s in report['sources']]==[r['capture_id'] for r in trace['capture_refs']]
+def check_freshness_semantics(trace):
+ """Independent fixture checks beyond static JSON Schema; not the domain validator.
+
+ Hashes are checked separately so semantic negative cases cannot pass merely
+ because their original content digest became stale after mutation.
+ """
+ report=trace['chain_freshness'];now=report['reference_observed_at_unix_ms']+report['evaluation_elapsed_ms']
+ assert report['reference_observed_at_unix_ms']==trace['observed_at_unix_ms'],'reference clock binding'
+ assert report['evaluation_elapsed_ms']==trace['input_age_ms'],'elapsed clock binding'
+ assert 0<now<=253402300799999,'combined clock range'
+ captures=[r['capture_id'] for r in trace['capture_refs']]
+ assert len(captures)==len(set(captures)),'distinct capture identities'
+ assert [s['capture_id'] for s in report['sources']]==captures,'ordered capture binding'
+ assert all(r['manifest_digest']==r['snapshot_id'] for r in trace['capture_refs']),'snapshot binding'
  for source in report['sources']:
+  context=source['source']
+  kind='BASE_FINALIZED_BLOCK_TIMESTAMP' if trace['network_id']=='base-mainnet' else 'SOLANA_ESTIMATED_BLOCK_TIME'
+  assert context['kind']==kind,'source network binding'
+  height=context['block_number'] if kind=='BASE_FINALIZED_BLOCK_TIMESTAMP' else context['slot']
+  assert str(int(height))==height and 0<=int(height)<=2**64-1,'source height exact u64'
+  if kind=='SOLANA_ESTIMATED_BLOCK_TIME':
+   alphabet='123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
+   encoded=context['genesis_hash'];value=0
+   for char in encoded:value=value*58+alphabet.index(char)
+   decoded=b'\0'*(len(encoded)-len(encoded.lstrip('1')))+value.to_bytes((value.bit_length()+7)//8,'big')
+   assert len(decoded)==32 and any(decoded),'canonical nonzero 32-byte genesis identity'
   stamp=source['chain_time_seconds'];age=None if stamp is None or stamp*1000>now else now-stamp*1000
   status='UNKNOWN' if stamp is None else 'FUTURE' if age is None else 'STALE' if age>report['policy']['max_chain_age_ms'] else 'WITHIN_POLICY'
-  assert source['age_ms']==age and source['status']==status
+  assert source['age_ms']==age,'source age arithmetic'
+  assert source['status']==status,'source status arithmetic'
  aggregate=next((status for status in ['FUTURE','UNKNOWN','STALE'] if any(s['status']==status for s in report['sources'])),'WITHIN_POLICY' if report['sources'] else 'UNKNOWN')
- assert report['status']==aggregate
+ assert report['status']==aggregate,'aggregate status'
+for case in freshness['cases']:
+ record=case['record'];check(api['components']['schemas']['StoredDecisionTrace'],record)
+ trace=record['trace'];check_freshness_semantics(trace)
  assert trace['observation_id']==canonical_digest({k:v for k,v in trace.items() if k!='observation_id'})==record['trace_id']
 support=json.loads((root/'specs/adapter-support.example.json').read_text())
 check(api['components']['schemas']['AdapterSupportCatalog'],support)
@@ -237,6 +272,161 @@ optin=tomllib.loads((root/'config/chain-freshness.example.toml').read_text())
 assert all(not n['enabled'] and not n['verified_pool_ids'] for n in optin['networks'].values())
 for network in optin['networks'].values():check(api['components']['schemas']['ChainFreshnessPolicy'],network['chain_freshness'])
 
+# Contract regressions exercise the published schema itself, separately from the
+# semantic checks above. These modified fixtures do not claim canonical hashes.
+freshness_positive_cases=[]
+freshness_semantic_negatives=[]
+def trace_contract_case(label,source,mutate,expected):
+ trace=copy.deepcopy(source);mutate(trace)
+ try:check(api['components']['schemas']['DecisionTrace'],trace)
+ except AssertionError:
+  if expected=='structural-rejection':negatives.append(label);return
+  raise
+ if expected=='structural-rejection':raise AssertionError('negative trace accepted: '+label)
+ if expected=='semantic-rejection':
+  try:check_freshness_semantics(trace)
+  except AssertionError:freshness_semantic_negatives.append(label);return
+  raise AssertionError('semantic negative trace accepted: '+label)
+ if 'chain_freshness' in trace:check_freshness_semantics(trace)
+ freshness_positive_cases.append(label)
+
+fresh_trace=fresh['trace']
+legacy_trace=cost['source_decision']['trace']
+def set_result(trace,status,reasons=None):
+ if status=='QUOTED':trace['result']=copy.deepcopy(fresh_trace['result'])
+ else:trace['result']={'status':status,'reason_codes':reasons or ['NO_ELIGIBLE_POOL_PAIRS']}
+ if status in ('QUOTED','REJECTED'):
+  trace['route']=copy.deepcopy(fresh_trace['route']);trace['amount_in_minor']=fresh_trace['amount_in_minor']
+ else:trace['route']=[];trace['amount_in_minor']=None
+
+chain_reason={'UNKNOWN':'CHAIN_TIME_UNAVAILABLE','FUTURE':'CHAIN_TIME_FUTURE','STALE':'CHAIN_TIME_STALE'}
+for source_label,source in [('legacy',legacy_trace)]+[(c['name'],c['record']['trace']) for c in freshness['cases']]:
+ status=source.get('chain_freshness',{}).get('status','WITHIN_POLICY')
+ expected_reason=chain_reason.get(status)
+ for result_status in ['REJECTED','NO_ROUTE','DATA_UNAVAILABLE']+(['QUOTED'] if not expected_reason else []):
+  def mutation(trace):
+   set_result(trace,result_status,[expected_reason] if expected_reason else ['CHAIN_TIME_INVALID'])
+   trace['diagnostics'].append(expected_reason or 'CHAIN_TIME_INVALID')
+  trace_contract_case(f'freshness-compatible-{source_label}-{result_status.lower()}',source,mutation,'accept')
+ for origin,kind in [('RECORDED_LIVE','CAPTURED_MARKET_DATA'),('SYNTHETIC','SYNTHETIC_FIXTURE'),('MANUALLY_CONSTRUCTED','SYNTHETIC_FIXTURE')]:
+  trace_contract_case(f'freshness-origin-compatible-{source_label}-{origin.lower()}',source,lambda x:x.update(dataset_origin=origin,source_kind=kind),'accept')
+ for code in chain_reason.values():
+  if code==expected_reason:continue
+  trace_contract_case(f'freshness-{source_label}-contradictory-diagnostic-{code}',source,lambda x:x['diagnostics'].append(code),'structural-rejection')
+  def mutation(trace):
+   set_result(trace,'DATA_UNAVAILABLE',[expected_reason,code] if expected_reason else [code])
+  trace_contract_case(f'freshness-{source_label}-contradictory-result-{code}',source,mutation,'structural-rejection')
+ if expected_reason:
+  for result_status in ['REJECTED','NO_ROUTE','DATA_UNAVAILABLE']:
+   trace_contract_case(f'freshness-{source_label}-{result_status.lower()}-missing-matching-reason',source,lambda x:set_result(x,result_status,['CAPTURE_UNAVAILABLE']),'structural-rejection')
+
+for result_status in ['QUOTED','REJECTED']:
+ source=copy.deepcopy(fresh_trace);set_result(source,result_status)
+ for suffix,mutate in [
+  ('missing-route',lambda x:x.update(route=[])),
+  ('single-leg',lambda x:x.update(route=x['route'][:1])),
+  ('missing-captures',lambda x:x.update(capture_refs=[])),
+  ('single-capture',lambda x:x.update(capture_refs=x['capture_refs'][:1])),
+  ('missing-input',lambda x:x.update(amount_in_minor=None)),
+  ('zero-input',lambda x:x.update(amount_in_minor='0')),
+  ('missing-age',lambda x:x.update(input_age_ms=None)),
+ ]:trace_contract_case(f'freshness-{result_status.lower()}-{suffix}',source,mutate,'structural-rejection')
+for result_status in ['NO_ROUTE','DATA_UNAVAILABLE']:
+ source=copy.deepcopy(fresh_trace);set_result(source,result_status)
+ for suffix,mutate in [
+  ('fabricated-route',lambda x:x.update(route=copy.deepcopy(fresh_trace['route']))),
+  ('fabricated-input',lambda x:x.update(amount_in_minor='1')),
+  ('missing-age',lambda x:x.update(input_age_ms=None)),
+ ]:trace_contract_case(f'freshness-{result_status.lower()}-{suffix}',source,mutate,'structural-rejection')
+ if result_status=='NO_ROUTE':
+  trace_contract_case('freshness-no-route-without-capture',source,lambda x:x.update(capture_refs=[]),'structural-rejection')
+
+for suffix,mutate in [
+ ('recorded-origin-labelled-fixture',lambda x:x.update(dataset_origin='RECORDED_LIVE')),
+ ('synthetic-origin-labelled-market',lambda x:x.update(dataset_origin='SYNTHETIC',source_kind='CAPTURED_MARKET_DATA')),
+ ('manual-origin-labelled-market',lambda x:x.update(source_kind='CAPTURED_MARKET_DATA')),
+ ('sources-shorter-than-captures',lambda x:x['chain_freshness']['sources'].pop()),
+ ('base-source-in-solana-trace',lambda x:x.update(network_id='solana-mainnet')),
+ ('capture-control-character',lambda x:x['capture_refs'][0].update(capture_id='capture\nsecret')),
+ ('source-control-character',lambda x:x['chain_freshness']['sources'][0].update(capture_id='capture\u0085secret')),
+]:trace_contract_case('freshness-'+suffix,fresh_trace,mutate,'structural-rejection')
+trace_contract_case('legacy-using-freshness-calculation-version',legacy_trace,lambda x:x.update(calculation_version=fresh_trace['calculation_version']),'structural-rejection')
+
+def resize_captures(trace,count):
+ capture=copy.deepcopy(fresh_trace['capture_refs'][0]);source=copy.deepcopy(fresh_trace['chain_freshness']['sources'][0])
+ trace['capture_refs']=[dict(capture,capture_id=f'capture-{i}') for i in range(count)]
+ trace['chain_freshness']['sources']=[dict(source,capture_id=f'capture-{i}') for i in range(count)]
+ set_result(trace,'DATA_UNAVAILABLE',['NO_ELIGIBLE_POOL_PAIRS'] if count else ['CHAIN_TIME_UNAVAILABLE'])
+ trace['chain_freshness']['status']='WITHIN_POLICY' if count else 'UNKNOWN'
+for count in range(10):
+ trace_contract_case(f'freshness-capture-source-count-{count}',fresh_trace,lambda x:resize_captures(x,count),'accept' if count<=8 else 'structural-rejection')
+for count in [0,1,8,9,64,65]:
+ def mutation(trace):
+  trace['capture_refs']=[dict(legacy_trace['capture_refs'][0],capture_id=f'legacy-{i}') for i in range(count)]
+  set_result(trace,'DATA_UNAVAILABLE')
+ trace_contract_case(f'legacy-capture-count-{count}',legacy_trace,mutation,'accept' if count<=64 else 'structural-rejection')
+for status in ['FUTURE','STALE','WITHIN_POLICY']:
+ source=copy.deepcopy(fresh_trace);resize_captures(source,0)
+ def mutation(trace):
+  trace['chain_freshness']['status']=status
+  set_result(trace,'DATA_UNAVAILABLE',[chain_reason.get(status,'NO_ELIGIBLE_POOL_PAIRS')])
+ trace_contract_case('freshness-empty-source-'+status.lower(),source,mutation,'structural-rejection')
+for case in freshness['cases']:
+ source=case['record']['trace'];current=source['chain_freshness']['status']
+ for incorrect in ['FUTURE','UNKNOWN','STALE','WITHIN_POLICY']:
+  if incorrect==current:continue
+  def mutation(trace):
+   trace['chain_freshness']['status']=incorrect
+   set_result(trace,'DATA_UNAVAILABLE',[chain_reason.get(incorrect,'NO_ELIGIBLE_POOL_PAIRS')])
+  trace_contract_case(f'freshness-aggregate-{current.lower()}-as-{incorrect.lower()}',source,mutation,'structural-rejection')
+
+source_by_status={c['record']['trace']['chain_freshness']['status']:c['record']['trace']['chain_freshness']['sources'][0] for c in freshness['cases']}
+for first in source_by_status:
+ for second in source_by_status:
+  aggregate=next((v for v in ['FUTURE','UNKNOWN','STALE'] if v in (first,second)),'WITHIN_POLICY')
+  mixed=copy.deepcopy(fresh_trace)
+  mixed['chain_freshness']['sources']=[dict(copy.deepcopy(source_by_status[v]),capture_id=fresh_trace['capture_refs'][i]['capture_id']) for i,v in enumerate([first,second])]
+  mixed['chain_freshness']['status']=aggregate
+  set_result(mixed,'DATA_UNAVAILABLE',[chain_reason.get(aggregate,'NO_ELIGIBLE_POOL_PAIRS')])
+  trace_contract_case(f'freshness-mixed-{first.lower()}-{second.lower()}',mixed,lambda x:None,'accept')
+  for incorrect in source_by_status:
+   if incorrect==aggregate:continue
+   def mutation(trace):
+    trace['chain_freshness']['status']=incorrect
+    set_result(trace,'DATA_UNAVAILABLE',[chain_reason.get(incorrect,'NO_ELIGIBLE_POOL_PAIRS')])
+   trace_contract_case(f'freshness-mixed-{first.lower()}-{second.lower()}-as-{incorrect.lower()}',mixed,mutation,'structural-rejection')
+
+solana_trace=copy.deepcopy(fresh_trace);solana_trace['network_id']='solana-mainnet'
+set_result(solana_trace,'DATA_UNAVAILABLE')
+for source in solana_trace['chain_freshness']['sources']:
+ source['source']={'kind':'SOLANA_ESTIMATED_BLOCK_TIME','slot':'1234567','genesis_hash':'YMN9Qj5jPNp7j14VPcML1B6xGgcPWVZUGLFU3Mnyfaf','account_context':'fixture-finalized-accounts'}
+trace_contract_case('freshness-solana-canonical-source',solana_trace,lambda x:None,'accept')
+trace_contract_case('freshness-solana-source-in-base-trace',solana_trace,lambda x:x.update(network_id='base-mainnet'),'structural-rejection')
+for genesis in ['1'*32,'1'*33,'z'*44]:
+ trace_contract_case('freshness-semantic-solana-invalid-genesis-'+genesis,solana_trace,lambda x:x['chain_freshness']['sources'][0]['source'].update(genesis_hash=genesis),'semantic-rejection')
+trace_contract_case('freshness-semantic-solana-slot-overflows-u64',solana_trace,lambda x:x['chain_freshness']['sources'][0]['source'].update(slot=str(2**64)),'semantic-rejection')
+
+# Each of these passes the structural schema. The independent semantic oracle
+# rejects it for the named relationship, before any digest verification.
+for suffix,mutate in [
+ ('clock-reference-disagrees',lambda x:x['chain_freshness'].update(reference_observed_at_unix_ms=x['observed_at_unix_ms']+1)),
+ ('clock-elapsed-disagrees',lambda x:x['chain_freshness'].update(evaluation_elapsed_ms=x['input_age_ms']+1)),
+ ('capture-order-disagrees',lambda x:x['chain_freshness']['sources'].reverse()),
+ ('capture-identity-disagrees',lambda x:x['chain_freshness']['sources'][0].update(capture_id='other-capture')),
+ ('snapshot-digest-disagrees',lambda x:x['capture_refs'][0].update(snapshot_id='sha256:'+'f'*64)),
+ ('source-age-disagrees',lambda x:x['chain_freshness']['sources'][0].update(age_ms=0)),
+ ('source-status-arithmetic-disagrees',lambda x:x['chain_freshness']['sources'][0].update(chain_time_seconds=0)),
+ ('source-height-overflows-u64',lambda x:x['chain_freshness']['sources'][0]['source'].update(block_number=str(2**64))),
+]:trace_contract_case('freshness-semantic-'+suffix,fresh_trace,mutate,'semantic-rejection')
+def duplicate_identity(trace):
+ trace['capture_refs'][1]['capture_id']=trace['capture_refs'][0]['capture_id']
+ trace['chain_freshness']['sources'][1]['capture_id']=trace['chain_freshness']['sources'][0]['capture_id']
+trace_contract_case('freshness-semantic-duplicate-capture-identity',fresh_trace,duplicate_identity,'semantic-rejection')
+def overflowing_clock(trace):
+ trace['observed_at_unix_ms']=253402300799999
+ trace['chain_freshness']['reference_observed_at_unix_ms']=trace['observed_at_unix_ms']
+trace_contract_case('freshness-semantic-combined-clock-overflow',fresh_trace,overflowing_clock,'semantic-rejection')
+
 assert e['route'][0]['asset_in']==e['start_asset_id']
 for first,second in zip(e['route'],e['route'][1:]):assert first['asset_out']==second['asset_in']
 assert e['route'][-1]['asset_out']==e['start_asset_id']
@@ -244,5 +434,5 @@ assert len({l['pool_id'] for l in e['route']})==len(e['route'])
 assert int(e['quoted_output_minor'])-int(e['amount_in_minor'])-sum(int(c['in_start_asset_minor']) for c in e['costs'])==int(e['net_after_explicit_costs_minor'])
 big=str(2**255+123); assert json.loads(json.dumps({'amount':big}))['amount']==big
 cfg=tomllib.loads((root/'config/research.example.toml').read_text()); assert cfg['deployment']['mode']=='PAPER'; assert cfg['execution']['broadcast_enabled'] is False; assert cfg['execution']['signer_enabled'] is False; assert all(not n['enabled'] and not n['verified_pool_ids'] for n in cfg['networks'].values())
-report={'api_operations':len(ops),'api_local_refs':'resolved','opportunity_example':'passed','command_examples':'passed','negative_cases_rejected':negatives,'financial_example_arithmetic':'passed','large_integer_json':'passed','inert_toml':'passed','validation_scope':'Structural parsing and custom checks of the schema keywords used; not a complete OpenAPI or JSON Schema conformance certification.'}
+report={'api_operations':len(ops),'api_local_refs':'resolved','opportunity_example':'passed','command_examples':'passed','negative_cases_rejected':negatives,'freshness_positive_cases':freshness_positive_cases,'freshness_semantic_negative_cases_rejected':freshness_semantic_negatives,'financial_example_arithmetic':'passed','large_integer_json':'passed','inert_toml':'passed','validation_scope':'Structural parsing and custom checks of the schema keywords used; not a complete OpenAPI or JSON Schema conformance certification. Freshness semantic cases separately test clock and capture bindings, source identity bounds and exact ages; those cases pass static schema and must be rejected by application validation.'}
 print(json.dumps(report,indent=2))

@@ -683,6 +683,127 @@ fn solana_chain_time_replay_rejects_tampering_trailing_calls_and_policy_downgrad
 }
 
 #[test]
+fn downgraded_solana_replay_cannot_treat_invalid_frozen_policy_as_absent() {
+    // Begin with a valid v3 capture, strip the exact-slot lookup and its output,
+    // then rehash every changed object. Digest integrity alone cannot detect a
+    // policy downgrade when the frozen configuration is malformed.
+    for origin in [Origin::Synthetic, Origin::ManuallyConstructed] {
+        for mutation in 0..7 {
+            let (source, source_hash) = chain_time_fixture(0, json!(90));
+            let mut bundle = arb_capture::load_bundle(&source, Some(&source_hash), 100001).unwrap();
+            bundle.manifest.origin = origin.clone();
+            bundle.manifest.adapter_version = "arb_solana-pool-set-v2".into();
+            for (name, bytes) in &mut bundle.objects {
+                match name.as_str() {
+                    "effective-config.json" => {
+                        let mut config: Value = serde_json::from_slice(bytes).unwrap();
+                        match mutation {
+                            0 => {
+                                config["networks"]["solana"]["chain_freshness"]["max_chain_age_ms"] =
+                                    json!(0);
+                            }
+                            1 => {
+                                config["networks"]["solana"]["chain_freshness"]["version"] =
+                                    json!("unsupported");
+                            }
+                            2 => {
+                                config["networks"]["solana"]["chain_freshness"] = Value::Null;
+                            }
+                            3 => {
+                                config["networks"]["solana"]["chain_freshness"] = json!(false);
+                            }
+                            4 => {
+                                config["networks"]["solana"]["chain_freshness"]["extra"] =
+                                    json!(true);
+                            }
+                            5 => {
+                                // A valid policy also requires its surrounding
+                                // frozen configuration to pass validation.
+                                config["execution"]["enabled"] = json!(true);
+                            }
+                            6 => {
+                                config["networks"]["solana"]["chain_freshness"]["max_chain_age_ms"] =
+                                    json!("30000");
+                            }
+                            _ => unreachable!(),
+                        }
+                        *bytes = serde_json::to_vec(&config).unwrap();
+                        bundle.manifest.config_digest = digest(bytes);
+                    }
+                    "rpc.json" => {
+                        let mut records: Vec<RpcRecord> = serde_json::from_slice(bytes).unwrap();
+                        assert_eq!(
+                            records.pop().unwrap().method,
+                            arb_adapter_api::ReadMethod::GetBlockTime
+                        );
+                        bundle.manifest.last_sequence = records.len() as u64 - 1;
+                        *bytes = serde_json::to_vec(&records).unwrap();
+                    }
+                    "snapshot.json" => {
+                        let mut snapshot: Value = serde_json::from_slice(bytes).unwrap();
+                        snapshot
+                            .as_object_mut()
+                            .unwrap()
+                            .remove("block_time_seconds");
+                        *bytes = serde_json::to_vec(&snapshot).unwrap();
+                    }
+                    _ => {}
+                }
+            }
+            bundle.manifest.objects.clear();
+            let path = source.with_extension("invalid-policy-downgrade");
+            let hash =
+                write_bundle(&path, bundle.manifest, bundle.objects, 64 * 1024 * 1024).unwrap();
+            let result = replay::verify_capture(&path, &hash, 100001);
+            assert!(
+                result.is_err(),
+                "accepted mutation {mutation} for {origin:?}"
+            );
+            assert_eq!(
+                result.unwrap_err().0,
+                "invalid frozen chain-time configuration"
+            );
+            fs::remove_dir_all(source).unwrap();
+            fs::remove_dir_all(path).unwrap();
+        }
+    }
+}
+
+#[test]
+fn legacy_replay_rejects_present_policy_without_valid_frozen_configuration() {
+    for chain in [Chain::BaseMainnet, Chain::SolanaMainnet] {
+        let (source, source_hash) = fixture(chain, |_, _| {});
+        let mut bundle = arb_capture::load_bundle(&source, Some(&source_hash), 101).unwrap();
+        let network = if chain == Chain::BaseMainnet {
+            "base"
+        } else {
+            "solana"
+        };
+        let mut config = json!({"mode":"offline-fixture"});
+        config["networks"][network]["chain_freshness"] = json!({
+            "version":"finalized-chain-time-v1", "max_chain_age_ms":30000
+        });
+        let bytes = serde_json::to_vec(&config).unwrap();
+        bundle.manifest.config_digest = digest(&bytes);
+        bundle
+            .objects
+            .iter_mut()
+            .find(|(name, _)| name == "effective-config.json")
+            .unwrap()
+            .1 = bytes;
+        bundle.manifest.objects.clear();
+        let path = source.with_extension("legacy-with-policy");
+        let hash = write_bundle(&path, bundle.manifest, bundle.objects, 64 * 1024 * 1024).unwrap();
+        assert_eq!(
+            replay::verify_capture(&path, &hash, 101).unwrap_err().0,
+            "invalid frozen chain-time configuration"
+        );
+        fs::remove_dir_all(source).unwrap();
+        fs::remove_dir_all(path).unwrap();
+    }
+}
+
+#[test]
 fn solana_chain_time_economic_replay_uses_frozen_historical_reference_and_age() {
     for block_time in [json!(90), Value::Null] {
         let fixtures = [

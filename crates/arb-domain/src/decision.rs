@@ -326,6 +326,34 @@ impl DecisionTrace {
             }
             None => {}
         }
+        let expected_chain_time_reason = self
+            .chain_freshness
+            .as_ref()
+            .and_then(|report| report.status.reason_code());
+        let result_reasons = match &self.result {
+            DecisionResult::Rejected { reason_codes }
+            | DecisionResult::NoRoute { reason_codes }
+            | DecisionResult::DataUnavailable { reason_codes } => reason_codes.as_slice(),
+            DecisionResult::Quoted { .. } => &[],
+        };
+        // These codes assert an assessed aggregate status, including when carried
+        // as diagnostics. CHAIN_TIME_INVALID instead names an assessment error
+        // and does not claim any successfully reproduced report status.
+        if result_reasons
+            .iter()
+            .chain(&self.diagnostics)
+            .any(|reason| {
+                matches!(
+                    reason.as_str(),
+                    "CHAIN_TIME_STALE" | "CHAIN_TIME_FUTURE" | "CHAIN_TIME_UNAVAILABLE"
+                ) && Some(reason.as_str()) != expected_chain_time_reason
+            })
+        {
+            return Err(invalid(
+                "chain_freshness",
+                "chain-time result and diagnostic reasons require the matching report status",
+            ));
+        }
         if self.capture_refs.len() > 64 {
             return Err(invalid("capture_refs", "capture reference bound exceeded"));
         }
@@ -797,6 +825,145 @@ mod tests {
         assert!(!opportunity.eligibility_checks.state_fresh_and_coherent);
         assert!(!opportunity.eligibility_checks.atomic_route_supported);
         assert_eq!(opportunity.simulation_status, SimulationStatus::NotRun);
+    }
+    fn with_chain_time(status: crate::ChainFreshnessStatus) -> DecisionTrace {
+        let mut trace = sample();
+        let seconds = trace.observed_at_unix_ms / 1000;
+        let chain_time_seconds = match status {
+            crate::ChainFreshnessStatus::WithinPolicy => Some(seconds),
+            crate::ChainFreshnessStatus::Stale => Some(seconds - 2),
+            crate::ChainFreshnessStatus::Future => Some(seconds + 1),
+            crate::ChainFreshnessStatus::Unknown => None,
+        };
+        let report = crate::ChainFreshnessReport::assess(
+            crate::ChainFreshnessPolicy {
+                version: crate::CHAIN_FRESHNESS_VERSION.into(),
+                max_chain_age_ms: 1000,
+            },
+            trace.observed_at_unix_ms,
+            trace.input_age_ms.unwrap(),
+            trace
+                .capture_refs
+                .iter()
+                .map(|capture| crate::ChainTimeInput {
+                    capture_id: capture.capture_id.clone(),
+                    source: crate::ChainTimeSource::BaseFinalizedBlockTimestamp {
+                        block_number: "100".into(),
+                        block_hash: format!("0x{}", "a".repeat(64)),
+                        parent_hash: format!("0x{}", "b".repeat(64)),
+                    },
+                    chain_time_seconds,
+                })
+                .collect(),
+        )
+        .unwrap();
+        assert_eq!(report.status, status);
+        trace.schema_version = FRESHNESS_DECISION_SCHEMA_VERSION.into();
+        trace.calculation_version = crate::FRESHNESS_CALCULATION_VERSION.into();
+        trace.chain_freshness = Some(report);
+        if let Some(code) = status.reason_code() {
+            trace.result = DecisionResult::Rejected {
+                reason_codes: vec![code.into()],
+            };
+        }
+        trace.seal().unwrap()
+    }
+    fn with_failure_result(
+        mut trace: DecisionTrace,
+        status: &str,
+        reason_codes: Vec<String>,
+    ) -> DecisionTrace {
+        trace.result = match status {
+            "REJECTED" => DecisionResult::Rejected { reason_codes },
+            "NO_ROUTE" => DecisionResult::NoRoute { reason_codes },
+            "DATA_UNAVAILABLE" => DecisionResult::DataUnavailable { reason_codes },
+            _ => unreachable!(),
+        };
+        if status != "REJECTED" {
+            trace.route.clear();
+            trace.amount_in_minor = None;
+        }
+        trace
+    }
+    #[test]
+    fn legacy_decisions_cannot_claim_assessed_chain_time_outcomes() {
+        for reason in [
+            "CHAIN_TIME_STALE",
+            "CHAIN_TIME_FUTURE",
+            "CHAIN_TIME_UNAVAILABLE",
+        ] {
+            for status in ["REJECTED", "NO_ROUTE", "DATA_UNAVAILABLE"] {
+                let trace = with_failure_result(sample(), status, vec![reason.into()]);
+                assert_eq!(trace.seal().unwrap_err().field, "chain_freshness");
+            }
+            // A diagnostic must not bypass the same evidence requirement on a quote.
+            let mut trace = sample();
+            trace.diagnostics.push(reason.into());
+            assert_eq!(trace.seal().unwrap_err().field, "chain_freshness");
+        }
+    }
+    #[test]
+    fn chain_time_result_and_diagnostic_claims_match_the_aggregate_report() {
+        for report_status in [
+            crate::ChainFreshnessStatus::WithinPolicy,
+            crate::ChainFreshnessStatus::Stale,
+            crate::ChainFreshnessStatus::Future,
+            crate::ChainFreshnessStatus::Unknown,
+        ] {
+            let original = with_chain_time(report_status);
+            let expected_reason = report_status.reason_code();
+            for reason in [
+                "CHAIN_TIME_STALE",
+                "CHAIN_TIME_FUTURE",
+                "CHAIN_TIME_UNAVAILABLE",
+            ] {
+                for result_status in ["REJECTED", "NO_ROUTE", "DATA_UNAVAILABLE"] {
+                    let mut reasons: Vec<String> =
+                        expected_reason.into_iter().map(String::from).collect();
+                    // Keep the required reason and append another claim: merely
+                    // finding the required reason must not allow contradictory ones.
+                    reasons.push(reason.into());
+                    let trace = with_failure_result(original.clone(), result_status, reasons);
+                    assert_eq!(
+                        trace.seal().is_ok(),
+                        expected_reason == Some(reason),
+                        "{report_status:?}/{result_status}/{reason}"
+                    );
+                }
+                let mut trace = original.clone();
+                trace.diagnostics.push(reason.into());
+                assert_eq!(trace.seal().is_ok(), expected_reason == Some(reason));
+            }
+            if expected_reason.is_some() {
+                let mut quote = original.clone();
+                quote.result = sample().result;
+                assert_eq!(quote.seal().unwrap_err().field, "chain_freshness");
+                let missing_reason = with_failure_result(
+                    original,
+                    "DATA_UNAVAILABLE",
+                    vec!["CAPTURE_UNAVAILABLE".into()],
+                );
+                assert_eq!(missing_reason.seal().unwrap_err().field, "chain_freshness");
+            }
+        }
+    }
+    #[test]
+    fn unrelated_chain_time_errors_and_legacy_outcomes_remain_compatible() {
+        for original in [
+            sample(),
+            with_chain_time(crate::ChainFreshnessStatus::WithinPolicy),
+        ] {
+            for reason in ["CHAIN_TIME_INVALID", "STALE_INPUT", "PROVIDER_UNAVAILABLE"] {
+                for status in ["REJECTED", "NO_ROUTE", "DATA_UNAVAILABLE"] {
+                    with_failure_result(original.clone(), status, vec![reason.into()])
+                        .seal()
+                        .unwrap();
+                }
+                let mut trace = original.clone();
+                trace.diagnostics.push(reason.into());
+                trace.seal().unwrap();
+            }
+        }
     }
     #[test]
     fn observation_integrity_and_exact_generation_wire_roundtrip() {

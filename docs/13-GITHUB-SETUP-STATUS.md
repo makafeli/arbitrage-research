@@ -1,6 +1,6 @@
 # GitHub setup status
 
-Verified on 12 September 2026 for [makafeli/arbitrage-research](https://github.com/makafeli/arbitrage-research). The repository is public, as it was when supplied. This handoff does not change its visibility.
+Rechecked on 13 September 2026 for [makafeli/arbitrage-research](https://github.com/makafeli/arbitrage-research). The repository is public, as it was when supplied. This handoff does not change its visibility.
 
 ## Completed and verified
 
@@ -15,7 +15,7 @@ Verified on 12 September 2026 for [makafeli/arbitrage-research](https://github.c
 | Native hierarchy | All 68 implementation tasks linked as children of their eight epics | [Issues](https://github.com/makafeli/arbitrage-research/issues) |
 | Native blocking relationships | All 219 specified dependency links present | [Planning workflow](https://github.com/makafeli/arbitrage-research/actions/runs/34708957300) |
 | Development workflow | Issue forms, PR template, security guidance, Dependabot and CI source | [GitHub configuration](https://github.com/makafeli/arbitrage-research/tree/main/.github) |
-| CI | PR #90 passed all four jobs: 225 Rust tests including 52 PostgreSQL tests, 36 Chromium scenarios, 25 Node tests, specifications and three Railway containers | [Verified code run](https://github.com/makafeli/arbitrage-research/actions/runs/34724475794) |
+| CI baseline | Merged PR #93 passed all four jobs: 294 Rust tests including 61 PostgreSQL tests, 52 Chromium scenarios, 39 Node tests, specifications and three Railway containers | [Verified merge-commit run](https://github.com/makafeli/arbitrage-research/actions/runs/34752684136) |
 | Wiki source | Nine navigable Markdown source files published | [Wiki source Home](../wiki/Home.md) |
 
 Ticket creation does not complete the implementation acceptance criteria. The current register contains three completed tasks, 22 with implementation present and acceptance pending, ten in progress and 33 planned: 65 implementation issues remain open. Later live milestones retain their original gates. [Implementation progress](../planning/implementation-progress.json) and the native managed implementation sections record the evidence and outstanding criteria. Dependabot pull requests are separate from the 76 project issues and have not been merged as part of setup.
