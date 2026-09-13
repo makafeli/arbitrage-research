@@ -52,9 +52,19 @@ for (const width of [320, 390, 1440]) {
     await expect(report.getByText('Within recorded policy', { exact: true }).first()).toBeVisible();
     await expect(report.getByText('5000 ms', { exact: true })).toBeVisible(); await expect(report.getByText('750 ms', { exact: true }).first()).toBeVisible();
     await expect(report.getByText(/does not measure current provider or service health/)).toBeVisible();
-    await report.getByRole('heading', { name: 'Captured chain age' }).scrollIntoViewIfNeeded();
+    for (const name of ['Capture 1', 'Capture 2']) {
+      const sourceHeading = report.getByRole('heading', { name, exact: true });
+      await sourceHeading.scrollIntoViewIfNeeded();
+      await expect(sourceHeading).toBeInViewport();
+    }
+    // Focus the retained viewport image on the new evidence, rather than a tall
+    // background page with the report clipped at the bottom of the modal.
+    await report.evaluate(element => element.scrollIntoView({ block: 'start', behavior: 'instant' }));
+    await expect(report.getByRole('heading', { name: 'Captured chain age', exact: true })).toBeInViewport();
+    await expect(report.getByText('5000 ms', { exact: true })).toBeInViewport();
+    await expect(report.getByRole('heading', { name: 'Capture 1', exact: true })).toBeInViewport();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-    await page.screenshot({ path: testInfo.outputPath(`chain-freshness-${width}.png`), fullPage: true });
+    await page.screenshot({ path: testInfo.outputPath(`chain-freshness-${width}.png`), fullPage: false });
   });
   test(`adapter catalog at ${width}px separates local scope and unavailable execution`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 1000 }); await stub(page); await navigate(page, 'System');
