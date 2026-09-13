@@ -22,7 +22,11 @@ async function stub(page: Page, override?: (route: Route, url: URL) => Promise<b
     if (path === '/v1/opportunities') data = { items: [], next_cursor: null };
     if (path === '/v1/adapter-support') data = adapterSupportFixture();
     if (path === '/v1/decisions') data = { items: records, next_cursor: null };
-    if (path.startsWith('/v1/decisions/')) data = records.find(item => item.trace.observation_id === path.split('/').at(-1));
+    // Mirror the API router's decoding of the path parameter, including canonical sha256: IDs.
+    if (path.startsWith('/v1/decisions/')) {
+      const observationId = decodeURIComponent(path.slice('/v1/decisions/'.length));
+      data = records.find(item => item.trace.observation_id === observationId);
+    }
     if (path === '/v1/decision-groups') data = { items: [], next_cursor: null };
     if (path === '/v1/decision-coverage') data = { session_id: session.session_id, raw_observations: '5', quoted_candidates: '2', rejected: '0', no_route: '0', data_unavailable: '3', unique_opportunity_groups: '2', eligible_attempts: null, reconciled_transactions: null,
       execution_accounting_available: false, collection_completeness: 'UNKNOWN', coverage_window_start_ms: 1789214400000, coverage_window_end_ms: 1789214400000 };
@@ -34,7 +38,11 @@ async function navigate(page: Page, name: string) { await page.getByRole('naviga
 async function openDecision(page: Page, name: string) {
   await navigate(page, 'Opportunities'); await page.getByLabel('Decision session', { exact: true }).selectOption(session.session_id);
   const id = name === 'legacy' ? legacy.trace.observation_id : fixtures.cases.find(c => c.name === name)!.record.trace.observation_id;
+  const responsePromise = page.waitForResponse(response => new URL(response.url()).pathname === '/v1/decisions/' + encodeURIComponent(id));
   await page.getByRole('button', { name: 'Inspect decision ' + id, exact: true }).click();
+  const response = await responsePromise;
+  expect(response.status()).toBe(200);
+  expect((await response.json()).trace.observation_id).toBe(id);
   const dialog = page.getByRole('dialog', { name: 'Decision evidence detail' }); await expect(dialog.getByRole('heading', { name: 'Captured chain age', exact: true })).toBeVisible(); return dialog;
 }
 for (const width of [320, 390, 1440]) {

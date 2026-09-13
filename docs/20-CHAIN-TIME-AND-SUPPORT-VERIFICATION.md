@@ -59,3 +59,9 @@ Railway remains the selected host. Container and service-backed CI evidence does
 All 233 distinct non-PostgreSQL Rust tests passed locally, with zero unresolved failures. The compiled workspace inventory contains 294 tests, including 61 tests requiring actual PostgreSQL execution in CI. Workspace formatting and strict all-target Clippy passed. All 39 Node tests, TypeScript checking and the production frontend build passed; 52 Chromium scenarios were discovered for CI. Contract validation resolved 27 operations and rejected 59 negative examples. These local results do not count the pending PostgreSQL, Chromium or container executions as passing.
 
 Three support catalog tests initially omitted the positive trade size required by an enabled paper configuration. The test fixture was corrected and all four catalog tests then passed. A zero-byte generated test executable and invalid cached Rust metadata were repaired by rebuilding affected local artifacts; they did not require runtime source changes. Local Rust is 1.91.1; CI retains the locked 1.90.0 toolchain.
+
+## First remote run and fixture correction
+
+The initial [PR #93 CI run](https://github.com/makafeli/arbitrage-research/actions/runs/34751690343) exposed a browser-fixture routing error. The client correctly percent-encodes observation IDs, but the new mock detail handler compared the encoded path against an unencoded `sha256:` ID. It returned a fixture 404, leaving the expected inspector content absent. Forty-eight browser scenarios passed and four chain-time scenarios failed; screenshot emission consequently reported missing chain-time images.
+
+The fixture now decodes the path parameter, matching actual API routing. Each inspector helper also checks HTTP 200 and the exact returned observation identity. Production readers and canonical fixture hashes are unchanged. The correction requires a new complete passing CI run before acceptance.
