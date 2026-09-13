@@ -261,19 +261,33 @@ export class ControlApi {
     const page = parsePage(await this.request('/sessions/' + encodeURIComponent(sessionId) + '/collection-attempts?' + this.query(cursor), { signal }), parseCollectionAttempt);
     assert(page.items.every(item => item.session_id === sessionId), 'Collection attempts response has the wrong session scope.'); return page;
   }
+  /** Return verified costs only in the authorization context that requested them. */
   async costAssessments(sessionId: string, cursor?: string, signal?: AbortSignal) {
+    const epoch = this.authEpoch;
     const page = parsePage(await this.request('/sessions/' + encodeURIComponent(sessionId) + '/cost-assessments?' + this.query(cursor), { signal }), parseCostAssessment);
     assert(page.items.every(item => item.assessment.binding.session_id === sessionId), 'Cost assessments response has the wrong session scope.');
-    return { ...page, items: await Promise.all(page.items.map(verifyCostAssessment)) };
+    const items = await Promise.all(page.items.map(verifyCostAssessment));
+    this.assertAuthVersion(epoch); signal?.throwIfAborted();
+    return { ...page, items };
   }
+  /** Include asynchronous digest verification inside the read's auth/abort fence. */
   async costAssessment(sessionId: string, recordId: string, signal?: AbortSignal) {
+    const epoch = this.authEpoch;
     const item = parseCostAssessment(await this.request('/sessions/' + encodeURIComponent(sessionId) + '/cost-assessments/' + encodeURIComponent(recordId), { signal }));
-    assert(item.assessment.binding.session_id === sessionId && item.record_id === recordId, 'Cost assessment response has the wrong record scope.'); return verifyCostAssessment(item);
+    assert(item.assessment.binding.session_id === sessionId && item.record_id === recordId, 'Cost assessment response has the wrong record scope.');
+    const verified = await verifyCostAssessment(item);
+    this.assertAuthVersion(epoch); signal?.throwIfAborted();
+    return verified;
   }
+  /** A late result cannot publish; an uncertain write keeps its caller-owned retry key. */
   async createCostAssessment(sessionId: string, body: CostAssessmentRequest, key: string) {
+    const epoch = this.authEpoch;
     const item = parseCostAssessment(await this.request('/sessions/' + encodeURIComponent(sessionId) + '/cost-assessments', { method: 'POST', body, key }));
     assert(item.assessment.binding.session_id === sessionId && item.assessment.binding.observation_id === body.observation_id, 'Cost assessment response has the wrong decision scope.');
-    assert(canonicalCostJson(item.assessment.scenario) === canonicalCostJson(body.scenario), 'Cost assessment response does not preserve the submitted scenario.'); return verifyCostAssessment(item);
+    assert(canonicalCostJson(item.assessment.scenario) === canonicalCostJson(body.scenario), 'Cost assessment response does not preserve the submitted scenario.');
+    const verified = await verifyCostAssessment(item);
+    this.assertAuthVersion(epoch);
+    return verified;
   }
   async frozenExport(sessionId: string, signal?: AbortSignal) {
     const epoch = this.authEpoch;
