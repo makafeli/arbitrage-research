@@ -1474,7 +1474,7 @@ async fn canonical_batch_failure_admits_no_partial_captures_or_decisions() {
     let id = session.session_id;
     let mut rpc = PairRpcGuard::with_canonical_failure_after(transcripts, Some(1));
     let log = fs::File::create(root.join("worker.log")).unwrap();
-    let worker = ChildGuard(
+    let mut worker = ChildGuard(
         Command::new(env!("CARGO_BIN_EXE_research-worker"))
             .env("ARB_WORKER_CONFIG", &config_path)
             .env("ARB_POOL_REGISTRY", &registry_path)
@@ -1487,18 +1487,43 @@ async fn canonical_batch_failure_admits_no_partial_captures_or_decisions() {
             .spawn()
             .unwrap(),
     );
-    wait_until(
-        async || {
-            store
-                .get_session(&operator, &id)
-                .await
-                .unwrap()
-                .observed_state
-                == "STOPPED"
-        },
-        10,
-    )
-    .await;
+    let diagnostics = async || {
+        let session = store.get_session(&operator, &id).await.unwrap();
+        let outcomes: Vec<(String, Option<String>, i64)> = sqlx::query_as("SELECT outcome,reason,decision_rows FROM collection_attempts WHERE session_id=$1 ORDER BY attempt_id LIMIT 20")
+            .bind(&id).fetch_all(&pool).await.unwrap();
+        let mut log = String::new();
+        fs::File::open(root.join("worker.log"))
+            .unwrap()
+            .take(16384)
+            .read_to_string(&mut log)
+            .unwrap();
+        format!(
+            "state={}, desired_revision={}, applied_revision={}, outstanding={}; collection outcomes (at most 20): {outcomes:?}; worker log (at most 16 KiB): {log}",
+            session.observed_state,
+            session.desired_revision,
+            session.applied_revision,
+            session.outstanding_attempts
+        )
+    };
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        if store
+            .get_session(&operator, &id)
+            .await
+            .unwrap()
+            .observed_state
+            == "STOPPED"
+        {
+            break;
+        }
+        if Instant::now() >= deadline {
+            panic!(
+                "canonical batch stage=recovery expected STOPPED within 10s; {}",
+                diagnostics().await
+            );
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
     store
         .issue_command(
             &operator,
@@ -1520,26 +1545,47 @@ async fn canonical_batch_failure_admits_no_partial_captures_or_decisions() {
             break;
         }
         if Instant::now() >= deadline {
-            let outcomes: Vec<(String, Option<String>, i64)> = sqlx::query_as("SELECT outcome,reason,decision_rows FROM collection_attempts WHERE session_id=$1 ORDER BY attempt_id LIMIT 20")
-                .bind(&id).fetch_all(&pool).await.unwrap();
-            let mut log = String::new();
-            fs::File::open(root.join("worker.log"))
-                .unwrap()
-                .take(16384)
-                .read_to_string(&mut log)
-                .unwrap();
             panic!(
-                "expected a rejected canonical batch with no captures or decisions within 20s; collection outcomes: {outcomes:?}; bounded worker log: {log}"
+                "canonical batch stage=acquisition expected rejected batch with no captures or decisions within 20s; {}",
+                diagnostics().await
+            );
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    // Readiness loss deliberately faults and terminates the worker. A STOP
+    // issued after that exit cannot be acknowledged by the departed process.
+    // Require the existing durable fault/generation fence and bounded exit.
+    let failed_generation: i64 = sqlx::query_scalar("SELECT generation FROM collection_attempts WHERE session_id=$1 AND purpose='RESEARCH' AND outcome='ACQUISITION_FAILED' ORDER BY attempt_id LIMIT 1")
+        .bind(&id).fetch_one(&pool).await.unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let state: (String, bool, i64) = sqlx::query_as("SELECT observed_state,local_fence,generation FROM research_sessions WHERE session_id=$1")
+            .bind(&id).fetch_one(&pool).await.unwrap();
+        let exit = worker.0.try_wait().unwrap();
+        if state.0 == "FAULTED" && state.1 && state.2 > failed_generation && exit.is_some() {
+            assert_eq!(
+                exit.unwrap().code(),
+                Some(2),
+                "readiness loss must report failure"
+            );
+            break;
+        }
+        if Instant::now() >= deadline {
+            panic!(
+                "canonical batch stage=fault-exit expected durable FAULTED, closed fence, newer generation and process exit within 5s; actual={state:?}, failed_generation={failed_generation}, exit={exit:?}; {}",
+                diagnostics().await
             );
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
     let session = store.get_session(&operator, &id).await.unwrap();
+    assert_eq!(session.outstanding_attempts, 0);
+    assert!(!session.execution_authorized);
     let stop = store
         .issue_command(
             &operator,
             &id,
-            "stop",
+            "stop-after-fault",
             NewCommand {
                 action: "STOP".into(),
                 expected_revision: session.desired_revision,
@@ -1548,18 +1594,17 @@ async fn canonical_batch_failure_admits_no_partial_captures_or_decisions() {
         )
         .await
         .unwrap();
-    wait_until(
-        async || {
-            store
-                .get_command(&operator, &stop.command_id)
-                .await
-                .unwrap()
-                .status
-                == "APPLIED"
-        },
-        5,
-    )
-    .await;
+    assert_eq!(
+        stop.status, "PENDING",
+        "an exited worker cannot acknowledge STOP"
+    );
+    assert!(stop.applied_at.is_none());
+    let persisted_stop = store
+        .get_command(&operator, &stop.command_id)
+        .await
+        .unwrap();
+    assert_eq!(persisted_stop.status, "PENDING");
+    assert!(persisted_stop.applied_at.is_none());
     let captures: i64 =
         sqlx::query_scalar("SELECT count(*) FROM capture_admissions WHERE session_id=$1")
             .bind(&id)
