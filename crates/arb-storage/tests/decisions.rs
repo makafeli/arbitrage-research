@@ -361,3 +361,363 @@ async fn paper_research_capture_and_decision_admission_do_not_authorize_executio
     assert_eq!(items[0].evidence_label, Evidence::Candidate);
     assert!(items[0].net_after_explicit_costs_minor.is_none());
 }
+
+fn manual_scenario() -> arb_paper::CostScenario {
+    serde_json::from_value(json!({
+        "schema_version":"1.0.0","scenario_id":"manual-baseline","version":"v1",
+        "origin":"MANUALLY_CONSTRUCTED","provenance_reference":"operator-assumption",
+        "valuation_max_age_ms":1000,"fee_composition":"BASE_EXECUTION_INCLUDES_PRIORITY",
+        "expenses":[],"funding":{"status":"OWN_VIRTUAL_CAPITAL"},"overhead":{"status":"NOT_ALLOCATED"}
+    })).unwrap()
+}
+#[tokio::test]
+async fn cost_assessment_concurrent_retry_restart_and_negative_unknowns_preserve_source() {
+    let (store, operator, id, claim, generation) = setup().await;
+    let source = trace(&id, generation, 2001, "NEGATIVE");
+    let saved = store
+        .append_decision_traces(&claim, generation, std::slice::from_ref(&source))
+        .await
+        .unwrap();
+    let before = store.export_session(&operator, &id).await.unwrap();
+    let request = arb_storage::NewCostAssessment {
+        observation_id: source.observation_id.clone(),
+        scenario: manual_scenario(),
+    };
+    let (first, retry) = tokio::join!(
+        store.create_cost_assessment(&operator, &id, "concurrent-cost-key", request.clone()),
+        store.create_cost_assessment(&operator, &id, "concurrent-cost-key", request.clone())
+    );
+    let first = first.unwrap();
+    assert_eq!(
+        serde_json::to_value(&first).unwrap(),
+        serde_json::to_value(retry.unwrap()).unwrap()
+    );
+    assert_eq!(
+        first
+            .assessment
+            .report
+            .gross_after_quote_included_costs
+            .to_string(),
+        "-10"
+    );
+    assert!(first.assessment.report.transaction_net.is_none());
+    assert!(first.assessment.report.fully_allocated_net.is_none());
+    first.assessment.replay(&source).unwrap();
+    let restarted = Store::connect(&std::env::var("TEST_DATABASE_URL").unwrap())
+        .await
+        .unwrap();
+    let after_restart = restarted
+        .get_cost_assessment(&operator, &id, &first.record_id)
+        .await
+        .unwrap();
+    assert_eq!(
+        serde_json::to_value(&first).unwrap(),
+        serde_json::to_value(after_restart).unwrap()
+    );
+    assert_eq!(
+        restarted
+            .create_cost_assessment(&operator, &id, "concurrent-cost-key", request.clone())
+            .await
+            .unwrap()
+            .record_id,
+        first.record_id
+    );
+    let after = restarted.export_session(&operator, &id).await.unwrap();
+    assert_eq!(after.schema_version, "1.1.0");
+    assert_eq!(after.snapshot.source_counts.cost_assessments, "1");
+    assert_eq!(after.data.cost_assessments[0].record_id, first.record_id);
+    assert_eq!(
+        serde_json::to_value(&after.data.decisions).unwrap(),
+        serde_json::to_value(&before.data.decisions).unwrap()
+    );
+    assert_eq!(
+        serde_json::to_value(&after.data.paper_runs).unwrap(),
+        serde_json::to_value(&before.data.paper_runs).unwrap()
+    );
+    assert_eq!(after.data.decisions[0].trace_id, saved[0].trace_id);
+    assert_eq!(
+        after.content_sha256,
+        arb_storage::export_content_digest(&after).unwrap()
+    );
+    assert_eq!(
+        after.content_sha256,
+        restarted
+            .export_session(&operator, &id)
+            .await
+            .unwrap()
+            .content_sha256
+    );
+    assert_ne!(after.content_sha256, before.content_sha256);
+    assert!(
+        after.data.decisions[0]
+            .trace
+            .to_opportunity()
+            .unwrap()
+            .unwrap()
+            .net_after_explicit_costs_minor
+            .is_none()
+    );
+    let mut complete = request.clone();
+    complete.scenario.expenses = ["NETWORK_EXECUTION","BASE_L1_DATA","RELAY_TIP","FUNDING","ACCOUNT_SETUP","OTHER"].into_iter().map(|kind| {
+        let native=matches!(kind,"NETWORK_EXECUTION"|"BASE_L1_DATA"|"RELAY_TIP");
+        serde_json::from_value(json!({"kind":kind,"amount":{"status":"KNOWN",
+            "asset":if native {json!({"kind":"NATIVE","identity":"base-mainnet"})} else {json!({"kind":"TOKEN","identity":source.route[0].asset_in})},
+            "amount":"1","valuation":if native {json!({"kind":"RATIO","numerator":"1","denominator":"1","reference":"manual-ratio","valued_at_unix_ms":2001})} else {json!({"kind":"SAME_ASSET","reference":"manual-same-asset","valued_at_unix_ms":2001})}
+        }})).unwrap()
+    }).collect();
+    complete.scenario.overhead=serde_json::from_value(json!({"status":"ALLOCATED","amount_in_start_asset":"2","method":"per-observation","version":"v1","reference":"manual-overhead"})).unwrap();
+    let known = store
+        .create_cost_assessment(&operator, &id, "known-negative", complete)
+        .await
+        .unwrap();
+    assert_eq!(
+        known.assessment.report.transaction_net.unwrap().to_string(),
+        "-16"
+    );
+    assert_eq!(
+        known
+            .assessment
+            .report
+            .fully_allocated_net
+            .unwrap()
+            .to_string(),
+        "-18"
+    );
+    let restored = store
+        .get_cost_assessment(&operator, &id, &known.record_id)
+        .await
+        .unwrap();
+    restored.assessment.replay(&source).unwrap();
+    let mut changed = request;
+    changed.scenario.version = "v2".into();
+    assert!(matches!(
+        store
+            .create_cost_assessment(&operator, &id, "concurrent-cost-key", changed)
+            .await,
+        Err(StoreError::Conflict(_))
+    ));
+}
+#[tokio::test]
+async fn cost_assessments_reject_scope_nonquotes_and_paginate_without_partial_records() {
+    let (store, operator, id, claim, generation) = setup().await;
+    let sources = [
+        trace(&id, generation, 3001, "QUOTED"),
+        trace(&id, generation, 3002, "REJECTED"),
+    ];
+    store
+        .append_decision_traces(&claim, generation, &sources)
+        .await
+        .unwrap();
+    let request = arb_storage::NewCostAssessment {
+        observation_id: sources[0].observation_id.clone(),
+        scenario: manual_scenario(),
+    };
+    assert!(matches!(
+        store
+            .create_cost_assessment("other", &id, "wrong-operator", request.clone())
+            .await,
+        Err(StoreError::NotFound)
+    ));
+    let other = store
+        .create_session(
+            &operator,
+            "other-session",
+            NewSession {
+                network_id: "base-mainnet".into(),
+                mode: "OBSERVE".into(),
+                configuration_digest: hash("a"),
+                experiment_id: "decision-fixture".into(),
+                strategy_ids: vec!["fixture-strategy".into()],
+            },
+        )
+        .await
+        .unwrap();
+    assert!(matches!(
+        store
+            .create_cost_assessment(
+                &operator,
+                &other.session_id,
+                "wrong-session",
+                request.clone()
+            )
+            .await,
+        Err(StoreError::NotFound)
+    ));
+    let rejected = arb_storage::NewCostAssessment {
+        observation_id: sources[1].observation_id.clone(),
+        scenario: manual_scenario(),
+    };
+    assert!(matches!(
+        store
+            .create_cost_assessment(&operator, &id, "rejected", rejected)
+            .await,
+        Err(StoreError::InvalidInput(_))
+    ));
+    let first = store
+        .create_cost_assessment(&operator, &id, "first", request.clone())
+        .await
+        .unwrap();
+    let second = store
+        .create_cost_assessment(&operator, &id, "second", request)
+        .await
+        .unwrap();
+    assert!(matches!(
+        store
+            .get_cost_assessment("other", &id, &first.record_id)
+            .await,
+        Err(StoreError::NotFound)
+    ));
+    assert!(matches!(
+        store
+            .get_cost_assessment(&operator, &other.session_id, &first.record_id)
+            .await,
+        Err(StoreError::NotFound)
+    ));
+    let page = store
+        .list_cost_assessments(&operator, &id, None, 1)
+        .await
+        .unwrap();
+    assert_eq!(page.items.len(), 1);
+    let last = store
+        .list_cost_assessments(&operator, &id, page.next_cursor.as_deref(), 1)
+        .await
+        .unwrap();
+    assert_eq!(last.items.len(), 1);
+    assert!(last.next_cursor.is_none());
+    let mut ids = vec![
+        page.items[0].record_id.clone(),
+        last.items[0].record_id.clone(),
+    ];
+    ids.sort();
+    let mut expected = vec![first.record_id, second.record_id];
+    expected.sort();
+    assert_eq!(ids, expected);
+    assert!(matches!(
+        store
+            .list_cost_assessments(&operator, &id, Some("bad"), 1)
+            .await,
+        Err(StoreError::InvalidInput(_))
+    ));
+    assert!(matches!(
+        store.list_cost_assessments(&operator, &id, None, 101).await,
+        Err(StoreError::InvalidInput(_))
+    ));
+}
+#[tokio::test]
+async fn cost_assessment_history_is_append_only_and_rejects_self_consistent_tampered_reports() {
+    use sha2::{Digest, Sha256};
+    let (store, operator, id, claim, generation) = setup().await;
+    let source = trace(&id, generation, 4001, "QUOTED");
+    store
+        .append_decision_traces(&claim, generation, std::slice::from_ref(&source))
+        .await
+        .unwrap();
+    let record = store
+        .create_cost_assessment(
+            &operator,
+            &id,
+            "original",
+            arb_storage::NewCostAssessment {
+                observation_id: source.observation_id,
+                scenario: manual_scenario(),
+            },
+        )
+        .await
+        .unwrap();
+    let pool = sqlx::PgPool::connect(&std::env::var("TEST_DATABASE_URL").unwrap())
+        .await
+        .unwrap();
+    assert!(
+        sqlx::query("UPDATE cost_assessments SET network_id='solana-mainnet' WHERE record_id=$1")
+            .bind(&record.record_id)
+            .execute(&pool)
+            .await
+            .is_err()
+    );
+    assert!(
+        sqlx::query("DELETE FROM cost_assessments WHERE record_id=$1")
+            .bind(&record.record_id)
+            .execute(&pool)
+            .await
+            .is_err()
+    );
+    let mut bad = record.assessment.clone();
+    bad.report.transaction_net = Some("999".parse().unwrap());
+    let digest = format!("{:x}", Sha256::digest(serde_json::to_vec(&bad).unwrap()));
+    let bad_id = Uuid::now_v7().to_string();
+    sqlx::query("INSERT INTO cost_assessments(record_id,operator_id,session_id,source_trace_id,observation_id,configuration_digest,experiment_id,network_id,idempotency_key,request_digest,payload_digest,payload) SELECT $2,operator_id,session_id,source_trace_id,observation_id,configuration_digest,experiment_id,network_id,'corrupt-copy',request_digest,$3,$4 FROM cost_assessments WHERE record_id=$1")
+        .bind(&record.record_id).bind(&bad_id).bind(digest).bind(serde_json::to_value(bad).unwrap()).execute(&pool).await.unwrap();
+    assert!(matches!(
+        store.get_cost_assessment(&operator, &id, &bad_id).await,
+        Err(StoreError::CorruptState)
+    ));
+    assert!(matches!(
+        store.export_session(&operator, &id).await,
+        Err(StoreError::CorruptState)
+    ));
+}
+#[tokio::test]
+async fn export_bound_includes_cost_assessment_rows_before_loading_them() {
+    let (store, operator, id, claim, generation) = setup().await;
+    let source = trace(&id, generation, 5001, "QUOTED");
+    store
+        .append_decision_traces(&claim, generation, std::slice::from_ref(&source))
+        .await
+        .unwrap();
+    let record = store
+        .create_cost_assessment(
+            &operator,
+            &id,
+            "original",
+            arb_storage::NewCostAssessment {
+                observation_id: source.observation_id,
+                scenario: manual_scenario(),
+            },
+        )
+        .await
+        .unwrap();
+    let pool = sqlx::PgPool::connect(&std::env::var("TEST_DATABASE_URL").unwrap())
+        .await
+        .unwrap();
+    // Deliberately tiny invalid payloads keep this below the byte bound. The
+    // sixth dataset's source-row bound must reject before any payload decoding.
+    sqlx::query("INSERT INTO cost_assessments(record_id,operator_id,session_id,source_trace_id,observation_id,configuration_digest,experiment_id,network_id,idempotency_key,request_digest,payload_digest,payload) SELECT $1||'-'||n::text,operator_id,session_id,source_trace_id,observation_id,configuration_digest,experiment_id,network_id,'bound-'||n::text,request_digest,payload_digest,'{}'::jsonb FROM cost_assessments CROSS JOIN generate_series(1,10000) n WHERE record_id=$1")
+        .bind(record.record_id).execute(&pool).await.unwrap();
+    assert!(matches!(
+        store.export_session(&operator, &id).await,
+        Err(StoreError::ExportLimitExceeded)
+    ));
+}
+
+#[tokio::test]
+async fn export_cost_payload_byte_bound_precedes_typed_decoding() {
+    let (store, operator, id, claim, generation) = setup().await;
+    let source = trace(&id, generation, 6001, "QUOTED");
+    store
+        .append_decision_traces(&claim, generation, std::slice::from_ref(&source))
+        .await
+        .unwrap();
+    let record = store
+        .create_cost_assessment(
+            &operator,
+            &id,
+            "original",
+            arb_storage::NewCostAssessment {
+                observation_id: source.observation_id,
+                scenario: manual_scenario(),
+            },
+        )
+        .await
+        .unwrap();
+    let pool = sqlx::PgPool::connect(&std::env::var("TEST_DATABASE_URL").unwrap())
+        .await
+        .unwrap();
+    // An isolated corrupt source fixture has only two rows, so the byte limit
+    // must reject before deserializing its deliberately invalid report shape.
+    sqlx::query("INSERT INTO cost_assessments(record_id,operator_id,session_id,source_trace_id,observation_id,configuration_digest,experiment_id,network_id,idempotency_key,request_digest,payload_digest,payload) SELECT $2,operator_id,session_id,source_trace_id,observation_id,configuration_digest,experiment_id,network_id,'oversized-copy',request_digest,payload_digest,jsonb_build_object('oversized_fixture',repeat('x',8388609)) FROM cost_assessments WHERE record_id=$1")
+        .bind(record.record_id).bind(Uuid::now_v7().to_string()).execute(&pool).await.unwrap();
+    assert!(matches!(
+        store.export_session(&operator, &id).await,
+        Err(StoreError::ExportLimitExceeded)
+    ));
+}

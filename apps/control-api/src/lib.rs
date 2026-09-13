@@ -362,6 +362,8 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/capabilities", get(capabilities))
         .route("/v1/sessions", get(list_sessions).post(create_session))
         .route("/v1/sessions/{session_id}", get(get_session))
+        .route("/v1/sessions/{session_id}/cost-assessments", get(research::list_cost_assessments).post(research::create_cost_assessment))
+        .route("/v1/sessions/{session_id}/cost-assessments/{record_id}", get(research::get_cost_assessment))
         .route("/v1/sessions/{session_id}/export", get(research::export_session))
         .route("/v1/sessions/{session_id}/collection-coverage", get(research::collection_coverage))
         .route("/v1/sessions/{session_id}/collection-attempts", get(research::collection_attempts))
@@ -752,7 +754,7 @@ async fn health(
 }
 async fn capabilities(State(state): State<AppState>) -> Json<serde_json::Value> {
     Json(
-        serde_json::json!({"modes":["OBSERVE","PAPER","REPLAY"], "live_execution":false, "market_data":false, "opportunity_capture":false, "decision_history":true, "collection_telemetry":true, "session_export":true, "paper_ledger":true, "paper_run_creation":true, "command_application":"WORKER_ACK_REQUIRED", "registered_configurations":state.0.config.configurations}),
+        serde_json::json!({"modes":["OBSERVE","PAPER","REPLAY"], "live_execution":false, "market_data":false, "opportunity_capture":false, "decision_history":true, "collection_telemetry":true, "session_export":true, "cost_assessments":true, "paper_ledger":true, "paper_run_creation":true, "command_application":"WORKER_ACK_REQUIRED", "registered_configurations":state.0.config.configurations}),
     )
 }
 fn idempotency(headers: &HeaderMap, id: &RequestId) -> Result<String, ApiError> {

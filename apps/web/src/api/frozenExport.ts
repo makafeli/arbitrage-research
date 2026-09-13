@@ -1,3 +1,5 @@
+import { parseCostAssessment, requireCostDecision, verifyCostAssessment } from './costs.ts';
+import type { StoredCostAssessment } from './costs.ts';
 import { parseSession } from './client.ts';
 import type { Session } from './client.ts';
 import { parseCollectionAttempt } from './collection.ts';
@@ -18,20 +20,20 @@ export type ExportCommand = { kind: 'INITIALIZE'; balances: InitialBalance[] }
 export interface ExportJournal extends Omit<JournalRecord, 'event'> {
   source_payload_sha256: string; event: Omit<JournalRecord['event'], 'command'> & { command: ExportCommand };
 }
-export const exportSourceKeys = ['decisions', 'paper_runs', 'paper_journal_events', 'capture_catalog_entries', 'collection_attempts'] as const;
+export const exportSourceKeys = ['decisions', 'paper_runs', 'paper_journal_events', 'capture_catalog_entries', 'collection_attempts', 'cost_assessments'] as const;
 const methodValues = {
-  amounts: 'BASE_UNIT_INTEGER_STRINGS', asset_decimals: 'NOT_RETAINED_IN_DATABASE', costs: 'UNKNOWN_COSTS_REMAIN_NULL',
+  amounts: 'BASE_UNIT_INTEGER_STRINGS', asset_decimals: 'NOT_RETAINED_IN_DATABASE', costs: 'QUOTED_COSTS_UNKNOWN_MANUAL_ASSESSMENTS_SEPARATE',
   configuration_snapshot: 'DIGEST_ONLY', raw_artifacts: 'REFERENCED_NOT_INCLUDED_OR_VERIFIED',
   hash_format: 'SHA256_SORTED_KEY_COMPACT_JSON_SNAPSHOT_METHODOLOGY_DATA_V1', journal_projection: 'REDACTED_REPLAYABLE_ACCOUNTING_PROJECTION',
   execution_authorized: false, max_source_rows: '10000', max_bytes: '8388608',
 } as const;
 export interface FrozenExport {
-  schema_version: '1.0.0'; export_id: string; exported_at: string; content_sha256: string;
+  schema_version: '1.1.0'; export_id: string; exported_at: string; content_sha256: string;
   snapshot: { isolation: 'REPEATABLE_READ'; scope: 'COMPLETE_STORED_SESSION'; collection_completeness: 'UNKNOWN'; source_counts: Record<typeof exportSourceKeys[number], string> };
   methodology: typeof methodValues;
   data: { session: Session; experiment_id: string; strategy_ids: string[]; decision_coverage: Coverage;
     decisions: StoredDecision[]; paper_runs: { run: PaperRunRecord; journal: ExportJournal[]; reservations: ReservationRecord[] }[];
-    capture_dependencies: CaptureDependency[]; collection_attempts: CollectionAttempt[] };
+    capture_dependencies: CaptureDependency[]; collection_attempts: CollectionAttempt[]; cost_assessments: StoredCostAssessment[] };
 }
 function digest(value: unknown): value is string { return typeof value === 'string' && /^sha256:[a-f0-9]{64}$/.test(value); }
 function date(value: unknown): value is string { return text(value) && Number.isFinite(Date.parse(value)); }
@@ -78,7 +80,7 @@ export function canonicalExportContent(value: Pick<FrozenExport, 'snapshot' | 'm
 export function parseFrozenExport(value: unknown): FrozenExport {
   requireValue(new TextEncoder().encode(JSON.stringify(value)).length <= MAX_FROZEN_EXPORT_BYTES, 'Frozen export exceeds the 8 MiB response bound.');
   const v = record(value), s = record(v.snapshot), counts = record(s.source_counts), m = record(v.methodology), d = record(v.data);
-  requireValue(v.schema_version === '1.0.0' && text(v.export_id) && date(v.exported_at) && digest(v.content_sha256));
+  requireValue(v.schema_version === '1.1.0' && text(v.export_id) && date(v.exported_at) && digest(v.content_sha256));
   requireValue(s.isolation === 'REPEATABLE_READ' && s.scope === 'COMPLETE_STORED_SESSION' && s.collection_completeness === 'UNKNOWN');
   const source_counts = {} as FrozenExport['snapshot']['source_counts'];
   for (const key of exportSourceKeys) { requireValue(unsigned(counts[key])); source_counts[key] = counts[key]; }
@@ -100,6 +102,7 @@ export function parseFrozenExport(value: unknown): FrozenExport {
     return { run, journal, reservations }; });
   const capture_dependencies = list(d.capture_dependencies, MAX_FROZEN_EXPORT_ROWS * 3).map(parseCaptureDependency);
   const collection_attempts = list(d.collection_attempts).map(parseCollectionAttempt);
+  const cost_assessments = list(d.cost_assessments).map(parseCostAssessment);
   requireValue(decisions.every(item => item.trace.session_id === session.session_id && item.trace.network_id === session.network_id && item.trace.configuration_digest === session.configuration_digest && item.trace.experiment_id === d.experiment_id));
   requireValue(paper_runs.every(item => item.run.session_id === session.session_id && item.run.network_id === session.network_id && item.run.configuration_digest === session.configuration_digest));
   requireValue(collection_attempts.every(item => item.session_id === session.session_id && item.network_id === session.network_id && item.configuration_digest === session.configuration_digest && item.experiment_id === d.experiment_id));
@@ -107,17 +110,24 @@ export function parseFrozenExport(value: unknown): FrozenExport {
   requireValue(source_counts.decisions === String(decisions.length) && source_counts.paper_runs === String(paper_runs.length)
     && source_counts.paper_journal_events === String(paper_runs.reduce((sum, run) => sum + run.journal.length, 0))
     && source_counts.capture_catalog_entries === String(capture_dependencies.filter(dep => dep.catalog_status === 'PRESENT').length)
-    && source_counts.collection_attempts === String(collection_attempts.length), 'Frozen export source counts do not match its records.');
+    && source_counts.collection_attempts === String(collection_attempts.length)
+    && source_counts.cost_assessments === String(cost_assessments.length), 'Frozen export source counts do not match its records.');
   const dependencies = new Map(capture_dependencies.map(dep => [JSON.stringify([dep.capture_id, dep.manifest_digest]), new Set(dep.snapshot_ids)]));
   requireValue(dependencies.size === capture_dependencies.length, 'Frozen export repeats a capture dependency.');
   requireValue(decisions.every(item => item.trace.capture_refs.every(ref => dependencies.get(JSON.stringify([ref.capture_id, ref.manifest_digest]))?.has(ref.snapshot_id))), 'Frozen export omits a decision capture dependency.');
   const observations = new Map(decisions.map(item => [item.trace.observation_id, item.trace]));
   requireValue(observations.size === decisions.length, 'Frozen export repeats an observation.');
   requireValue(collection_attempts.every(attempt => attempt.decision_observation_ids.every(id => observations.get(id)?.generation === attempt.generation)), 'Frozen export collection attempts reference absent or mismatched decisions.');
-  const result: FrozenExport = { schema_version: '1.0.0', export_id: v.export_id, exported_at: v.exported_at, content_sha256: v.content_sha256,
+  requireValue(new Set(cost_assessments.map(item => item.record_id)).size === cost_assessments.length, 'Frozen export repeats a cost assessment.');
+  const decisionRecords = new Map(decisions.map(item => [item.trace.observation_id, item]));
+  for (const item of cost_assessments) {
+    const source = decisionRecords.get(item.assessment.binding.observation_id);
+    requireValue(source, 'Frozen export omits a cost assessment source decision.'); requireCostDecision(item, source);
+  }
+  const result: FrozenExport = { schema_version: '1.1.0', export_id: v.export_id, exported_at: v.exported_at, content_sha256: v.content_sha256,
     snapshot: { isolation: 'REPEATABLE_READ', scope: 'COMPLETE_STORED_SESSION', collection_completeness: 'UNKNOWN', source_counts },
     methodology: { ...methodValues }, data: { session: projectedSession, experiment_id: d.experiment_id, strategy_ids: texts(d.strategy_ids, 128),
-      decision_coverage: coverage, decisions, paper_runs, capture_dependencies, collection_attempts } };
+      decision_coverage: coverage, decisions, paper_runs, capture_dependencies, collection_attempts, cost_assessments } };
   // Unknown fields cannot be silently dropped under an unchanged source digest.
   requireValue(canonicalExportContent(result) === canonicalExportContent({ snapshot: s, methodology: m, data: d } as unknown as FrozenExport), 'Frozen export contains unsupported fields; no download was prepared.');
   return result;
@@ -126,5 +136,6 @@ export async function verifyFrozenExport(value: FrozenExport): Promise<FrozenExp
   const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonicalExportContent(value)));
   const actual = 'sha256:' + Array.from(new Uint8Array(hash), byte => byte.toString(16).padStart(2, '0')).join('');
   requireValue(actual === value.content_sha256, 'Frozen export content digest does not match the received snapshot.');
+  for (const item of value.data.cost_assessments) await verifyCostAssessment(item);
   return value;
 }

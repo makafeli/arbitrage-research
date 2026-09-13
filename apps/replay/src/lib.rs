@@ -93,12 +93,15 @@ fn verify_loaded(bundle: &LoadedBundle) -> Result<Value, CaptureError> {
     }
     if (recorded_config.is_some() || document.format() == arb_registry::DocumentFormat::PoolSetV1)
         && bundle.manifest.adapter_version != document.adapter_version()
+        && bundle.manifest.adapter_version != document.legacy_adapter_version()
     {
         return Err(CaptureError("unsupported registry capture format"));
     }
     let pool = expected["pool"]
         .as_str()
         .ok_or(CaptureError("snapshot has no pool identity"))?;
+    let batch = document.format() == arb_registry::DocumentFormat::PoolSetV1
+        && bundle.manifest.adapter_version == document.adapter_version();
     let actual = match document
         .select(pool)
         .map_err(|_| CaptureError("captured pool is absent from registry"))?
@@ -107,17 +110,52 @@ fn verify_loaded(bundle: &LoadedBundle) -> Result<Value, CaptureError> {
             if bundle.manifest.adapter_source_commit != arb_evm::SOURCE_COMMIT {
                 return Err(CaptureError("unsupported Base adapter source revision"));
             }
-            let snapshot = arb_evm::capture_pool(&mut rpc, registry, bundle.manifest.created_at_ms)
-                .map_err(|_| CaptureError("Base transcript replay failed"))?;
+            let snapshot = if batch {
+                let registries = document
+                    .pools()
+                    .iter()
+                    .map(|pool| match pool {
+                        PoolRegistry::Base(registry) => Ok(registry.clone()),
+                        _ => Err(CaptureError("mixed replay registry networks")),
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                let snapshots =
+                    arb_evm::capture_pools(&mut rpc, &registries, bundle.manifest.created_at_ms)
+                        .map_err(|_| CaptureError("Base batch transcript replay failed"))?;
+                snapshots
+                    .into_iter()
+                    .find(|snapshot| snapshot.pool.eq_ignore_ascii_case(pool))
+                    .ok_or(CaptureError("captured pool missing from replayed batch"))?
+            } else {
+                arb_evm::capture_pool(&mut rpc, registry, bundle.manifest.created_at_ms)
+                    .map_err(|_| CaptureError("Base transcript replay failed"))?
+            };
             serde_json::to_value(snapshot).map_err(|_| CaptureError("snapshot encoding failed"))?
         }
         PoolRegistry::Solana(registry) => {
             if bundle.manifest.adapter_source_commit != arb_solana::SOURCE_COMMIT {
                 return Err(CaptureError("unsupported Solana adapter source revision"));
             }
-            let snapshot =
+            let snapshot = if batch {
+                let registries = document
+                    .pools()
+                    .iter()
+                    .map(|pool| match pool {
+                        PoolRegistry::Solana(registry) => Ok(registry.clone()),
+                        _ => Err(CaptureError("mixed replay registry networks")),
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                let snapshots =
+                    arb_solana::capture_pools(&mut rpc, &registries, bundle.manifest.created_at_ms)
+                        .map_err(|_| CaptureError("Solana batch transcript replay failed"))?;
+                snapshots
+                    .into_iter()
+                    .find(|snapshot| snapshot.pool == pool)
+                    .ok_or(CaptureError("captured pool missing from replayed batch"))?
+            } else {
                 arb_solana::capture_pool(&mut rpc, registry, bundle.manifest.created_at_ms)
-                    .map_err(|_| CaptureError("Solana transcript replay failed"))?;
+                    .map_err(|_| CaptureError("Solana transcript replay failed"))?
+            };
             serde_json::to_value(snapshot).map_err(|_| CaptureError("snapshot encoding failed"))?
         }
     };

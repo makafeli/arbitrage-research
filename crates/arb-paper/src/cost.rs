@@ -114,12 +114,14 @@ pub enum OverheadAllocation {
         reason: String,
     },
 }
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ValuedExpense {
     pub expense: Expense,
     pub in_start_asset: Option<AtomicAmount>,
 }
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CostReport {
     pub starting_asset: AssetId,
     pub gross_after_quote_included_costs: SignedAmount,
@@ -218,6 +220,12 @@ pub fn evaluate_costs(
                         reference,
                         valued_at_unix_ms,
                     } => {
+                        if asset == &AccountingAsset::Token(quote.starting_asset.clone()) {
+                            return Err(paper_error(
+                                "expenses.valuation",
+                                "identical token currencies require same-asset valuation",
+                            ));
+                        }
                         if numerator.is_zero()
                             || denominator.is_zero()
                             || reference.trim().is_empty()

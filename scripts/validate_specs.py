@@ -141,6 +141,44 @@ export=json.loads((root/'specs/research-export.example.json').read_text())
 for name,value in [('CollectionAttempt',collection['attempt']),('CollectionCoverage',collection['coverage']),('ResearchExport',export)]:check(api['components']['schemas'][name],value)
 canonical=json.dumps({k:export[k] for k in ['snapshot','methodology','data']},sort_keys=True,separators=(',',':'),ensure_ascii=False).encode('utf-8')
 assert export['content_sha256']=='sha256:'+hashlib.sha256(canonical).hexdigest()
+cost=json.loads((root/'specs/cost-assessment.example.json').read_text())
+for name,value in [('StoredDecisionTrace',cost['source_decision']),('NewCostAssessment',cost['request']),('StoredCostAssessment',cost['record'])]:check(api['components']['schemas'][name],value)
+def canonical_digest(value):
+ return 'sha256:'+hashlib.sha256(json.dumps(value,sort_keys=True,separators=(',',':'),ensure_ascii=False).encode('utf-8')).hexdigest()
+assessment=cost['record']['assessment']; trace=cost['source_decision']['trace']
+assert trace['observation_id']==canonical_digest({k:v for k,v in trace.items() if k!='observation_id'})
+assert assessment['binding']['decision_digest']==canonical_digest(trace)
+assert assessment['scenario_digest']==canonical_digest(cost['request']['scenario'])
+assert assessment['assessment_id']==canonical_digest(dict(assessment,assessment_id=''))
+assert assessment['binding']['observation_id']==cost['request']['observation_id']==trace['observation_id']
+converted=[]
+for entry in assessment['report']['expenses']:
+ native=entry['expense']['amount']; valuation=native['valuation']; amount=int(native['amount'])
+ value=amount if valuation['kind']=='SAME_ASSET' else (amount*int(valuation['numerator'])+int(valuation['denominator'])-1)//int(valuation['denominator'])
+ assert str(value)==entry['in_start_asset']; converted.append(value)
+gross=int(trace['result']['quoted_output_minor'])-int(trace['amount_in_minor'])
+assert str(gross)==assessment['report']['gross_after_quote_included_costs']
+assert str(gross-sum(converted))==assessment['report']['transaction_net']=='-2001'
+assert str(gross-sum(converted)-int(assessment['scenario']['overhead']['amount_in_start_asset']))==assessment['report']['fully_allocated_net']=='-2501'
+assert assessment['evidence']=='CANDIDATE' and not assessment['report']['incomplete_reasons']
+for name,label,source,mutate in [
+ ('NewCostAssessment','cost-client-quote-override',cost['request'],lambda x:x.update(quoted_output_minor='999999')),
+ ('NewCostAssessment','cost-numeric-amount',cost['request'],lambda x:x['scenario']['expenses'][0]['amount'].update(amount=100)),
+ ('NewCostAssessment','cost-provider-url-reference',cost['request'],lambda x:x['scenario'].update(provenance_reference='https://credential.invalid/token')),
+ ('NewCostAssessment','cost-malformed-sha-reference',cost['request'],lambda x:x['scenario'].update(provenance_reference='sha256:abc')),
+ ('NewCostAssessment','cost-false-recorded-origin',cost['request'],lambda x:x['scenario'].update(origin='RECORDED_LIVE')),
+ ('NewCostAssessment','cost-zero-conversion-denominator',cost['request'],lambda x:x['scenario']['expenses'][0]['amount']['valuation'].update(denominator='0')),
+ ('NewCostAssessment','cost-token-labelled-native-fee',cost['request'],lambda x:x['scenario']['expenses'][0]['amount'].update(asset={'kind':'TOKEN','identity':assessment['binding']['starting_asset']})),
+ ('NewCostAssessment','cost-unbounded-valuation-age',cost['request'],lambda x:x['scenario'].update(valuation_max_age_ms=86400001)),
+ ('StoredCostAssessment','cost-false-simulation-evidence',cost['record'],lambda x:x['assessment'].update(evidence='SIMULATED')),
+ ('StoredCostAssessment','cost-unexpected-secret-field',cost['record'],lambda x:x['assessment'].update(private_key='REJECTED_FIXTURE_FIELD')),
+ ('ResearchExport','export-missing-cost-dataset',export,lambda x:x['data'].pop('cost_assessments')),
+ ('ResearchExport','export-missing-cost-count',export,lambda x:x['snapshot']['source_counts'].pop('cost_assessments')),
+]:
+ bad=copy.deepcopy(source);mutate(bad)
+ try:check(api['components']['schemas'][name],bad)
+ except AssertionError:negatives.append(label)
+ else:raise AssertionError('negative example accepted: '+label)
 for name,label,source,mutate in [
  ('CollectionAttempt','collection-numeric-generation',collection['attempt'],lambda x:x.update(generation=1)),
  ('CollectionAttempt','collection-in-progress-success-count',collection['attempt'],lambda x:x.update(decision_rows='1')),

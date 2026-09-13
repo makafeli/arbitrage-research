@@ -33,7 +33,7 @@ PR [#90](https://github.com/makafeli/arbitrage-research/pull/90) adds durable co
 
 [Collection/export verification](docs/18-COLLECTION-AND-EXPORT-VERIFICATION.md) records durable acquisition/evaluation outcomes, consistent bounded JSON/CSV session exports and connected System diagnostics. PR #89 remains the earlier captured-research baseline. Match the latest record's tested commit to the branch before claiming acceptance.
 
-The next usable-market milestone requires qualified providers/pools, a common multi-pool acquisition anchor and chain-lag evidence. Complete atomic transaction simulation, explicit costs/inclusion assumptions and scenario-driven paper settlement remain necessary for executable paper research. A gross route quote or virtual opening balance establishes neither profitable arbitrage nor a simulated complete transaction.
+Common multi-pool acquisition and immutable manual cost assessments are now implemented in the next cohort, described in [its verification record](docs/19-ANCHORED-CAPTURE-AND-COST-VERIFICATION.md). The next usable-market milestone still requires qualified providers/pools, chain-lag evidence and durable rollback/gap invalidation. Complete atomic transaction simulation, explicit costs/inclusion assumptions and scenario-driven paper settlement remain necessary for executable paper research. A gross route quote or virtual opening balance establishes neither profitable arbitrage nor a simulated complete transaction.
 
 ## External prerequisites
 

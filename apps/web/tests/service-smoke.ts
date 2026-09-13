@@ -2,6 +2,7 @@
 // The actual browser client is exercised through a Node cookie/Origin shim;
 // this verifies DTO and auth interoperability, not browser cookie enforcement.
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { ApiError, ControlApi } from '../src/api/client.ts';
 
 const service = new URL(process.env.ARB_API_SMOKE_URL ?? 'http://127.0.0.1:8080');
@@ -38,7 +39,7 @@ try {
   if (researchSmoke) {
     assert.equal(enabled.length, 1, 'Research smoke requires exactly one dedicated enabled configuration.');
     assert.equal(enabled[0].mode, 'OBSERVE'); assert.deepEqual(enabled[0].enabled_networks, ['base-mainnet']);
-    assert.equal(caps.collection_telemetry, true); assert.equal(caps.session_export, true);
+    assert.equal(caps.collection_telemetry, true); assert.equal(caps.session_export, true); assert.equal(caps.cost_assessments, true);
   } else assert.equal(enabled.length, 0, 'Smoke service must use disabled research configurations.');
   assert.equal(sessions.items.length, 0, 'Smoke service must use an isolated empty database.');
   assert.equal(opportunities.items.length, 0);
@@ -51,19 +52,24 @@ try {
     assert.equal(coverage.session_id, created.session_id); assert.equal(coverage.attempts_started, '0');
     assert.equal(coverage.collection_completeness, 'UNKNOWN'); assert.equal(coverage.denominator, 'RECORDED_COLLECTION_ATTEMPTS');
     assert.deepEqual(attempts, { items: [], next_cursor: null });
+    const costFixture = JSON.parse(readFileSync(new URL('../../../specs/cost-assessment.example.json', import.meta.url), 'utf8'));
+    assert.deepEqual(await api.costAssessments(created.session_id), { items: [], next_cursor: null });
+    await assert.rejects(api.createCostAssessment(created.session_id, costFixture.request, crypto.randomUUID()), e => e instanceof ApiError && e.status === 404);
+    // Successful assessment creation is covered by the real Rust HTTP/PG tests;
+    // this isolated service deliberately has no worker or seeded market evidence.
     // This uses the shipped client parser and browser-compatible SHA-256 verifier.
     const frozen = await api.frozenExport(created.session_id), second = await api.frozenExport(created.session_id);
     assert.equal(frozen.data.session.session_id, created.session_id); assert.equal(frozen.data.experiment_id, 'isolated-http-smoke');
-    assert.deepEqual(frozen.snapshot.source_counts, { decisions: '0', paper_runs: '0', paper_journal_events: '0', capture_catalog_entries: '0', collection_attempts: '0' });
+    assert.deepEqual(frozen.snapshot.source_counts, { decisions: '0', paper_runs: '0', paper_journal_events: '0', capture_catalog_entries: '0', collection_attempts: '0', cost_assessments: '0' });
     assert.equal(frozen.snapshot.collection_completeness, 'UNKNOWN'); assert.equal(frozen.content_sha256, second.content_sha256);
     assert.notEqual(frozen.export_id, second.export_id); assert.equal(frozen.data.decision_coverage.raw_observations, '0');
-    assert.deepEqual(frozen.data.collection_attempts, []); assert.deepEqual(frozen.data.capture_dependencies, []);
+    assert.equal(frozen.schema_version, '1.1.0'); assert.deepEqual(frozen.data.cost_assessments, []); assert.deepEqual(frozen.data.collection_attempts, []); assert.deepEqual(frozen.data.capture_dependencies, []);
     assert.equal(frozen.methodology.configuration_snapshot, 'DIGEST_ONLY'); assert.equal(frozen.methodology.execution_authorized, false);
     await assert.rejects(api.frozenExport('missing-smoke-session'), e => e instanceof ApiError && e.status === 404);
   }
   await api.logout();
   await assert.rejects(api.auth(), e => e instanceof ApiError && e.status === 401);
-  process.stdout.write('UI client / control API interoperability: PASS (auth, CSRF session, capabilities, empty records, rejected configuration' + (researchSmoke ? ', isolated OBSERVE creation without worker start, scoped collection telemetry, frozen export counts and repeated content digest' : '') + ', logout).\n');
+  process.stdout.write('UI client / control API interoperability: PASS (auth, CSRF session, capabilities, empty records, rejected configuration' + (researchSmoke ? ', isolated OBSERVE creation without worker start, scoped collection telemetry, empty cost history and missing-source rejection, six-dataset frozen export counts and repeated content digest' : '') + ', logout).\n');
 } finally {
   // Best-effort cleanup if an assertion failed before the explicit logout.
   if (cookie && cookie !== 'arb_session=') await api.logout().catch(() => {});

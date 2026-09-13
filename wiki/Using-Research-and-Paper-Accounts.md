@@ -38,6 +38,12 @@ In System, select the session to inspect its registered collection attempts. REA
 
 A zero-error count does not establish uninterrupted collection. The denominator is registered batches only, and the operational attempt record has no asserted market-input provenance. Check provider configuration, worker logs/heartbeat and capture files according to the named diagnostic. Automated alert delivery and complete chain-lag/queue/storage monitoring remain future acceptance work.
 
+## Assess hypothetical costs
+
+For a QUOTED observation, choose Assess hypothetical costs. Enter a named version of your manual assumptions, native fee amounts and exact historical valuation into the starting asset. Leave unavailable inputs missing; enter zero only when that is your explicit assumption. The valuation timestamp is checked against the original decision time, not the current clock. Funding and overhead are separately disclosed.
+
+Saving creates an immutable assessment with source and scenario hashes. The history retains exact positive, negative and unavailable results. Known manual costs remain CANDIDATE evidence and do not update the original quote or paper balance. If delivery is uncertain, retry the unchanged request using the retained idempotency key. A full reload loses browser pending state; inspect history before creating an equivalent new assessment. The bounded session export includes the stored assessments and their source decisions.
+
 ## Initialize virtual capital
 
 In Runs, choose a PAPER session in the Paper accounting workspace. The API must advertise account creation, expose the matching enabled configuration and observe the session as STOPPED. A concurrent pending command can block creation even when an earlier page still shows STOPPED.
@@ -50,7 +56,7 @@ If creation delivery is uncertain, retry the same request. The dashboard retains
 
 ## Export or replay evidence
 
-Page JSON buttons still export only their displayed scope. Use the session snapshot export to fetch all defined stored research records together, up to 10,000 source rows and 8 MiB. It includes decisions, paper runs and exact journal/account data, collection attempts and capture references from one consistent database snapshot. Both JSON and CSV downloads use that same fetched response. The snapshot hash and source counts support external checks; exceeding a bound refuses the whole export rather than silently truncating it.
+Page JSON buttons still export only their displayed scope. Use the session snapshot export to fetch all defined stored research records together, up to 10,000 source rows and 8 MiB. It includes decisions, paper runs and exact journal/account data, collection attempts, manual cost assessments and capture references from one consistent database snapshot. Both JSON and CSV downloads use that same fetched response. The snapshot hash and source counts support external checks; exceeding a bound refuses the whole export rather than silently truncating it.
 
 Paper journal freeform reasons are removed and command/attempt IDs become stable pseudonyms, with original payload hashes retained. Financial amounts remain exact strings. The CSV quotes separators/newlines and guards formula-leading scalar cells. Each payload_json cell contains its exact JSON record; parse it to recover authoritative identities and amounts without guessing which apostrophes are protective. Asset decimals are unavailable in the retained database model. Provider settings, authentication material, local paths and raw market files are excluded. Catalog PRESENT does not prove file availability or expiry: those remain NOT_VERIFIED/UNKNOWN until the actual raw bundle is checked. This is a frozen database export, not a complete historical replay package.
 
@@ -60,6 +66,6 @@ Offline replay separately verifies exact retained manifests, configuration, regi
 
 A controlled worker owns one network and captures 1–8 allowlisted pools in a batch, with at most 4,096 read requests, 64 MiB of retained responses, a five-second request timeout and a 60-second cumulative transport deadline. Evaluation also obeys a bounded processing deadline and the frozen freshness policy. These are limits, not achieved latency or provider reliability measurements.
 
-Each pool is captured independently. The engine rejects different full block/slot contexts; successful individual captures therefore do not guarantee a usable two-pool route. Capture receipt age does not establish chain-state lag. Deployed protocol/provider qualification, common acquisition anchors and a calibrated state-lag policy remain open acceptance work.
+Pool-set capture uses one finalized Base block hash for the complete batch, including a final canonical check, or one finalized Solana account-union response with at most 100 accounts. Each version-2 bundle preserves the complete original batch transcript; replay validates every selected pool. A common anchor does not qualify a provider or establish Solana bank/write coherence, chain-state lag or stream continuity. Those remain acceptance work.
 
 Capture quotas include old and incomplete bundles. Retention metadata does not automatically delete files. A healthy API, passing synthetic fixture or stored candidate is insufficient to claim an operating market campaign or positive returns.

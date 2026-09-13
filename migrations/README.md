@@ -6,6 +6,8 @@ Migration `0001_control.sql` creates immutable configuration snapshots, research
 
 Migration `0002_decisions_and_paper.sql` adds immutable decision traces and bounded virtual-accounting journals. Migration `0003_collection_attempts.sql` adds durable pre-I/O collection batch starts, immutable terminal telemetry and unique decision-to-batch associations. Earlier migration checksums remain unchanged. Collection IN_PROGRESS rows survive restart and restoration as unknown outcomes; never erase or auto-resolve them to improve coverage statistics. Collection telemetry is independent of financial/drain attempts and must not block or fabricate their reconciliation.
 
+Migration `0004_cost_assessments.sql` adds append-only manual cost assessments and a composite source-decision foreign key. It adds a supporting unique identity constraint to decision traces; earlier migration files and checksums remain unchanged. Assessments reference their original quote and retain scenario/report digests. The migration does not alter virtual balances, source quotes, worker state or execution capability. Apply migrations before starting the updated API. Deploy the API and dashboard together for export schema 1.1.0; older strict clients reject the added sixth dataset.
+
 ## Backup, rollback, and restore
 
 1. Stop API writes and fence/stop all cooperating research workers. A browser outage does not prove that a worker stopped. Preserve unresolved attempts and retain the journal.

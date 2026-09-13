@@ -6,7 +6,7 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub const WHIRLPOOL_PROGRAM: &str = "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc";
 pub const TOKEN_PROGRAM: &str = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
@@ -293,14 +293,106 @@ pub fn capture_pool(
     if accounts.len() != addresses.len() || accounts.iter().any(Value::is_null) {
         return Err(AdapterError("missing required Solana account"));
     }
-    let program = account_data(&accounts[5], UPGRADEABLE_LOADER, true)?;
+    decode_pool_accounts(
+        registry,
+        &accounts.iter().collect::<Vec<_>>(),
+        slot,
+        observed_at_ms,
+    )
+}
+
+/// Maximum pools and unique accounts admitted into one response. Chunking a
+/// larger request would lose the shared response context and is not permitted.
+pub const MAX_CAPTURE_POOLS: usize = 8;
+pub const MAX_CAPTURE_ACCOUNTS: usize = 100;
+
+/// Capture distinct pools using exactly one finalized getMultipleAccounts result.
+/// Shared program, mint and other accounts are requested only once, in order of
+/// first appearance. Internal references select each pool's accounts; the actual
+/// RPC response remains intact for recording/replay. A context slot still does
+/// not establish independent provider bank coherence, so quality stays unqualified.
+pub fn capture_pools(
+    rpc: &mut impl ReadRpc,
+    registries: &[PoolRegistry],
+    observed_at_ms: u64,
+) -> Result<Vec<PoolSnapshot>> {
+    if registries.is_empty() || registries.len() > MAX_CAPTURE_POOLS {
+        return Err(AdapterError("Solana capture batch requires 1..=8 pools"));
+    }
+    let genesis = &registries[0].expected_genesis_hash;
+    let mut pools = BTreeSet::new();
+    let mut addresses = Vec::new();
+    let mut positions = BTreeMap::new();
+    let mut pool_positions = Vec::with_capacity(registries.len());
+    for registry in registries {
+        registry.validate()?;
+        if &registry.expected_genesis_hash != genesis {
+            return Err(AdapterError(
+                "mixed Solana genesis identities in capture batch",
+            ));
+        }
+        if !pools.insert(&registry.pool) {
+            return Err(AdapterError("duplicate Solana capture pool"));
+        }
+        let mut selected = Vec::new();
+        for address in registry.addresses() {
+            let index = *positions.entry(address.clone()).or_insert_with(|| {
+                let index = addresses.len();
+                addresses.push(address);
+                index
+            });
+            selected.push(index);
+        }
+        pool_positions.push(selected);
+    }
+    if addresses.len() > MAX_CAPTURE_ACCOUNTS {
+        return Err(AdapterError(
+            "Solana capture batch exceeds 100 unique accounts",
+        ));
+    }
+    if rpc.call(ReadMethod::GetGenesisHash, json!([]))?.as_str() != Some(genesis.as_str()) {
+        return Err(AdapterError("Solana genesis identity mismatch"));
+    }
+    let response = rpc.call(
+        ReadMethod::GetMultipleAccounts,
+        json!([addresses,{"encoding":"base64","commitment":"finalized"}]),
+    )?;
+    let slot = response["context"]["slot"]
+        .as_u64()
+        .ok_or(AdapterError("missing Solana context slot"))?;
+    let accounts = response["value"]
+        .as_array()
+        .ok_or(AdapterError("missing Solana accounts"))?;
+    if accounts.len() != addresses.len() || accounts.iter().any(Value::is_null) {
+        return Err(AdapterError("missing required Solana account"));
+    }
+    registries
+        .iter()
+        .zip(pool_positions)
+        .map(|(registry, positions)| {
+            let selected = positions
+                .iter()
+                .map(|index| &accounts[*index])
+                .collect::<Vec<_>>();
+            decode_pool_accounts(registry, &selected, slot, observed_at_ms)
+        })
+        .collect()
+}
+
+fn decode_pool_accounts(
+    registry: &PoolRegistry,
+    accounts: &[&Value],
+    slot: u64,
+    observed_at_ms: u64,
+) -> Result<PoolSnapshot> {
+    let program = account_data(accounts[5], UPGRADEABLE_LOADER, true)?;
     if program.len() != 36
         || program[..4] != [2, 0, 0, 0]
         || pubkey(&program[4..36]) != registry.program_data
     {
         return Err(AdapterError("Whirlpool program data identity mismatch"));
     }
-    let program_data = account_data(&accounts[6], UPGRADEABLE_LOADER, false)?;
+    let program_data = account_data(accounts[6], UPGRADEABLE_LOADER, false)?;
     if program_data.len() < 45
         || program_data[..4] != [3, 0, 0, 0]
         || format!("sha256:{:x}", Sha256::digest(&program_data))
@@ -308,7 +400,7 @@ pub fn capture_pool(
     {
         return Err(AdapterError("Whirlpool program data hash mismatch"));
     }
-    let pool = decode_whirlpool(&account_data(&accounts[0], WHIRLPOOL_PROGRAM, false)?)?;
+    let pool = decode_whirlpool(&account_data(accounts[0], WHIRLPOOL_PROGRAM, false)?)?;
     if pool.whirlpools_config != registry.whirlpools_config
         || pool.mint_a != registry.mint_a
         || pool.mint_b != registry.mint_b
@@ -319,14 +411,14 @@ pub fn capture_pool(
     }
     for (index, mint) in [(1, &registry.mint_a), (2, &registry.mint_b)] {
         validate_vault(
-            &account_data(&accounts[index], TOKEN_PROGRAM, false)?,
+            &account_data(accounts[index], TOKEN_PROGRAM, false)?,
             mint,
             &registry.pool,
         )?;
     }
     for (index, decimals) in [(3, registry.decimals_a), (4, registry.decimals_b)] {
         validate_mint(
-            &account_data(&accounts[index], TOKEN_PROGRAM, false)?,
+            &account_data(accounts[index], TOKEN_PROGRAM, false)?,
             decimals,
         )?;
     }
@@ -334,7 +426,7 @@ pub fn capture_pool(
     let mut starts = BTreeSet::new();
     for (index, address) in registry.tick_arrays.iter().enumerate() {
         let mut array = decode_fixed_tick_array(
-            &account_data(&accounts[index + 7], WHIRLPOOL_PROGRAM, false)?,
+            &account_data(accounts[index + 7], WHIRLPOOL_PROGRAM, false)?,
             &registry.pool,
             pool.tick_spacing,
         )?;

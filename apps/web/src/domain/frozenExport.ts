@@ -27,7 +27,7 @@ export function frozenCsv(bundle: FrozenExport): string {
   }
   row('EXPORT_MANIFEST', source.export_id, '', { schema_version: source.schema_version, export_id: source.export_id,
     exported_at: source.exported_at, content_sha256: source.content_sha256, snapshot: source.snapshot, methodology: source.methodology,
-    csv_schema_version: '1.0.0', csv_notice: 'Each payload_json cell contains a lossless JSON record. Amounts are exact base-unit strings inside JSON. Do not infer decimals. Scalar formula guards may prefix an apostrophe; authoritative identities remain inside payload_json.' });
+    csv_schema_version: '1.1.0', csv_notice: 'Each payload_json cell contains a lossless JSON record. Amounts are exact base-unit strings inside JSON. Do not infer decimals. Scalar formula guards may prefix an apostrophe; authoritative identities remain inside payload_json.' });
   row('SESSION', sessionId, '', { session: source.data.session, experiment_id: source.data.experiment_id, strategy_ids: source.data.strategy_ids });
   row('DECISION_COVERAGE', sessionId, '', source.data.decision_coverage);
   for (const item of source.data.decisions) row('DECISION', item.trace.observation_id, sessionId, item);
@@ -38,5 +38,6 @@ export function frozenCsv(bundle: FrozenExport): string {
   }
   for (const item of source.data.capture_dependencies) row('CAPTURE_DEPENDENCY', item.capture_id, sessionId, item);
   for (const item of source.data.collection_attempts) row('COLLECTION_ATTEMPT', item.attempt_id, sessionId, item);
+  for (const item of source.data.cost_assessments) row('COST_ASSESSMENT', item.record_id, item.assessment.binding.observation_id, item);
   return lines.join('\r\n') + '\r\n';
 }

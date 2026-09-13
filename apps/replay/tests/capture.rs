@@ -236,12 +236,188 @@ fn pool_set_replay_selects_only_captured_pool_and_requires_its_format() {
         replay::verify_capture(&good, &hash, 101).unwrap()["verification"],
         "ACQUISITION_REDECODE_MATCHED"
     );
+    bundle.manifest.adapter_version = "arb_evm-pool-set-v2".into();
+    let mislabeled = source_path.with_extension("mislabeled-v2");
+    let hash = write_bundle(
+        &mislabeled,
+        bundle.manifest.clone(),
+        bundle.objects.clone(),
+        64 * 1024 * 1024,
+    )
+    .unwrap();
+    assert!(replay::verify_capture(&mislabeled, &hash, 101).is_err());
+    fs::remove_dir_all(mislabeled).unwrap();
     bundle.manifest.adapter_version = "arb_evm-v1".into();
     let wrong = source_path.with_extension("wrong-format");
     let hash = write_bundle(&wrong, bundle.manifest, bundle.objects, 64 * 1024 * 1024).unwrap();
     assert!(replay::verify_capture(&wrong, &hash, 101).is_err());
     for path in [source_path, good, wrong] {
         fs::remove_dir_all(path).unwrap();
+    }
+}
+
+/// Real-shaped synthetic batch transcripts are kept verbatim, including the
+/// Solana union account response and the Base shared anchor/final recheck.
+fn batch_fixture(chain: Chain, selected: usize) -> (PathBuf, String) {
+    let (registries, transcript, network) = match chain {
+        Chain::BaseMainnet => (
+            include_bytes!("../../../crates/arb-evm/tests/fixtures/batch-registries.json")
+                .as_slice(),
+            include_bytes!("../../../crates/arb-evm/tests/fixtures/batch-rpc.json").as_slice(),
+            arb_domain::NetworkId::BaseMainnet,
+        ),
+        Chain::SolanaMainnet => (
+            include_bytes!("../../../crates/arb-solana/tests/fixtures/batch-registries.json")
+                .as_slice(),
+            include_bytes!("../../../crates/arb-solana/tests/fixtures/batch-rpc.json").as_slice(),
+            arb_domain::NetworkId::SolanaMainnet,
+        ),
+    };
+    let (source, source_hash) = fixture(chain, |_, _| {});
+    let mut bundle = arb_capture::load_bundle(&source, Some(&source_hash), 101).unwrap();
+    let records: Vec<RpcRecord> = serde_json::from_slice(transcript).unwrap();
+    let mut rpc = TranscriptRpc::new(records.clone());
+    let snapshot = match chain {
+        Chain::BaseMainnet => serde_json::to_value(
+            arb_evm::capture_pools(
+                &mut rpc,
+                &serde_json::from_slice::<Vec<_>>(registries).unwrap(),
+                100,
+            )
+            .unwrap()
+            .remove(selected),
+        )
+        .unwrap(),
+        Chain::SolanaMainnet => serde_json::to_value(
+            arb_solana::capture_pools(
+                &mut rpc,
+                &serde_json::from_slice::<Vec<_>>(registries).unwrap(),
+                100,
+            )
+            .unwrap()
+            .remove(selected),
+        )
+        .unwrap(),
+    };
+    rpc.finish().unwrap();
+    let registry = serde_json::to_vec(&json!({
+        "schema_version": 1, "network_id": network,
+        "pools": serde_json::from_slice::<Value>(registries).unwrap()
+    }))
+    .unwrap();
+    bundle.manifest.adapter_version =
+        arb_registry::RegistryDocument::from_bytes(&registry, network)
+            .unwrap()
+            .adapter_version()
+            .into();
+    bundle.manifest.context = serde_json::from_value(snapshot["context"].clone()).unwrap();
+    bundle.manifest.coherent = snapshot["quality"]["coherent"].as_bool().unwrap();
+    bundle.manifest.last_sequence = records.len() as u64 - 1;
+    bundle.manifest.objects.clear();
+    for (name, bytes) in &mut bundle.objects {
+        match name.as_str() {
+            "registry.json" => *bytes = registry.clone(),
+            "rpc.json" => *bytes = transcript.to_vec(),
+            "snapshot.json" => *bytes = serde_json::to_vec(&snapshot).unwrap(),
+            _ => {}
+        }
+    }
+    let path = source.with_extension("batch-v2");
+    let hash = write_bundle(&path, bundle.manifest, bundle.objects, 64 * 1024 * 1024).unwrap();
+    fs::remove_dir_all(source).unwrap();
+    (path, hash)
+}
+
+#[test]
+fn shared_batch_replay_consumes_the_actual_full_transcript_for_either_selected_pool() {
+    for chain in [Chain::BaseMainnet, Chain::SolanaMainnet] {
+        for selected in [0, 1] {
+            let (path, hash) = batch_fixture(chain, selected);
+            let report = replay::verify_capture(&path, &hash, 101).unwrap();
+            let expected_records = if chain == Chain::SolanaMainnet { 2 } else { 29 };
+            assert_eq!(report["rpc_records_consumed"], expected_records);
+            assert_eq!(report["network_requests"], 0);
+            assert_eq!(report["origin"], "manually-constructed");
+            assert_eq!(report["paper_pnl_available"], false);
+            assert_eq!(report["quality"]["quote_implementation_qualified"], false);
+            let bundle = arb_capture::load_bundle(&path, Some(&hash), 101).unwrap();
+            let retained = &bundle
+                .objects
+                .iter()
+                .find(|(name, _)| name == "rpc.json")
+                .unwrap()
+                .1;
+            let expected = if chain == Chain::SolanaMainnet {
+                include_bytes!("../../../crates/arb-solana/tests/fixtures/batch-rpc.json")
+                    .as_slice()
+            } else {
+                include_bytes!("../../../crates/arb-evm/tests/fixtures/batch-rpc.json").as_slice()
+            };
+            assert_eq!(
+                retained, expected,
+                "original full RPC response bytes retained"
+            );
+            fs::remove_dir_all(path).unwrap();
+        }
+    }
+}
+
+#[test]
+fn shared_batch_replay_rejects_unselected_pool_corruption_and_unconsumed_calls() {
+    for chain in [Chain::BaseMainnet, Chain::SolanaMainnet] {
+        for append in [false, true] {
+            let (source, source_hash) = batch_fixture(chain, 0);
+            let mut bundle = arb_capture::load_bundle(&source, Some(&source_hash), 101).unwrap();
+            let entry = bundle
+                .objects
+                .iter_mut()
+                .find(|(name, _)| name == "rpc.json")
+                .unwrap();
+            let mut records: Vec<RpcRecord> = serde_json::from_slice(&entry.1).unwrap();
+            if append {
+                let mut extra = records.last().unwrap().clone();
+                extra.sequence = records.len() as u64;
+                let mut response: Value = serde_json::from_str(&extra.response).unwrap();
+                response["id"] = json!(extra.sequence);
+                extra.response = response.to_string();
+                records.push(extra);
+            } else if chain == Chain::SolanaMainnet {
+                // Last union account belongs only to the unselected second pool.
+                let record = records.last_mut().unwrap();
+                let mut response: Value = serde_json::from_str(&record.response).unwrap();
+                *response["result"]["value"]
+                    .as_array_mut()
+                    .unwrap()
+                    .last_mut()
+                    .unwrap() = Value::Null;
+                record.response = response.to_string();
+            } else {
+                let record = records
+                    .iter_mut()
+                    .find(|record| {
+                        record.method == arb_adapter_api::ReadMethod::EthGetCode
+                            && record.params[0] == "0x0404040404040404040404040404040404040404"
+                    })
+                    .unwrap();
+                let mut response: Value = serde_json::from_str(&record.response).unwrap();
+                response["result"] = json!("0x");
+                record.response = response.to_string();
+            }
+            entry.1 = serde_json::to_vec(&records).unwrap();
+            bundle.manifest.last_sequence = records.len() as u64 - 1;
+            bundle.manifest.objects.clear();
+            let path = source.with_extension("adversarial-batch");
+            let hash =
+                write_bundle(&path, bundle.manifest, bundle.objects, 64 * 1024 * 1024).unwrap();
+            let failure = replay::verify_capture(&path, &hash, 101).unwrap_err();
+            if append {
+                assert_eq!(failure.0, "replay left unconsumed RPC records");
+            } else {
+                assert!(failure.0.ends_with("batch transcript replay failed"));
+            }
+            fs::remove_dir_all(source).unwrap();
+            fs::remove_dir_all(path).unwrap();
+        }
     }
 }
 

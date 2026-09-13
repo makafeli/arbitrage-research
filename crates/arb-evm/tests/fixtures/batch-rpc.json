@@ -1,0 +1,404 @@
+[
+  {
+    "sequence": 0,
+    "method": "EthChainId",
+    "params": [],
+    "response": "{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":\"0x2105\"}"
+  },
+  {
+    "sequence": 1,
+    "method": "EthGetBlockByNumber",
+    "params": [
+      "finalized",
+      false
+    ],
+    "response": "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"number\":\"0x64\",\"hash\":\"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"parentHash\":\"0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"timestamp\":\"0x1\"}}"
+  },
+  {
+    "sequence": 2,
+    "method": "EthGetCode",
+    "params": [
+      "0x33128a8fc17869897dce68ed026d694621f6fdfd",
+      {
+        "blockHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "requireCanonical": true
+      }
+    ],
+    "response": "{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":\"0x6001\"}"
+  },
+  {
+    "sequence": 3,
+    "method": "EthGetCode",
+    "params": [
+      "0x0303030303030303030303030303030303030303",
+      {
+        "blockHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "requireCanonical": true
+      }
+    ],
+    "response": "{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":\"0x6002\"}"
+  },
+  {
+    "sequence": 4,
+    "method": "EthCall",
+    "params": [
+      {
+        "to": "0x0303030303030303030303030303030303030303",
+        "data": "0xc45a0155"
+      },
+      {
+        "blockHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "requireCanonical": true
+      }
+    ],
+    "response": "{\"jsonrpc\":\"2.0\",\"id\":4,\"result\":\"0x00000000000000000000000033128a8fc17869897dce68ed026d694621f6fdfd\"}"
+  },
+  {
+    "sequence": 5,
+    "method": "EthCall",
+    "params": [
+      {
+        "to": "0x0303030303030303030303030303030303030303",
+        "data": "0x0dfe1681"
+      },
+      {
+        "blockHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "requireCanonical": true
+      }
+    ],
+    "response": "{\"jsonrpc\":\"2.0\",\"id\":5,\"result\":\"0x0000000000000000000000000101010101010101010101010101010101010101\"}"
+  },
+  {
+    "sequence": 6,
+    "method": "EthCall",
+    "params": [
+      {
+        "to": "0x0303030303030303030303030303030303030303",
+        "data": "0xd21220a7"
+      },
+      {
+        "blockHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "requireCanonical": true
+      }
+    ],
+    "response": "{\"jsonrpc\":\"2.0\",\"id\":6,\"result\":\"0x0000000000000000000000000202020202020202020202020202020202020202\"}"
+  },
+  {
+    "sequence": 7,
+    "method": "EthCall",
+    "params": [
+      {
+        "to": "0x0303030303030303030303030303030303030303",
+        "data": "0xddca3f43"
+      },
+      {
+        "blockHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "requireCanonical": true
+      }
+    ],
+    "response": "{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":\"0x00000000000000000000000000000000000000000000000000000000000001f4\"}"
+  },
+  {
+    "sequence": 8,
+    "method": "EthCall",
+    "params": [
+      {
+        "to": "0x0303030303030303030303030303030303030303",
+        "data": "0xd0c93a7c"
+      },
+      {
+        "blockHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "requireCanonical": true
+      }
+    ],
+    "response": "{\"jsonrpc\":\"2.0\",\"id\":8,\"result\":\"0x000000000000000000000000000000000000000000000000000000000000000a\"}"
+  },
+  {
+    "sequence": 9,
+    "method": "EthCall",
+    "params": [
+      {
+        "to": "0x33128a8fc17869897dce68ed026d694621f6fdfd",
+        "data": "0x1698ee820000000000000000000000000101010101010101010101010101010101010101000000000000000000000000020202020202020202020202020202020202020200000000000000000000000000000000000000000000000000000000000001f4"
+      },
+      {
+        "blockHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "requireCanonical": true
+      }
+    ],
+    "response": "{\"jsonrpc\":\"2.0\",\"id\":9,\"result\":\"0x0000000000000000000000000303030303030303030303030303030303030303\"}"
+  },
+  {
+    "sequence": 10,
+    "method": "EthCall",
+    "params": [
+      {
+        "to": "0x0303030303030303030303030303030303030303",
+        "data": "0x3850c7bd"
+      },
+      {
+        "blockHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "requireCanonical": true
+      }
+    ],
+    "response": "{\"jsonrpc\":\"2.0\",\"id\":10,\"result\":\"0x0000000000000000000000000000000000000001000000000000000000000000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001\"}"
+  },
+  {
+    "sequence": 11,
+    "method": "EthCall",
+    "params": [
+      {
+        "to": "0x0303030303030303030303030303030303030303",
+        "data": "0x1a686502"
+      },
+      {
+        "blockHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "requireCanonical": true
+      }
+    ],
+    "response": "{\"jsonrpc\":\"2.0\",\"id\":11,\"result\":\"0x00000000000000000000000000000000000000000000000000000000000003e8\"}"
+  },
+  {
+    "sequence": 12,
+    "method": "EthCall",
+    "params": [
+      {
+        "to": "0x0303030303030303030303030303030303030303",
+        "data": "0x5339c296ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      },
+      {
+        "blockHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "requireCanonical": true
+      }
+    ],
+    "response": "{\"jsonrpc\":\"2.0\",\"id\":12,\"result\":\"0x0000000000000000000000000000000000000000000000000000000000000000\"}"
+  },
+  {
+    "sequence": 13,
+    "method": "EthCall",
+    "params": [
+      {
+        "to": "0x0303030303030303030303030303030303030303",
+        "data": "0x5339c2960000000000000000000000000000000000000000000000000000000000000000"
+      },
+      {
+        "blockHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "requireCanonical": true
+      }
+    ],
+    "response": "{\"jsonrpc\":\"2.0\",\"id\":13,\"result\":\"0x0000000000000000000000000000000000000000000000000000000000000001\"}"
+  },
+  {
+    "sequence": 14,
+    "method": "EthCall",
+    "params": [
+      {
+        "to": "0x0303030303030303030303030303030303030303",
+        "data": "0xf30dba930000000000000000000000000000000000000000000000000000000000000000"
+      },
+      {
+        "blockHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "requireCanonical": true
+      }
+    ],
+    "response": "{\"jsonrpc\":\"2.0\",\"id\":14,\"result\":\"0x00000000000000000000000000000000000000000000000000000000000003e8fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffc18000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001\"}"
+  },
+  {
+    "sequence": 15,
+    "method": "EthGetCode",
+    "params": [
+      "0x33128a8fc17869897dce68ed026d694621f6fdfd",
+      {
+        "blockHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "requireCanonical": true
+      }
+    ],
+    "response": "{\"jsonrpc\":\"2.0\",\"id\":15,\"result\":\"0x6001\"}"
+  },
+  {
+    "sequence": 16,
+    "method": "EthGetCode",
+    "params": [
+      "0x0404040404040404040404040404040404040404",
+      {
+        "blockHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "requireCanonical": true
+      }
+    ],
+    "response": "{\"jsonrpc\":\"2.0\",\"id\":16,\"result\":\"0x6002\"}"
+  },
+  {
+    "sequence": 17,
+    "method": "EthCall",
+    "params": [
+      {
+        "to": "0x0404040404040404040404040404040404040404",
+        "data": "0xc45a0155"
+      },
+      {
+        "blockHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "requireCanonical": true
+      }
+    ],
+    "response": "{\"jsonrpc\":\"2.0\",\"id\":17,\"result\":\"0x00000000000000000000000033128a8fc17869897dce68ed026d694621f6fdfd\"}"
+  },
+  {
+    "sequence": 18,
+    "method": "EthCall",
+    "params": [
+      {
+        "to": "0x0404040404040404040404040404040404040404",
+        "data": "0x0dfe1681"
+      },
+      {
+        "blockHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "requireCanonical": true
+      }
+    ],
+    "response": "{\"jsonrpc\":\"2.0\",\"id\":18,\"result\":\"0x0000000000000000000000000101010101010101010101010101010101010101\"}"
+  },
+  {
+    "sequence": 19,
+    "method": "EthCall",
+    "params": [
+      {
+        "to": "0x0404040404040404040404040404040404040404",
+        "data": "0xd21220a7"
+      },
+      {
+        "blockHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "requireCanonical": true
+      }
+    ],
+    "response": "{\"jsonrpc\":\"2.0\",\"id\":19,\"result\":\"0x0000000000000000000000000202020202020202020202020202020202020202\"}"
+  },
+  {
+    "sequence": 20,
+    "method": "EthCall",
+    "params": [
+      {
+        "to": "0x0404040404040404040404040404040404040404",
+        "data": "0xddca3f43"
+      },
+      {
+        "blockHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "requireCanonical": true
+      }
+    ],
+    "response": "{\"jsonrpc\":\"2.0\",\"id\":20,\"result\":\"0x0000000000000000000000000000000000000000000000000000000000000bb8\"}"
+  },
+  {
+    "sequence": 21,
+    "method": "EthCall",
+    "params": [
+      {
+        "to": "0x0404040404040404040404040404040404040404",
+        "data": "0xd0c93a7c"
+      },
+      {
+        "blockHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "requireCanonical": true
+      }
+    ],
+    "response": "{\"jsonrpc\":\"2.0\",\"id\":21,\"result\":\"0x000000000000000000000000000000000000000000000000000000000000000a\"}"
+  },
+  {
+    "sequence": 22,
+    "method": "EthCall",
+    "params": [
+      {
+        "to": "0x33128a8fc17869897dce68ed026d694621f6fdfd",
+        "data": "0x1698ee82000000000000000000000000010101010101010101010101010101010101010100000000000000000000000002020202020202020202020202020202020202020000000000000000000000000000000000000000000000000000000000000bb8"
+      },
+      {
+        "blockHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "requireCanonical": true
+      }
+    ],
+    "response": "{\"jsonrpc\":\"2.0\",\"id\":22,\"result\":\"0x0000000000000000000000000404040404040404040404040404040404040404\"}"
+  },
+  {
+    "sequence": 23,
+    "method": "EthCall",
+    "params": [
+      {
+        "to": "0x0404040404040404040404040404040404040404",
+        "data": "0x3850c7bd"
+      },
+      {
+        "blockHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "requireCanonical": true
+      }
+    ],
+    "response": "{\"jsonrpc\":\"2.0\",\"id\":23,\"result\":\"0x0000000000000000000000000000000000000001000000000000000000000000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001\"}"
+  },
+  {
+    "sequence": 24,
+    "method": "EthCall",
+    "params": [
+      {
+        "to": "0x0404040404040404040404040404040404040404",
+        "data": "0x1a686502"
+      },
+      {
+        "blockHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "requireCanonical": true
+      }
+    ],
+    "response": "{\"jsonrpc\":\"2.0\",\"id\":24,\"result\":\"0x00000000000000000000000000000000000000000000000000000000000003e8\"}"
+  },
+  {
+    "sequence": 25,
+    "method": "EthCall",
+    "params": [
+      {
+        "to": "0x0404040404040404040404040404040404040404",
+        "data": "0x5339c296ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      },
+      {
+        "blockHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "requireCanonical": true
+      }
+    ],
+    "response": "{\"jsonrpc\":\"2.0\",\"id\":25,\"result\":\"0x0000000000000000000000000000000000000000000000000000000000000000\"}"
+  },
+  {
+    "sequence": 26,
+    "method": "EthCall",
+    "params": [
+      {
+        "to": "0x0404040404040404040404040404040404040404",
+        "data": "0x5339c2960000000000000000000000000000000000000000000000000000000000000000"
+      },
+      {
+        "blockHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "requireCanonical": true
+      }
+    ],
+    "response": "{\"jsonrpc\":\"2.0\",\"id\":26,\"result\":\"0x0000000000000000000000000000000000000000000000000000000000000001\"}"
+  },
+  {
+    "sequence": 27,
+    "method": "EthCall",
+    "params": [
+      {
+        "to": "0x0404040404040404040404040404040404040404",
+        "data": "0xf30dba930000000000000000000000000000000000000000000000000000000000000000"
+      },
+      {
+        "blockHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "requireCanonical": true
+      }
+    ],
+    "response": "{\"jsonrpc\":\"2.0\",\"id\":27,\"result\":\"0x00000000000000000000000000000000000000000000000000000000000003e8fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffc18000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001\"}"
+  },
+  {
+    "sequence": 28,
+    "method": "EthGetBlockByNumber",
+    "params": [
+      "0x64",
+      false
+    ],
+    "response": "{\"jsonrpc\":\"2.0\",\"id\":28,\"result\":{\"number\":\"0x64\",\"hash\":\"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"parentHash\":\"0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"timestamp\":\"0x1\"}}"
+  }
+]

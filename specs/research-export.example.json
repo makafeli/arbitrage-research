@@ -1,8 +1,8 @@
 {
-  "schema_version": "1.0.0",
+  "schema_version": "1.1.0",
   "export_id": "00000000-0000-0000-0000-000000000002",
   "exported_at": "2026-09-12T12:00:00Z",
-  "content_sha256": "sha256:8af0152eb6a9f84d89d3b6e58d25fa138f77ba27cb24580ed69b9628fadf9f61",
+  "content_sha256": "sha256:010a647015335c5c9dd820b98309e9680cd1f3b19ab36a7d726129d426bc970e",
   "snapshot": {
     "isolation": "REPEATABLE_READ",
     "scope": "COMPLETE_STORED_SESSION",
@@ -12,13 +12,14 @@
       "paper_runs": "0",
       "paper_journal_events": "0",
       "capture_catalog_entries": "0",
-      "collection_attempts": "1"
+      "collection_attempts": "1",
+      "cost_assessments": "0"
     }
   },
   "methodology": {
     "amounts": "BASE_UNIT_INTEGER_STRINGS",
     "asset_decimals": "NOT_RETAINED_IN_DATABASE",
-    "costs": "UNKNOWN_COSTS_REMAIN_NULL",
+    "costs": "QUOTED_COSTS_UNKNOWN_MANUAL_ASSESSMENTS_SEPARATE",
     "configuration_snapshot": "DIGEST_ONLY",
     "raw_artifacts": "REFERENCED_NOT_INCLUDED_OR_VERIFIED",
     "hash_format": "SHA256_SORTED_KEY_COMPACT_JSON_SNAPSHOT_METHODOLOGY_DATA_V1",
@@ -82,6 +83,7 @@
         "started_at": "2026-09-12T12:00:00Z",
         "finished_at": null
       }
-    ]
+    ],
+    "cost_assessments": []
   }
 }

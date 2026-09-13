@@ -1,1 +1,3 @@
 These fixtures are manually constructed protocol-layout examples, not captured market data. All pool, token and program-data identities are fabricated. Never copy this registry into a production configuration. The fixture transcript checks exact request order and parameters, strict decoding, and fail-closed identity validation. Source layout provenance is documented in the crate README.
+
+`batch-registries.json` and `batch-rpc.json` are two-pool synthetic variants for the shared acquisition API. They retain exact full-batch request/response order; the Solana fixture has 12 unique accounts in one response. These are test inputs only, not recorded network evidence or provider qualification.
