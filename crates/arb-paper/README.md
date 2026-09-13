@@ -17,8 +17,9 @@ known zero with provenance when a scenario does not use an optional component.
 
 Native amounts retain their asset identity and exact units. A conversion declares
 starting-asset base units per expense-asset base units, timestamp and reference;
-cost conversion uses a 512-bit intermediate and rounds upward. Same-token costs can
-use direct unit identity. Missing fee, funding or valuation inputs produce no
+cost conversion uses a 512-bit intermediate and rounds upward. Costs in the exact
+starting token must use `SAME_ASSET`; a conversion ratio cannot discount or inflate
+the units of an identical currency. Missing fee, funding or valuation inputs produce no
 complete transaction-net result. The gross after quote-included costs remains
 available without implying complete execution economics.
 
@@ -27,6 +28,54 @@ Operating allocation requires a disclosed method, version and reference. An
 unallocated overhead has no fabricated zero allocation. Every result is denominated
 in its identified starting asset, with no guaranteed conversion from USDC units to
 USD. Negative outcomes and fees for modeled failed attempts remain visible.
+
+## Immutable manual cost assessments
+
+`assess_cost_scenario(&DecisionTrace, &CostScenario)` adds an explicitly
+`MANUALLY_CONSTRUCTED` scenario to one validated, sealed `QUOTED` decision. The
+caller supplies no replacement quote, network, starting asset or amount. Binding
+retains the observation, complete decision digest, session, experiment, generation,
+configuration and calculation versions, original dataset origin, network, asset,
+exact input/output and historical observation time. Even a recorded market quote
+with every declared cost known retains `CANDIDATE` evidence after assessment.
+
+The versioned scenario retains its name, version, provenance identifier, all
+expense declarations, funding assumption and overhead policy. Its maximum
+valuation age is 1–86,400,000 milliseconds. Known valuations must be positive in
+time, no later than the historical decision, and no older than that declared age.
+No wall clock or current market price can replace historical inputs. Amounts are
+canonical decimal strings, conversion ratios have positive exact numerator and
+denominator, and all typed request objects reject unknown fields. Scenario labels
+are bounded ASCII identifiers; references accept these identifiers or strict
+lowercase `sha256:` digests. They are not free text or provider URLs.
+
+All seven expense categories are bounded and unique. Base execution explicitly
+includes its priority portion; a separate priority component can only be omitted
+or declared zero. Solana base execution explicitly excludes its separately declared
+priority fee, while Base L1 data can only be omitted or declared zero on Solana.
+Execution, L1 data, priority and relay fee components require the network's native
+currency, distinct from wrapped tokens. Funding, account setup and other costs may
+use declared same-network native or token units. An account setup amount is a
+manual expense assumption; it does not model recoverable rent, refund timing or
+capital lockup.
+
+Every applicable omitted component—including relay, funding, setup and other
+costs—is retained in the report as `SCENARIO_COMPONENT_NOT_DECLARED` with an unknown
+value. The transaction net remains null until all applicable expenses and the
+funding assumption are known. Explicit zero has provenance and a valuation; zero
+with missing valuation remains unknown. An `OTHER` declaration is still the user's
+bounded assumption, not proof that every real protocol fee has been modeled.
+Overhead remains separate and produces no fully allocated net when not allocated
+or unknown. Negative net results are retained exactly.
+
+All hashes use SHA-256 over compact UTF-8 JSON with recursively sorted object keys;
+array order is retained. `scenario_digest` hashes the complete typed scenario and
+`binding.decision_digest` hashes the complete sealed trace, including its own
+observation identifier. `assessment_id` hashes the complete assessment with its
+`assessment_id` field set to the empty string. `CostAssessment::replay` validates
+the trace and recomputes every bound field, amount, unknown, digest, version and
+evidence label before exact comparison. Changing a retained report or replacing
+the decision with another sealed decision fails replay.
 
 ## Virtual inventory
 

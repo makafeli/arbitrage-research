@@ -142,7 +142,7 @@ jobs:
       - run: npm run build
       - run: npx playwright install --with-deps chromium
       - run: npm run test:browser
-      - name: Emit nine synthetic dashboard screenshots for visual review
+      - name: Emit twelve synthetic dashboard screenshots for visual review
         if: always()
         run: python ../../scripts/emit_ui_review.py
       - name: Preserve dashboard browser evidence and lockfile

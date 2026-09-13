@@ -1215,6 +1215,35 @@ async fn request_capacity_is_bounded_and_cancellation_releases_owned_permits() {
 
 #[async_trait]
 impl ResearchStore for MockStore {
+    async fn create_cost_assessment(
+        &self,
+        _operator: &str,
+        _session: &str,
+        _key: &str,
+        _input: arb_storage::NewCostAssessment,
+    ) -> Result<arb_storage::StoredCostAssessment, StoreError> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        Err(StoreError::NotFound)
+    }
+    async fn get_cost_assessment(
+        &self,
+        _operator: &str,
+        _session: &str,
+        _record_id: &str,
+    ) -> Result<arb_storage::StoredCostAssessment, StoreError> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        Err(StoreError::NotFound)
+    }
+    async fn list_cost_assessments(
+        &self,
+        _operator: &str,
+        _session: &str,
+        _cursor: Option<&str>,
+        _limit: u32,
+    ) -> Result<arb_storage::CostAssessmentPage, StoreError> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        Err(StoreError::NotFound)
+    }
     async fn export_session(
         &self,
         _operator: &str,
@@ -1367,6 +1396,8 @@ async fn research_routes_require_auth_and_keep_mutation_guards() {
         "/v1/sessions/x/export",
         "/v1/sessions/x/collection-coverage",
         "/v1/sessions/x/collection-attempts",
+        "/v1/sessions/x/cost-assessments",
+        "/v1/sessions/x/cost-assessments/00000000-0000-0000-0000-000000000000",
         "/v1/paper-runs/x",
         "/v1/paper-runs/x/journal",
         "/v1/paper-runs/x/reservations",
@@ -1430,6 +1461,10 @@ async fn research_page_and_paper_payload_bounds_fail_before_read_queries() {
         "/v1/sessions/x/collection-coverage?cursor=x",
         "/v1/sessions/x/collection-attempts?limit=101",
         "/v1/sessions/x/collection-attempts?cursor=bad",
+        "/v1/sessions/x/cost-assessments?limit=101",
+        "/v1/sessions/x/cost-assessments?cursor=bad",
+        "/v1/sessions/x/cost-assessments?network=base-mainnet",
+        "/v1/sessions/x/cost-assessments/bad",
     ] {
         let response = call(
             &app,
@@ -1965,7 +2000,7 @@ async fn postgres_decision_http_counts_rejections_without_undercounting_eligible
         configurations: vec![],
     };
     let app = router(AppState::new(store.clone(), settings()));
-    let (cookie, _csrf) = authenticate(&app).await;
+    let (cookie, csrf) = authenticate(&app).await;
     let coverage_path = format!("/v1/decision-coverage?session_id={}", session.session_id);
     let empty = value(
         call(
@@ -2101,6 +2136,140 @@ async fn postgres_decision_http_counts_rejections_without_undercounting_eligible
     assert_eq!(coverage["reconciled_transactions"], Value::Null);
     assert_eq!(coverage["execution_accounting_available"], false);
 
+    let cost_path = format!("/v1/sessions/{}/cost-assessments", session.session_id);
+    let cost_input = json!({"observation_id":quote.observation_id,"scenario":{
+        "schema_version":"1.0.0","scenario_id":"http-fixture","version":"v1","origin":"MANUALLY_CONSTRUCTED",
+        "provenance_reference":"synthetic-http-fixture","valuation_max_age_ms":1000,
+        "fee_composition":"BASE_EXECUTION_INCLUDES_PRIORITY","expenses":[],
+        "funding":{"status":"OWN_VIRTUAL_CAPITAL"},"overhead":{"status":"NOT_ALLOCATED"}
+    }});
+    let cost_key = format!("cost-http-{unique}");
+    let response = call(
+        &app,
+        Method::POST,
+        &cost_path,
+        Some(cost_input.clone()),
+        Some(&cookie),
+        Some(&csrf),
+        Some(ORIGIN),
+        Some(&cost_key),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let retained_cost = value(response).await;
+    assert_eq!(
+        retained_cost["assessment"]["report"]["gross_after_quote_included_costs"],
+        "-1"
+    );
+    assert_eq!(
+        retained_cost["assessment"]["report"]["transaction_net"],
+        Value::Null
+    );
+    let replay = call(
+        &app,
+        Method::POST,
+        &cost_path,
+        Some(cost_input.clone()),
+        Some(&cookie),
+        Some(&csrf),
+        Some(ORIGIN),
+        Some(&cost_key),
+    )
+    .await;
+    assert_eq!(replay.status(), StatusCode::CREATED);
+    assert_eq!(value(replay).await, retained_cost);
+    let mut changed = cost_input.clone();
+    changed["scenario"]["version"] = json!("v2");
+    assert_eq!(
+        call(
+            &app,
+            Method::POST,
+            &cost_path,
+            Some(changed),
+            Some(&cookie),
+            Some(&csrf),
+            Some(ORIGIN),
+            Some(&cost_key)
+        )
+        .await
+        .status(),
+        StatusCode::CONFLICT
+    );
+    let mut nonquote = cost_input.clone();
+    nonquote["observation_id"] = json!(rejected.observation_id);
+    assert_eq!(
+        call(
+            &app,
+            Method::POST,
+            &cost_path,
+            Some(nonquote),
+            Some(&cookie),
+            Some(&csrf),
+            Some(ORIGIN),
+            Some(&format!("rejected-cost-{unique}"))
+        )
+        .await
+        .status(),
+        StatusCode::BAD_REQUEST
+    );
+    let mut invalid_ratio = cost_input.clone();
+    invalid_ratio["scenario"]["expenses"] = json!([{
+        "kind":"OTHER","amount":{"status":"KNOWN","asset":{"kind":"TOKEN","identity":quote.route[0].asset_in},"amount":"100",
+        "valuation":{"kind":"RATIO","numerator":"1","denominator":"100","reference":"invalid-same-token-discount","valued_at_unix_ms":quote.observed_at_unix_ms}}
+    }]);
+    assert_eq!(
+        call(
+            &app,
+            Method::POST,
+            &cost_path,
+            Some(invalid_ratio),
+            Some(&cookie),
+            Some(&csrf),
+            Some(ORIGIN),
+            Some(&format!("invalid-ratio-{unique}"))
+        )
+        .await
+        .status(),
+        StatusCode::BAD_REQUEST
+    );
+    // The subsequent one-row history and export also prove failed assumptions
+    // created no sidecar, balances or paper journal and changed no source quote.
+    let page = value(
+        call(
+            &app,
+            Method::GET,
+            &cost_path,
+            None,
+            Some(&cookie),
+            None,
+            None,
+            None,
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(page["items"], json!([retained_cost.clone()]));
+    let cost_detail = format!(
+        "{cost_path}/{}",
+        retained_cost["record_id"].as_str().unwrap()
+    );
+    assert_eq!(
+        value(
+            call(
+                &app,
+                Method::GET,
+                &cost_detail,
+                None,
+                Some(&cookie),
+                None,
+                None,
+                None
+            )
+            .await
+        )
+        .await,
+        retained_cost
+    );
     let exported_response = call(
         &app,
         Method::GET,
@@ -2119,6 +2288,16 @@ async fn postgres_decision_http_counts_rejections_without_undercounting_eligible
     );
     let exported = value(exported_response).await;
     assert_eq!(exported["snapshot"]["source_counts"]["decisions"], "5");
+    assert_eq!(exported["schema_version"], "1.1.0");
+    assert_eq!(exported["data"]["paper_runs"], json!([]));
+    assert_eq!(
+        exported["snapshot"]["source_counts"]["cost_assessments"],
+        "1"
+    );
+    assert_eq!(
+        exported["data"]["cost_assessments"],
+        json!([retained_cost.clone()])
+    );
     assert_eq!(exported["data"]["decision_coverage"], coverage);
     assert_eq!(exported["data"]["decisions"].as_array().unwrap().len(), 5);
     assert_eq!(
@@ -2380,6 +2559,15 @@ async fn postgres_decision_http_counts_rejections_without_undercounting_eligible
         format!("/v1/opportunities?session_id={}", hidden_session.session_id),
         format!("/v1/sessions/{}/export", hidden_session.session_id),
         format!(
+            "/v1/sessions/{}/cost-assessments",
+            hidden_session.session_id
+        ),
+        format!(
+            "/v1/sessions/{}/cost-assessments/{}",
+            hidden_session.session_id,
+            retained_cost["record_id"].as_str().unwrap()
+        ),
+        format!(
             "/v1/sessions/{}/collection-coverage",
             hidden_session.session_id
         ),
@@ -2406,7 +2594,20 @@ async fn postgres_decision_http_counts_rejections_without_undercounting_eligible
         );
     }
     let restarted = router(AppState::new(store, settings()));
-    let (new_cookie, _) = authenticate(&restarted).await;
+    let (new_cookie, new_csrf) = authenticate(&restarted).await;
+    let cost_replay = call(
+        &restarted,
+        Method::POST,
+        &cost_path,
+        Some(cost_input),
+        Some(&new_cookie),
+        Some(&new_csrf),
+        Some(ORIGIN),
+        Some(&cost_key),
+    )
+    .await;
+    assert_eq!(cost_replay.status(), StatusCode::CREATED);
+    assert_eq!(value(cost_replay).await, retained_cost);
     let restored = value(
         call(
             &restarted,
@@ -2442,4 +2643,108 @@ fn opportunity_examples_preserve_legacy_and_explicit_unknown_net() {
         record.dataset_origin,
         Some(arb_domain::DatasetOrigin::Synthetic)
     );
+}
+
+#[tokio::test]
+async fn cost_assessment_http_rejects_auth_csrf_source_overrides_and_malformed_ids_before_storage()
+{
+    let (app, store) = setup();
+    let (cookie, csrf) = authenticate(&app).await;
+    let path = "/v1/sessions/x/cost-assessments";
+    let input = json!({"observation_id":format!("sha256:{}","a".repeat(64)),"scenario":{
+        "schema_version":"1.0.0","scenario_id":"manual","version":"v1","origin":"MANUALLY_CONSTRUCTED",
+        "provenance_reference":"operator-assumption","valuation_max_age_ms":1000,"fee_composition":"BASE_EXECUTION_INCLUDES_PRIORITY",
+        "expenses":[],"funding":{"status":"OWN_VIRTUAL_CAPITAL"},"overhead":{"status":"NOT_ALLOCATED"}
+    }});
+    assert_eq!(
+        call(
+            &app,
+            Method::POST,
+            path,
+            Some(input.clone()),
+            None,
+            None,
+            Some(ORIGIN),
+            Some("cost-security-key")
+        )
+        .await
+        .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    for (origin, token) in [
+        (Some("https://foreign.example"), Some(csrf.as_str())),
+        (Some(ORIGIN), None),
+    ] {
+        assert_eq!(
+            call(
+                &app,
+                Method::POST,
+                path,
+                Some(input.clone()),
+                Some(&cookie),
+                token,
+                origin,
+                Some("cost-security-key")
+            )
+            .await
+            .status(),
+            StatusCode::FORBIDDEN
+        );
+    }
+    assert_eq!(
+        call(
+            &app,
+            Method::POST,
+            path,
+            Some(input.clone()),
+            Some(&cookie),
+            Some(&csrf),
+            Some(ORIGIN),
+            None
+        )
+        .await
+        .status(),
+        StatusCode::BAD_REQUEST
+    );
+    let mut bad_id = input.clone();
+    bad_id["observation_id"] = json!("not-an-observation");
+    let mut override_quote = input.clone();
+    override_quote["quoted_output_minor"] = json!("999");
+    let mut override_evidence = input.clone();
+    override_evidence["scenario"]["evidence"] = json!("REALIZED");
+    let mut oversized = input.clone();
+    oversized["scenario"]["provenance_reference"] = json!("x".repeat(17 * 1024));
+    for bad in [bad_id, override_quote, override_evidence, oversized] {
+        assert_eq!(
+            call(
+                &app,
+                Method::POST,
+                path,
+                Some(bad),
+                Some(&cookie),
+                Some(&csrf),
+                Some(ORIGIN),
+                Some("cost-security-key")
+            )
+            .await
+            .status(),
+            StatusCode::BAD_REQUEST
+        );
+    }
+    assert_eq!(
+        call(
+            &app,
+            Method::POST,
+            &format!("{path}?network=solana-mainnet"),
+            Some(input),
+            Some(&cookie),
+            Some(&csrf),
+            Some(ORIGIN),
+            Some("cost-security-key")
+        )
+        .await
+        .status(),
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(store.calls.load(Ordering::SeqCst), 0);
 }

@@ -179,8 +179,17 @@ impl RegistryDocument {
         match (self.network, self.format) {
             (NetworkId::BaseMainnet, DocumentFormat::LegacySinglePool) => "arb_evm-v1",
             (NetworkId::SolanaMainnet, DocumentFormat::LegacySinglePool) => "arb_solana-v1",
+            (NetworkId::BaseMainnet, DocumentFormat::PoolSetV1) => "arb_evm-pool-set-v2",
+            (NetworkId::SolanaMainnet, DocumentFormat::PoolSetV1) => "arb_solana-pool-set-v2",
+        }
+    }
+    /// Historical pool-set captures retained an independent transcript per pool.
+    /// Registry schema remains v1; the adapter version distinguishes acquisition.
+    pub fn legacy_adapter_version(&self) -> &'static str {
+        match (self.network, self.format) {
             (NetworkId::BaseMainnet, DocumentFormat::PoolSetV1) => "arb_evm-pool-set-v1",
             (NetworkId::SolanaMainnet, DocumentFormat::PoolSetV1) => "arb_solana-pool-set-v1",
+            _ => self.adapter_version(),
         }
     }
     pub fn authorize(&self, config: &ValidatedConfig) -> Result<(), RegistryError> {
@@ -246,6 +255,8 @@ mod tests {
         let set = RegistryDocument::from_bytes(&bytes, NetworkId::BaseMainnet).unwrap();
         assert_eq!(set.format(), DocumentFormat::PoolSetV1);
         assert_eq!(set.digest(), arb_capture::digest(&bytes));
+        assert_eq!(set.adapter_version(), "arb_evm-pool-set-v2");
+        assert_eq!(set.legacy_adapter_version(), "arb_evm-pool-set-v1");
         assert_ne!(set.adapter_version(), legacy.adapter_version());
         assert_eq!(set.pools().len(), 2);
         assert_eq!(

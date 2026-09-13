@@ -1,3 +1,5 @@
+import { canonicalCostJson, parseCostAssessment, verifyCostAssessment } from './costs.ts';
+import type { CostAssessmentRequest } from './costs.ts';
 import { parseAsset, parseCoverage, parseDecision, parseGroup, parseJournal, parsePaperRun, parseReservation } from './research.ts';
 import type { AccountingAsset, InitialBalance } from './research.ts';
 import { parseCollectionAttempt, parseCollectionCoverage } from './collection.ts';
@@ -24,7 +26,7 @@ export interface Configuration {
 export interface Capabilities {
   modes: ResearchMode[]; live_execution: boolean; market_data: boolean; opportunity_capture: boolean;
   registered_configurations: Configuration[]; command_application?: string;
-  decision_history?: boolean; paper_ledger?: boolean; paper_run_creation?: boolean; collection_telemetry?: boolean; session_export?: boolean;
+  decision_history?: boolean; paper_ledger?: boolean; paper_run_creation?: boolean; collection_telemetry?: boolean; session_export?: boolean; cost_assessments?: boolean;
 }
 export interface CreateSession {
   network_id: Network; mode: ResearchMode; configuration_digest: string; experiment_id: string; strategy_ids: string[];
@@ -119,7 +121,7 @@ function parseCapabilities(value: unknown): Capabilities {
   const v = object(value);
   assert(Array.isArray(v.modes) && v.modes.every(mode => oneOf(mode, modes.slice(0, 3))));
   assert(['live_execution', 'market_data', 'opportunity_capture'].every(k => typeof v[k] === 'boolean'));
-  assert(['decision_history', 'paper_ledger', 'paper_run_creation', 'collection_telemetry', 'session_export'].every(k => v[k] === undefined || typeof v[k] === 'boolean'));
+  assert(['decision_history', 'paper_ledger', 'paper_run_creation', 'collection_telemetry', 'session_export', 'cost_assessments'].every(k => v[k] === undefined || typeof v[k] === 'boolean'));
   assert(Array.isArray(v.registered_configurations));
   for (const config of v.registered_configurations) {
     const c = object(config);
@@ -206,6 +208,20 @@ export class ControlApi {
   async collectionAttempts(sessionId: string, cursor?: string, signal?: AbortSignal) {
     const page = parsePage(await this.request('/sessions/' + encodeURIComponent(sessionId) + '/collection-attempts?' + this.query(cursor), { signal }), parseCollectionAttempt);
     assert(page.items.every(item => item.session_id === sessionId), 'Collection attempts response has the wrong session scope.'); return page;
+  }
+  async costAssessments(sessionId: string, cursor?: string, signal?: AbortSignal) {
+    const page = parsePage(await this.request('/sessions/' + encodeURIComponent(sessionId) + '/cost-assessments?' + this.query(cursor), { signal }), parseCostAssessment);
+    assert(page.items.every(item => item.assessment.binding.session_id === sessionId), 'Cost assessments response has the wrong session scope.');
+    return { ...page, items: await Promise.all(page.items.map(verifyCostAssessment)) };
+  }
+  async costAssessment(sessionId: string, recordId: string, signal?: AbortSignal) {
+    const item = parseCostAssessment(await this.request('/sessions/' + encodeURIComponent(sessionId) + '/cost-assessments/' + encodeURIComponent(recordId), { signal }));
+    assert(item.assessment.binding.session_id === sessionId && item.record_id === recordId, 'Cost assessment response has the wrong record scope.'); return verifyCostAssessment(item);
+  }
+  async createCostAssessment(sessionId: string, body: CostAssessmentRequest, key: string) {
+    const item = parseCostAssessment(await this.request('/sessions/' + encodeURIComponent(sessionId) + '/cost-assessments', { method: 'POST', body, key }));
+    assert(item.assessment.binding.session_id === sessionId && item.assessment.binding.observation_id === body.observation_id, 'Cost assessment response has the wrong decision scope.');
+    assert(canonicalCostJson(item.assessment.scenario) === canonicalCostJson(body.scenario), 'Cost assessment response does not preserve the submitted scenario.'); return verifyCostAssessment(item);
   }
   async frozenExport(sessionId: string, signal?: AbortSignal) {
     const bundle = parseFrozenExport(await this.request('/sessions/' + encodeURIComponent(sessionId) + '/export', { signal, maxResponseBytes: MAX_FROZEN_EXPORT_BYTES }));

@@ -1,0 +1,38 @@
+[
+  {
+    "schema_version": 1,
+    "expected_genesis_hash": "YMN9Qj5jPNp7j14VPcML1B6xGgcPWVZUGLFU3Mnyfaf",
+    "pool": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+    "whirlpools_config": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR",
+    "program_data": "cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN",
+    "program_data_sha256": "sha256:3b5c4c6a69f293d7708fc2e4f65d76ea271506b393a48f22a6791050f44135d3",
+    "mint_a": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+    "mint_b": "GgBaCs3NCBuZN12kCJgAW63ydqohFkHEdfdEXBPzLHq",
+    "decimals_a": 6,
+    "decimals_b": 9,
+    "vault_a": "LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY",
+    "vault_b": "QWmroo4YnnMqYW3cnxWkFdaTxGD3P7vMSzwMHGbUzwF",
+    "tick_arrays": [
+      "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx"
+    ],
+    "qualification_reference": "MANUALLY-CONSTRUCTED-NOT-A-DEPLOYMENT"
+  },
+  {
+    "schema_version": 1,
+    "expected_genesis_hash": "YMN9Qj5jPNp7j14VPcML1B6xGgcPWVZUGLFU3Mnyfaf",
+    "pool": "2RJD1KnDRGEkvuFfAGrJ7PD28LRE9LRDjZznDywagzmr",
+    "whirlpools_config": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR",
+    "program_data": "cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN",
+    "program_data_sha256": "sha256:3b5c4c6a69f293d7708fc2e4f65d76ea271506b393a48f22a6791050f44135d3",
+    "mint_a": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+    "mint_b": "GgBaCs3NCBuZN12kCJgAW63ydqohFkHEdfdEXBPzLHq",
+    "decimals_a": 6,
+    "decimals_b": 9,
+    "vault_a": "2VDW9dFE1ZXz4zWAbaBDQFynNVdRpQ73HyfSHMzBSL6Z",
+    "vault_b": "2Z8oHviEbrqDD5kg2sW8h8kYceqdVTnrrPL6Lk2nBfRG",
+    "tick_arrays": [
+      "2d46SEBFCA8SMB1BUAq3z1XJrp3qAXUgQnzkQ85Nvzjy"
+    ],
+    "qualification_reference": "MANUALLY-CONSTRUCTED-NOT-A-DEPLOYMENT"
+  }
+]

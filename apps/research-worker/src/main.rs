@@ -200,44 +200,82 @@ fn evaluate_blocking(
 
 #[derive(Clone)]
 enum Registry {
-    Base(arb_evm::PoolRegistry),
-    Solana(arb_solana::PoolRegistry),
+    Base,
+    Solana,
 }
 impl Registry {
-    fn capture(
-        &self,
-        rpc: &mut impl ReadRpc,
-        observed: u64,
-    ) -> Result<(Value, StateContext, bool), AnyError> {
-        match self {
-            Self::Base(registry) => {
-                let snapshot = arb_evm::capture_pool(rpc, registry, observed)?;
-                Ok((
-                    serde_json::to_value(&snapshot)?,
-                    snapshot.context,
-                    snapshot.quality.coherent,
-                ))
-            }
-            Self::Solana(registry) => {
-                let snapshot = arb_solana::capture_pool(rpc, registry, observed)?;
-                Ok((
-                    serde_json::to_value(&snapshot)?,
-                    snapshot.context,
-                    snapshot.quality.coherent,
-                ))
-            }
-        }
-    }
     fn chain(&self) -> Chain {
         match self {
-            Self::Base(_) => Chain::BaseMainnet,
-            Self::Solana(_) => Chain::SolanaMainnet,
+            Self::Base => Chain::BaseMainnet,
+            Self::Solana => Chain::SolanaMainnet,
         }
     }
     fn source(&self) -> &'static str {
         match self {
-            Self::Base(_) => arb_evm::SOURCE_COMMIT,
-            Self::Solana(_) => arb_solana::SOURCE_COMMIT,
+            Self::Base => arb_evm::SOURCE_COMMIT,
+            Self::Solana => arb_solana::SOURCE_COMMIT,
+        }
+    }
+}
+
+/// Decoding stays atomic across a pool set. Legacy single-pool captures preserve
+/// their original RPC ordering and adapter identity for offline compatibility.
+fn capture_document(
+    document: &RegistryDocument,
+    rpc: &mut impl ReadRpc,
+    observed: u64,
+) -> Result<Vec<(Value, StateContext, bool)>, AnyError> {
+    let batch = document.format() == arb_registry::DocumentFormat::PoolSetV1;
+    match document.network() {
+        NetworkId::BaseMainnet => {
+            let pools = document
+                .pools()
+                .iter()
+                .map(|pool| match pool {
+                    PoolRegistry::Base(pool) => Ok(pool.clone()),
+                    _ => Err("mixed registry networks"),
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            let snapshots = if batch {
+                arb_evm::capture_pools(rpc, &pools, observed)?
+            } else {
+                vec![arb_evm::capture_pool(rpc, &pools[0], observed)?]
+            };
+            snapshots
+                .into_iter()
+                .map(|snapshot| {
+                    Ok((
+                        serde_json::to_value(&snapshot)?,
+                        snapshot.context,
+                        snapshot.quality.coherent,
+                    ))
+                })
+                .collect()
+        }
+        NetworkId::SolanaMainnet => {
+            let pools = document
+                .pools()
+                .iter()
+                .map(|pool| match pool {
+                    PoolRegistry::Solana(pool) => Ok(pool.clone()),
+                    _ => Err("mixed registry networks"),
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            let snapshots = if batch {
+                arb_solana::capture_pools(rpc, &pools, observed)?
+            } else {
+                vec![arb_solana::capture_pool(rpc, &pools[0], observed)?]
+            };
+            snapshots
+                .into_iter()
+                .map(|snapshot| {
+                    Ok((
+                        serde_json::to_value(&snapshot)?,
+                        snapshot.context,
+                        snapshot.quality.coherent,
+                    ))
+                })
+                .collect()
         }
     }
 }
@@ -349,30 +387,37 @@ fn capture_blocking(plan: &CapturePlan) -> Result<CompletedBatch, AttemptFailure
         .map_err(|_| AttemptFailure::acquisition(CollectionReason::AcquisitionUnavailable, 0))?,
         failure: None,
     };
+    // Pool-set v2 acquires and validates every member before writing artifacts.
+    // Every bundle retains the actual complete batch transcript, including the
+    // common anchor/union response. Never synthesize per-pool provider responses.
+    let snapshots = capture_document(&plan.registry, &mut rpc, observed).map_err(|_| {
+        AttemptFailure::acquisition(
+            rpc.failure
+                .unwrap_or(CollectionReason::InputValidationFailed),
+            0,
+        )
+    })?;
+    let records: Vec<RpcRecord> = rpc.inner.take_records();
+    if records.is_empty() {
+        return Err(AttemptFailure::acquisition(
+            CollectionReason::InputValidationFailed,
+            0,
+        ));
+    }
+    let transcript_bytes = serde_json::to_vec(&records)
+        .map_err(|_| AttemptFailure::acquisition(CollectionReason::InputValidationFailed, 0))?;
+    if transcript_bytes.len() as u64 > MAX_BUNDLE_BYTES {
+        return Err(AttemptFailure::acquisition(
+            CollectionReason::ResourceLimit,
+            0,
+        ));
+    }
     let mut captures = Vec::new();
-    for selected in plan.registry.pools() {
+    for (selected, (snapshot, context, coherent)) in plan.registry.pools().iter().zip(snapshots) {
         let registry = match selected {
-            PoolRegistry::Base(r) => Registry::Base(r.clone()),
-            PoolRegistry::Solana(r) => Registry::Solana(r.clone()),
+            PoolRegistry::Base(_) => Registry::Base,
+            PoolRegistry::Solana(_) => Registry::Solana,
         };
-        let pool_observed = now_ms().map_err(|_| {
-            AttemptFailure::acquisition(CollectionReason::AcquisitionUnavailable, captures.len())
-        })?;
-        let (snapshot, context, coherent) =
-            registry.capture(&mut rpc, pool_observed).map_err(|_| {
-                AttemptFailure::acquisition(
-                    rpc.failure
-                        .unwrap_or(CollectionReason::InputValidationFailed),
-                    captures.len(),
-                )
-            })?;
-        let records: Vec<RpcRecord> = rpc.inner.take_records();
-        if records.is_empty() {
-            return Err(AttemptFailure::acquisition(
-                CollectionReason::InputValidationFailed,
-                captures.len(),
-            ));
-        }
         let mut artifact_reason = CollectionReason::CaptureStorageUnavailable;
         let result = (|| -> Result<CompletedCapture, AnyError> {
             let capture_id = Uuid::new_v4().to_string();
@@ -396,7 +441,7 @@ fn capture_blocking(plan: &CapturePlan) -> Result<CompletedBatch, AttemptFailure
                 adapter_source_commit: registry.source().into(),
                 build_digest: plan.build_digest.clone(),
                 config_digest: plan.config_digest.clone(),
-                created_at_ms: pool_observed,
+                created_at_ms: observed,
                 raw_expires_at_ms: Some(
                     observed
                         .checked_add(u64::from(plan.retention_days) * 86_400_000)
@@ -422,7 +467,7 @@ fn capture_blocking(plan: &CapturePlan) -> Result<CompletedBatch, AttemptFailure
                 &path,
                 manifest,
                 vec![
-                    ("rpc.json".into(), serde_json::to_vec(&records)?),
+                    ("rpc.json".into(), transcript_bytes.clone()),
                     ("snapshot.json".into(), serde_json::to_vec(&snapshot)?),
                     ("registry.json".into(), plan.registry_bytes.clone()),
                     ("effective-config.json".into(), plan.config_bytes.clone()),
@@ -859,23 +904,58 @@ mod tests {
 
     #[test]
     fn capture_dispatch_preserves_raw_context_without_quote_claims() {
-        let registry = Registry::Base(
-            serde_json::from_str(include_str!(
-                "../../../crates/arb-evm/tests/fixtures/registry.json"
-            ))
-            .unwrap(),
-        );
+        let registry = RegistryDocument::from_bytes(
+            include_bytes!("../../../crates/arb-evm/tests/fixtures/registry.json"),
+            NetworkId::BaseMainnet,
+        )
+        .unwrap();
         let records: Vec<RpcRecord> = serde_json::from_str(include_str!(
             "../../../crates/arb-evm/tests/fixtures/rpc.json"
         ))
         .unwrap();
         let mut rpc = TranscriptRpc::new(records);
-        let (snapshot, context, coherent) = registry.capture(&mut rpc, 100).unwrap();
+        let (snapshot, context, coherent) = capture_document(&registry, &mut rpc, 100)
+            .unwrap()
+            .remove(0);
         rpc.finish().unwrap();
         assert!(coherent);
         assert_eq!(snapshot["quality"]["complete_for_quote"], false);
         assert!(matches!(context, StateContext::Evm { .. }));
-        assert_eq!(registry.chain(), Chain::BaseMainnet);
+        assert_eq!(registry.network(), NetworkId::BaseMainnet);
+    }
+
+    #[test]
+    fn pool_set_dispatch_uses_shared_batch_transcripts_on_both_networks() {
+        for (network, registries, transcript) in [
+            (
+                NetworkId::BaseMainnet,
+                include_str!("../../../crates/arb-evm/tests/fixtures/batch-registries.json"),
+                include_str!("../../../crates/arb-evm/tests/fixtures/batch-rpc.json"),
+            ),
+            (
+                NetworkId::SolanaMainnet,
+                include_str!("../../../crates/arb-solana/tests/fixtures/batch-registries.json"),
+                include_str!("../../../crates/arb-solana/tests/fixtures/batch-rpc.json"),
+            ),
+        ] {
+            let document = serde_json::to_vec(&json!({
+                "schema_version": 1, "network_id": network,
+                "pools": serde_json::from_str::<Value>(registries).unwrap(),
+            }))
+            .unwrap();
+            let registry = RegistryDocument::from_bytes(&document, network).unwrap();
+            let mut rpc = TranscriptRpc::new(serde_json::from_str(transcript).unwrap());
+            let snapshots = capture_document(&registry, &mut rpc, 100).unwrap();
+            rpc.finish().unwrap();
+            assert_eq!(snapshots.len(), 2);
+            assert_eq!(snapshots[0].1, snapshots[1].1);
+            for (pool, (snapshot, _, _)) in registry.pools().iter().zip(snapshots) {
+                assert_eq!(snapshot["pool"], pool.pool());
+                assert_eq!(snapshot["quality"]["observed_at_ms"], 100);
+                assert_eq!(snapshot["quality"]["complete_for_quote"], false);
+                assert_eq!(snapshot["quality"]["quote_implementation_qualified"], false);
+            }
+        }
     }
 
     #[test]

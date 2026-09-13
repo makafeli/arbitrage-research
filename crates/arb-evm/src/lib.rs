@@ -4,7 +4,7 @@ use arb_adapter_api::{AdapterError, ReadMethod, ReadRpc, Result, SnapshotQuality
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub const BASE_CHAIN_ID: u64 = 8453;
 pub const UNISWAP_V3_FACTORY: &str = "0x33128a8fc17869897dce68ed026d694621f6fdfd";
@@ -175,17 +175,18 @@ pub struct PoolSnapshot {
     pub initialized_ticks: BTreeMap<i32, TickState>,
     pub quality: SnapshotQuality,
 }
-/// Every eth_call and eth_getCode is pinned by block hash with requireCanonical=true.
-/// No fallback to latest or block-number state is permitted when EIP-1898 is unsupported.
-pub fn capture_pool(
-    rpc: &mut impl ReadRpc,
-    registry: &PoolRegistry,
-    observed_at_ms: u64,
-) -> Result<PoolSnapshot> {
-    registry.validate()?;
-    if quantity(&rpc.call(ReadMethod::EthChainId, json!([]))?)? != BASE_CHAIN_ID {
-        return Err(AdapterError("wrong EVM chain"));
-    }
+/// Maximum pools in one atomic acquisition attempt. Larger route universes must be
+/// divided into independent attempts; snapshots from those attempts cannot be merged.
+pub const MAX_CAPTURE_POOLS: usize = 8;
+
+struct CaptureAnchor {
+    state: StateContext,
+    rpc_context: Value,
+    number: u64,
+    block_hash: String,
+}
+
+fn capture_anchor(rpc: &mut impl ReadRpc) -> Result<CaptureAnchor> {
     let block = rpc.call(ReadMethod::EthGetBlockByNumber, json!(["finalized", false]))?;
     let number = quantity(&block["number"])?;
     let block_hash = block["hash"]
@@ -201,14 +202,97 @@ pub fn capture_pool(
     }
     let timestamp = quantity(&block["timestamp"])?;
     let context = json!({"blockHash":block_hash,"requireCanonical":true});
+    Ok(CaptureAnchor {
+        state: StateContext::Evm {
+            block_number: number,
+            block_hash: block_hash.clone(),
+            parent_hash,
+            block_timestamp_seconds: timestamp,
+            finality: "finalized".into(),
+        },
+        rpc_context: context,
+        number,
+        block_hash,
+    })
+}
+
+fn verify_canonical(rpc: &mut impl ReadRpc, anchor: &CaptureAnchor) -> Result<()> {
+    let number = anchor.number;
+    let block_hash = &anchor.block_hash;
+    let canonical = rpc.call(
+        ReadMethod::EthGetBlockByNumber,
+        json!([format!("0x{number:x}"), false]),
+    )?;
+    if canonical["hash"].as_str() != Some(block_hash.as_str()) {
+        return Err(AdapterError("Base block invalidated during acquisition"));
+    }
+    Ok(())
+}
+
+/// Every eth_call and eth_getCode is pinned by block hash with requireCanonical=true.
+/// No fallback to latest or block-number state is permitted when EIP-1898 is unsupported.
+/// This legacy entry point retains the original single-pool RPC transcript ordering.
+pub fn capture_pool(
+    rpc: &mut impl ReadRpc,
+    registry: &PoolRegistry,
+    observed_at_ms: u64,
+) -> Result<PoolSnapshot> {
+    registry.validate()?;
+    if quantity(&rpc.call(ReadMethod::EthChainId, json!([]))?)? != BASE_CHAIN_ID {
+        return Err(AdapterError("wrong EVM chain"));
+    }
+    let anchor = capture_anchor(rpc)?;
+    let snapshot = capture_pool_at(rpc, registry, observed_at_ms, &anchor)?;
+    verify_canonical(rpc, &anchor)?;
+    Ok(snapshot)
+}
+
+/// Capture 1..=8 distinct Base pools against one finalized block hash. Every
+/// registry is validated before I/O, and the complete batch is discarded if any
+/// pool fails or the anchor is no longer canonical after the last pool read.
+/// Output order is registry order. Provider errors never cause a latest fallback.
+pub fn capture_pools(
+    rpc: &mut impl ReadRpc,
+    registries: &[PoolRegistry],
+    observed_at_ms: u64,
+) -> Result<Vec<PoolSnapshot>> {
+    if registries.is_empty() || registries.len() > MAX_CAPTURE_POOLS {
+        return Err(AdapterError("Base capture batch requires 1..=8 pools"));
+    }
+    let mut pools = BTreeSet::new();
+    for registry in registries {
+        registry.validate()?;
+        if !pools.insert(registry.pool.to_lowercase()) {
+            return Err(AdapterError("duplicate Base capture pool"));
+        }
+    }
+    if quantity(&rpc.call(ReadMethod::EthChainId, json!([]))?)? != BASE_CHAIN_ID {
+        return Err(AdapterError("wrong EVM chain"));
+    }
+    let anchor = capture_anchor(rpc)?;
+    let snapshots = registries
+        .iter()
+        .map(|registry| capture_pool_at(rpc, registry, observed_at_ms, &anchor))
+        .collect::<Result<Vec<_>>>()?;
+    verify_canonical(rpc, &anchor)?;
+    Ok(snapshots)
+}
+
+fn capture_pool_at(
+    rpc: &mut impl ReadRpc,
+    registry: &PoolRegistry,
+    observed_at_ms: u64,
+    anchor: &CaptureAnchor,
+) -> Result<PoolSnapshot> {
+    let context = &anchor.rpc_context;
     code_matches(
         rpc,
         UNISWAP_V3_FACTORY,
         &registry.factory_runtime_sha256,
-        &context,
+        context,
     )?;
-    code_matches(rpc, &registry.pool, &registry.pool_runtime_sha256, &context)?;
-    let factory = abi_address(&call(rpc, &registry.pool, "0xc45a0155".into(), &context)?)?;
+    code_matches(rpc, &registry.pool, &registry.pool_runtime_sha256, context)?;
+    let factory = abi_address(&call(rpc, &registry.pool, "0xc45a0155".into(), context)?)?;
     if factory != UNISWAP_V3_FACTORY {
         return Err(AdapterError("unexpected pool factory"));
     }
@@ -216,23 +300,17 @@ pub fn capture_pool(
         ("0x0dfe1681", &registry.token0),
         ("0xd21220a7", &registry.token1),
     ] {
-        if abi_address(&call(rpc, &registry.pool, selector.into(), &context)?)?
+        if abi_address(&call(rpc, &registry.pool, selector.into(), context)?)?
             != expected.to_lowercase()
         {
             return Err(AdapterError("pool token identity mismatch"));
         }
     }
-    let fee = word(
-        &call(rpc, &registry.pool, "0xddca3f43".into(), &context)?,
-        1,
-    )?;
+    let fee = word(&call(rpc, &registry.pool, "0xddca3f43".into(), context)?, 1)?;
     if u32word(&fee, 3)? != registry.fee {
         return Err(AdapterError("pool fee mismatch"));
     }
-    let spacing = word(
-        &call(rpc, &registry.pool, "0xd0c93a7c".into(), &context)?,
-        1,
-    )?;
+    let spacing = word(&call(rpc, &registry.pool, "0xd0c93a7c".into(), context)?, 1)?;
     if i24word(&spacing)? != registry.tick_spacing {
         return Err(AdapterError("pool tick spacing mismatch"));
     }
@@ -242,15 +320,12 @@ pub fn capture_pool(
         address_arg(&registry.token1),
         uint_arg(registry.fee)
     );
-    if abi_address(&call(rpc, UNISWAP_V3_FACTORY, get_pool, &context)?)?
+    if abi_address(&call(rpc, UNISWAP_V3_FACTORY, get_pool, context)?)?
         != registry.pool.to_lowercase()
     {
         return Err(AdapterError("pool not registered in verified factory"));
     }
-    let slot0 = word(
-        &call(rpc, &registry.pool, "0x3850c7bd".into(), &context)?,
-        7,
-    )?;
+    let slot0 = word(&call(rpc, &registry.pool, "0x3850c7bd".into(), context)?, 7)?;
     let sqrt_price_x96_hex = format!("0x{}", hex::encode(unsigned(&slot0[..32], 20)?));
     let tick = i24word(&slot0[32..64])?;
     if !(-887272..=887272).contains(&tick) || slot0[..32].iter().all(|x| *x == 0) {
@@ -263,10 +338,7 @@ pub fn capture_pool(
     if u32word(&slot0[192..224], 1)? != 1 {
         return Err(AdapterError("pool is locked"));
     }
-    let liq = word(
-        &call(rpc, &registry.pool, "0x1a686502".into(), &context)?,
-        1,
-    )?;
+    let liq = word(&call(rpc, &registry.pool, "0x1a686502".into(), context)?, 1)?;
     let liquidity = u128::from_be_bytes(
         unsigned(&liq, 16)?
             .try_into()
@@ -281,7 +353,7 @@ pub fn capture_pool(
                 rpc,
                 &registry.pool,
                 format!("0x5339c296{}", signed_arg(i32::from(position))),
-                &context,
+                context,
             )?,
             1,
         )?;
@@ -299,7 +371,7 @@ pub fn capture_pool(
                     rpc,
                     &registry.pool,
                     format!("0xf30dba93{}", signed_arg(index)),
-                    &context,
+                    context,
                 )?,
                 8,
             )?;
@@ -333,22 +405,9 @@ pub fn capture_pool(
             );
         }
     }
-    let canonical = rpc.call(
-        ReadMethod::EthGetBlockByNumber,
-        json!([format!("0x{number:x}"), false]),
-    )?;
-    if canonical["hash"] != block_hash {
-        return Err(AdapterError("Base block invalidated during acquisition"));
-    }
     Ok(PoolSnapshot {
         pool: registry.pool.to_lowercase(),
-        context: StateContext::Evm {
-            block_number: number,
-            block_hash,
-            parent_hash,
-            block_timestamp_seconds: timestamp,
-            finality: "finalized".into(),
-        },
+        context: anchor.state.clone(),
         sqrt_price_x96_hex,
         tick,
         liquidity,

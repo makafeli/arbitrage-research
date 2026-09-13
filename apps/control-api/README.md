@@ -171,4 +171,42 @@ mock tests alone are not evidence of database behavior.
 
 Authenticated operator-scoped GET routes expose `/v1/sessions/{session_id}/collection-attempts`, `/collection-coverage` and `/export`. Attempts use canonical UUID cursors and limits 1–100; coverage and export accept no query parameters. `collection_telemetry` and `session_export` capability flags advertise these features. Recorded attempt counts include READINESS and RESEARCH separately, with exact decision associations; unresolved starts and market/schedule completeness remain explicitly unknown.
 
-The export takes a read-only REPEATABLE READ snapshot of the five defined research datasets. It refuses more than 10,000 source rows or 8 MiB with 413; two exports may run per process, with additional requests returning 429 EXPORT_BUSY. Normal request deadlines remain 15 seconds, and each export SQL statement has an 8-second bound. All responses retain authentication, redacted errors and no-store. Configuration content, local artifact paths and raw files are excluded; capture availability/expiry and missing decimals are disclosed. Paper journal reasons are removed and command/attempt identifiers are pseudonymized while exact accounting and original payload hashes remain. The [contract](../../docs/08-DATA-AND-API-CONTRACTS.md) and [verified checkpoint](../../docs/18-COLLECTION-AND-EXPORT-VERIFICATION.md) define hash formats, source scope and remaining acceptance.
+The export takes a read-only REPEATABLE READ snapshot of the six defined research datasets (decisions, paper runs, journal events, capture catalog entries, collection attempts and cost assessments). It refuses more than 10,000 source rows or 8 MiB with 413; two exports may run per process, with additional requests returning 429 EXPORT_BUSY. Normal request deadlines remain 15 seconds, and each export SQL statement has an 8-second bound. All responses retain authentication, redacted errors and no-store. Configuration content, local artifact paths and raw files are excluded; capture availability/expiry and missing decimals are disclosed. Paper journal reasons are removed and command/attempt identifiers are pseudonymized while exact accounting and original payload hashes remain. The [contract](../../docs/08-DATA-AND-API-CONTRACTS.md) and [verified checkpoint](../../docs/18-COLLECTION-AND-EXPORT-VERIFICATION.md) define hash formats, source scope and remaining acceptance.
+
+
+## Immutable manual cost assessments
+
+`POST /v1/sessions/{session_id}/cost-assessments` accepts `{observation_id, scenario}`
+and requires authentication, exact Origin, CSRF and Idempotency-Key. The source observation
+must be a stored QUOTED decision in this operator's selected session. The server derives the
+historical amount, output, assets, network, configuration, experiment and source digest;
+clients cannot supply replacement quotes or evidence. The response is HTTP 201 with
+`{record_id, recorded_at, assessment}`. An identical key and payload returns that exact
+record, including after restart; changed payloads return 409. A malformed source ID or
+invalid scenario returns 400; absent and out-of-scope source records return 404.
+
+`GET /v1/sessions/{session_id}/cost-assessments` lists records with limits 1–100 and
+canonical UUID cursors. `GET /v1/sessions/{session_id}/cost-assessments/{record_id}` returns
+one record. Every read rederives the assessment from its immutable source decision and
+scenario, including hashes, negative values and unknown costs. These operations need no
+running worker or re-registration of the historical configuration. API authentication
+still expires at process restart. Each creation SQL statement has an 8-second timeout;
+the existing 15-second HTTP deadline and 16 KiB request limit apply.
+
+Scenarios are explicit MANUALLY_CONSTRUCTED assumptions. Native fees and token balances
+remain distinct; native-to-starting-token conversions require declared exact ratios and
+historical timestamps. An expense in the exact starting token must use SAME_ASSET; a
+ratio cannot discount an amount already denominated in that currency. Applicable omitted
+expenses remain unknown and keep net null.
+Base network execution includes priority fees and keeps L1 data separate; Solana keeps
+base/signature, priority and relay-tip components separate. Neither an optimistic net nor
+complete assumptions changes CANDIDATE evidence, decision records, paper balances or
+transaction eligibility. No settlement or execution endpoint is added.
+
+Export schema 1.1.0 includes `data.cost_assessments` and its source count in the same
+bounded database snapshot. `methodology.costs` states
+`QUOTED_COSTS_UNKNOWN_MANUAL_ASSESSMENTS_SEPARATE`; original opportunity net remains null.
+The canonical V1 hash algorithm is unchanged and now covers the sixth dataset. Retained
+assessments preserve source bindings and safe provenance labels without exposing operator
+idempotency keys, provider URLs or freeform credential-bearing text. Full transaction
+simulation, measured fee collection and automatic paper fills remain separate work.

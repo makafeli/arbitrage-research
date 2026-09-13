@@ -32,6 +32,7 @@ pub struct ExportSourceCounts {
     pub paper_journal_events: String,
     pub capture_catalog_entries: String,
     pub collection_attempts: String,
+    pub cost_assessments: String,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ExportMethodology {
@@ -56,6 +57,7 @@ pub struct ExportData {
     pub paper_runs: Vec<ExportPaperRun>,
     pub capture_dependencies: Vec<ExportCaptureDependency>,
     pub collection_attempts: Vec<StoredCollectionAttempt>,
+    pub cost_assessments: Vec<StoredCostAssessment>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ExportPaperRun {
@@ -139,7 +141,9 @@ async fn export_in_snapshot(
          (SELECT count(*) FROM paper_journal j JOIN paper_runs r USING(run_id) WHERE r.operator_id=$1 AND r.session_id=$2) AS paper_journal_events,
          (SELECT count(*) FROM capture_admissions c JOIN research_sessions s USING(session_id) WHERE s.operator_id=$1 AND c.session_id=$2) AS capture_catalog_entries,
          (SELECT count(*) FROM collection_attempts WHERE operator_id=$1 AND session_id=$2) AS collection_attempts,
-         (SELECT coalesce(sum(octet_length(payload::text)),0)::bigint FROM decision_traces WHERE operator_id=$1 AND session_id=$2)
+         (SELECT count(*) FROM cost_assessments WHERE operator_id=$1 AND session_id=$2) AS cost_assessments,
+         (SELECT coalesce(sum(octet_length(payload::text)),0)::bigint FROM cost_assessments WHERE operator_id=$1 AND session_id=$2)
+         +(SELECT coalesce(sum(octet_length(payload::text)),0)::bigint FROM decision_traces WHERE operator_id=$1 AND session_id=$2)
          +(SELECT coalesce(sum(octet_length(j.payload::text)),0)::bigint FROM paper_journal j JOIN paper_runs r USING(run_id) WHERE r.operator_id=$1 AND r.session_id=$2) AS payload_bytes"
     ).bind(operator).bind(session_id).fetch_one(&mut **tx).await?;
     let counts = ExportSourceCounts {
@@ -148,6 +152,7 @@ async fn export_in_snapshot(
         paper_journal_events: export_count(&count_row, "paper_journal_events")?,
         capture_catalog_entries: export_count(&count_row, "capture_catalog_entries")?,
         collection_attempts: export_count(&count_row, "collection_attempts")?,
+        cost_assessments: export_count(&count_row, "cost_assessments")?,
     };
     let total = [
         "decisions",
@@ -155,6 +160,7 @@ async fn export_in_snapshot(
         "paper_journal_events",
         "capture_catalog_entries",
         "collection_attempts",
+        "cost_assessments",
     ]
     .into_iter()
     .try_fold(0_u64, |n, field| {
@@ -260,18 +266,38 @@ async fn export_in_snapshot(
     let collection_attempts = sqlx::query("SELECT * FROM collection_attempts WHERE operator_id=$1 AND session_id=$2 ORDER BY attempt_id")
         .bind(operator).bind(session_id).fetch_all(&mut **tx).await?
         .iter().map(collection::collection_record).collect::<Result<Vec<_>, _>>()?;
+    let source_decisions: BTreeMap<_, _> =
+        decisions.iter().map(|d| (d.trace_id.as_str(), d)).collect();
+    let cost_rows = sqlx::query(
+        "SELECT * FROM cost_assessments WHERE operator_id=$1 AND session_id=$2 ORDER BY record_id",
+    )
+    .bind(operator)
+    .bind(session_id)
+    .fetch_all(&mut **tx)
+    .await?;
+    let cost_assessments = cost_rows
+        .iter()
+        .map(|row| {
+            let trace_id: String = row.try_get("source_trace_id")?;
+            let source = source_decisions
+                .get(trace_id.as_str())
+                .ok_or(StoreError::CorruptState)?;
+            costs::cost_record(row, source)
+        })
+        .collect::<Result<Vec<_>, StoreError>>()?;
     if counts.decisions != decisions.len().to_string()
         || counts.paper_runs != paper_runs.len().to_string()
         || counts.paper_journal_events != journal_count.to_string()
         || counts.capture_catalog_entries != captures.len().to_string()
         || counts.collection_attempts != collection_attempts.len().to_string()
+        || counts.cost_assessments != cost_assessments.len().to_string()
     {
         return Err(StoreError::CorruptState);
     }
     validate_collection_links(tx, operator, session_id, &collection_attempts, &decisions).await?;
     let coverage = frozen_coverage(session_id, &decisions);
     let mut result = ResearchExport {
-        schema_version: "1.0.0".into(),
+        schema_version: "1.1.0".into(),
         export_id: Uuid::new_v4().to_string(),
         exported_at: exported_at.to_rfc3339(),
         content_sha256: String::new(),
@@ -284,7 +310,7 @@ async fn export_in_snapshot(
         methodology: ExportMethodology {
             amounts: "BASE_UNIT_INTEGER_STRINGS".into(),
             asset_decimals: "NOT_RETAINED_IN_DATABASE".into(),
-            costs: "UNKNOWN_COSTS_REMAIN_NULL".into(),
+            costs: "QUOTED_COSTS_UNKNOWN_MANUAL_ASSESSMENTS_SEPARATE".into(),
             configuration_snapshot: "DIGEST_ONLY".into(),
             raw_artifacts: "REFERENCED_NOT_INCLUDED_OR_VERIFIED".into(),
             hash_format: "SHA256_SORTED_KEY_COMPACT_JSON_SNAPSHOT_METHODOLOGY_DATA_V1".into(),
@@ -303,6 +329,7 @@ async fn export_in_snapshot(
             paper_runs,
             capture_dependencies: capture_dependencies.into_values().collect(),
             collection_attempts,
+            cost_assessments,
         },
     };
     result.content_sha256 = export_content_digest(&result)?;
@@ -538,6 +565,28 @@ mod tests {
             )
             .await
             .unwrap();
+        // Explicit synthetic direct SQL fixture isolates MVCC behavior from the
+        // worker. It claims neither admitted raw artifacts nor market evidence.
+        let source: arb_domain::DecisionTrace = serde_json::from_value(json!({
+            "schema_version":"1.0.0","observation_id":"","session_id":session.session_id,
+            "experiment_id":"snapshot-test","generation":"0","configuration_digest":session.configuration_digest,
+            "calculation_version":"synthetic-snapshot-v1","strategy_id":"test","network_id":"base-mainnet","mode":"PAPER",
+            "source_kind":"SYNTHETIC_FIXTURE","dataset_origin":"MANUALLY_CONSTRUCTED","observed_at_unix_ms":1000,"input_age_ms":0,
+            "capture_refs":[{"capture_id":"snapshot-fixture-one","manifest_digest":format!("sha256:{}","1".repeat(64)),"snapshot_id":format!("sha256:{}","1".repeat(64))},{"capture_id":"snapshot-fixture-two","manifest_digest":format!("sha256:{}","2".repeat(64)),"snapshot_id":format!("sha256:{}","2".repeat(64))}],
+            "route":[{"pool_id":"base-mainnet:0x0000000000000000000000000000000000000003","asset_in":"base-mainnet:0x0000000000000000000000000000000000000001","asset_out":"base-mainnet:0x0000000000000000000000000000000000000002","venue_family":"uniswap-v3"},{"pool_id":"base-mainnet:0x0000000000000000000000000000000000000004","asset_in":"base-mainnet:0x0000000000000000000000000000000000000002","asset_out":"base-mainnet:0x0000000000000000000000000000000000000001","venue_family":"uniswap-v3"}],
+            "amount_in_minor":"100","result":{"status":"QUOTED","quoted_output_minor":"99","gross_delta_minor":"-1","included_pool_fees":["1","1"]},
+            "grouping":{"version":"","key":"","window_ms":1000,"window_start_ms":0},"diagnostics":[]
+        })).unwrap();
+        let source = source.seal().unwrap();
+        sqlx::query("INSERT INTO decision_traces(trace_id,operator_id,session_id,observation_id,payload_digest,configuration_digest,generation,observed_at_unix_ms,result_status,grouping_version,grouping_key,window_start_ms,payload) VALUES($1,$2,$3,$4,$5,$6,0,1000,'QUOTED',$7,$8,$9,$10)")
+            .bind(Uuid::now_v7().to_string()).bind(&operator).bind(&session.session_id).bind(&source.observation_id)
+            .bind(payload_digest(&source).unwrap()).bind(&session.configuration_digest).bind(&source.grouping.version)
+            .bind(&source.grouping.key).bind(source.grouping.window_start_ms as i64).bind(serde_json::to_value(&source).unwrap())
+            .execute(&store.pool).await.unwrap();
+        let cost=store.create_cost_assessment(&operator,&session.session_id,"after-snapshot-cost",NewCostAssessment {
+            observation_id:source.observation_id.clone(),
+            scenario:serde_json::from_value(json!({"schema_version":"1.0.0","scenario_id":"snapshot-test","version":"v1","origin":"MANUALLY_CONSTRUCTED","provenance_reference":"synthetic-fixture","valuation_max_age_ms":1000,"fee_composition":"BASE_EXECUTION_INCLUDES_PRIORITY","expenses":[],"funding":{"status":"OWN_VIRTUAL_CAPITAL"},"overhead":{"status":"NOT_ALLOCATED"}})).unwrap()
+        }).await.unwrap();
         let frozen = export_in_snapshot(&mut tx, &operator, &session.session_id, &row, time)
             .await
             .unwrap();
@@ -545,6 +594,9 @@ mod tests {
         assert_eq!(frozen.snapshot.source_counts.paper_runs, "0");
         assert_eq!(frozen.snapshot.source_counts.paper_journal_events, "0");
         assert!(frozen.data.paper_runs.is_empty());
+        assert_eq!(frozen.snapshot.source_counts.cost_assessments, "0");
+        assert_eq!(frozen.snapshot.source_counts.decisions, "0");
+        assert!(frozen.data.cost_assessments.is_empty());
         let later = store
             .export_session(&operator, &session.session_id)
             .await
@@ -552,6 +604,13 @@ mod tests {
         assert_eq!(later.snapshot.source_counts.paper_runs, "1");
         assert_eq!(later.snapshot.source_counts.paper_journal_events, "1");
         assert_eq!(later.data.paper_runs[0].run.run_id, created.run_id);
+        assert_eq!(later.snapshot.source_counts.cost_assessments, "1");
+        assert_eq!(later.snapshot.source_counts.decisions, "1");
+        assert_eq!(later.data.cost_assessments[0].record_id, cost.record_id);
+        later.data.cost_assessments[0]
+            .assessment
+            .replay(&later.data.decisions[0].trace)
+            .unwrap();
         assert_ne!(frozen.content_sha256, later.content_sha256);
     }
 }

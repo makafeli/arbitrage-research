@@ -258,3 +258,15 @@ button {touch-action:manipulation;}
   .research-workspace .sectionhead>div{min-width:0;max-width:100%}
   .research-workspace .connected-form button{white-space:normal}
 }
+
+/* Guided cost research keeps units visible without relying on wide form tables. */
+.cost-workspace {scroll-margin-top:24px;min-width:0}
+.cost-form {max-width:none}
+.cost-field-grid {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.cost-component-list {display:grid;gap:10px}
+.cost-component {display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;padding:16px;border:1px solid var(--line);border-radius:10px;background:var(--bg)}
+.cost-component strong {font-size:13px}.cost-component .tiny {margin-top:7px}
+.cost-history {border:1px solid var(--line);border-radius:10px;padding:0 16px 12px}
+.cost-workspace input,.cost-workspace select {max-width:100%;min-width:0}
+.cost-workspace summary {overflow-wrap:anywhere}
+@media(max-width:540px){.cost-field-grid,.cost-component{grid-template-columns:minmax(0,1fr)}.cost-component{padding:12px}.cost-history{padding:0 12px 12px}}

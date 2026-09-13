@@ -3,9 +3,10 @@
 use super::*;
 use arb_paper::AccountingAsset;
 use arb_storage::{
-    CollectionAttemptPage, CollectionCoverage, DecisionCoverage, DecisionGroupPage,
-    DecisionTracePage, NewPaperRun, OpportunityFilter, OpportunityPage, PaperJournalPage,
-    PaperReservationPage, PaperRunPage, PaperRunRecord, ResearchExport, StoredDecisionTrace,
+    CollectionAttemptPage, CollectionCoverage, CostAssessmentPage, DecisionCoverage,
+    DecisionGroupPage, DecisionTracePage, NewCostAssessment, NewPaperRun, OpportunityFilter,
+    OpportunityPage, PaperJournalPage, PaperReservationPage, PaperRunPage, PaperRunRecord,
+    ResearchExport, StoredCostAssessment, StoredDecisionTrace,
 };
 
 #[derive(Clone, Serialize)]
@@ -16,6 +17,26 @@ pub struct PaperAssetChoice {
 
 #[async_trait]
 pub(crate) trait ResearchStore: Send + Sync {
+    async fn create_cost_assessment(
+        &self,
+        operator: &str,
+        session: &str,
+        key: &str,
+        input: NewCostAssessment,
+    ) -> Result<StoredCostAssessment, StoreError>;
+    async fn get_cost_assessment(
+        &self,
+        operator: &str,
+        session: &str,
+        record_id: &str,
+    ) -> Result<StoredCostAssessment, StoreError>;
+    async fn list_cost_assessments(
+        &self,
+        operator: &str,
+        session: &str,
+        cursor: Option<&str>,
+        limit: u32,
+    ) -> Result<CostAssessmentPage, StoreError>;
     async fn export_session(
         &self,
         operator: &str,
@@ -104,6 +125,32 @@ pub(crate) trait ResearchStore: Send + Sync {
 
 #[async_trait]
 impl ResearchStore for Store {
+    async fn create_cost_assessment(
+        &self,
+        operator: &str,
+        session: &str,
+        key: &str,
+        input: NewCostAssessment,
+    ) -> Result<StoredCostAssessment, StoreError> {
+        Store::create_cost_assessment(self, operator, session, key, input).await
+    }
+    async fn get_cost_assessment(
+        &self,
+        operator: &str,
+        session: &str,
+        record_id: &str,
+    ) -> Result<StoredCostAssessment, StoreError> {
+        Store::get_cost_assessment(self, operator, session, record_id).await
+    }
+    async fn list_cost_assessments(
+        &self,
+        operator: &str,
+        session: &str,
+        cursor: Option<&str>,
+        limit: u32,
+    ) -> Result<CostAssessmentPage, StoreError> {
+        Store::list_cost_assessments(self, operator, session, cursor, limit).await
+    }
     async fn export_session(
         &self,
         operator: &str,
@@ -535,4 +582,83 @@ pub(super) async fn paper_reservations(
         .await
         .map(Json)
         .map_err(|error| ApiError::store(error, &id))
+}
+
+/// Persist assumptions as an immutable research sidecar; no current worker or
+/// currently deployed configuration is required to reproduce a stored decision.
+pub(super) async fn create_cost_assessment(
+    State(state): State<AppState>,
+    Extension(id): Extension<RequestId>,
+    path: Result<Path<String>, PathRejection>,
+    query: Result<Query<EmptyQuery>, QueryRejection>,
+    headers: HeaderMap,
+    body: Result<Json<NewCostAssessment>, JsonRejection>,
+) -> Result<(StatusCode, Json<StoredCostAssessment>), ApiError> {
+    let Path(session) = path.map_err(|_| ApiError::invalid(&id))?;
+    query.map_err(|_| ApiError::invalid(&id))?;
+    validate_session_path(&session, &id)?;
+    let key = idempotency(&headers, &id)?;
+    let Json(input) = body.map_err(|_| ApiError::invalid(&id))?;
+    arb_storage::validate_cost_observation(&input.observation_id)
+        .map_err(|error| ApiError::store(error, &id))?;
+    state
+        .0
+        .store
+        .create_cost_assessment("operator", &session, &key, input)
+        .await
+        .map(|record| (StatusCode::CREATED, Json(record)))
+        .map_err(|error| ApiError::store(error, &id))
+}
+pub(super) async fn get_cost_assessment(
+    State(state): State<AppState>,
+    Extension(id): Extension<RequestId>,
+    path: Result<Path<(String, String)>, PathRejection>,
+    query: Result<Query<EmptyQuery>, QueryRejection>,
+) -> Result<Json<StoredCostAssessment>, ApiError> {
+    let Path((session, record)) = path.map_err(|_| ApiError::invalid(&id))?;
+    query.map_err(|_| ApiError::invalid(&id))?;
+    validate_session_path(&session, &id)?;
+    validate_cost_cursor(&record, &id)?;
+    state
+        .0
+        .store
+        .get_cost_assessment("operator", &session, &record)
+        .await
+        .map(Json)
+        .map_err(|error| ApiError::store(error, &id))
+}
+pub(super) async fn list_cost_assessments(
+    State(state): State<AppState>,
+    Extension(id): Extension<RequestId>,
+    path: Result<Path<String>, PathRejection>,
+    query: Result<Query<Pagination>, QueryRejection>,
+) -> Result<Json<CostAssessmentPage>, ApiError> {
+    let Path(session) = path.map_err(|_| ApiError::invalid(&id))?;
+    let Query(query) = query.map_err(|_| ApiError::invalid(&id))?;
+    validate_session_path(&session, &id)?;
+    let limit = validate_page(&query, &id)?;
+    if let Some(cursor) = &query.cursor {
+        validate_cost_cursor(cursor, &id)?;
+    }
+    state
+        .0
+        .store
+        .list_cost_assessments("operator", &session, query.cursor.as_deref(), limit)
+        .await
+        .map(Json)
+        .map_err(|error| ApiError::store(error, &id))
+}
+fn validate_cost_cursor(cursor: &str, id: &RequestId) -> Result<(), ApiError> {
+    if cursor.len() != 36
+        || !cursor.bytes().enumerate().all(|(position, byte)| {
+            if matches!(position, 8 | 13 | 18 | 23) {
+                byte == b'-'
+            } else {
+                byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)
+            }
+        })
+    {
+        return Err(ApiError::invalid(id));
+    }
+    Ok(())
 }

@@ -550,18 +550,43 @@ fn two_pool_process_fixture_has_exact_negative_round_trip_without_market_claims(
 struct PairRpcGuard {
     endpoint: String,
     done: Arc<AtomicBool>,
+    tip_advances: Arc<AtomicUsize>,
     server: Option<std::thread::JoinHandle<()>>,
 }
 impl PairRpcGuard {
     fn start(transcripts: Vec<Vec<RpcRecord>>) -> Self {
+        Self::with_canonical_failure_after(transcripts, None)
+    }
+    fn with_canonical_failure_after(
+        transcripts: Vec<Vec<RpcRecord>>,
+        fail_after: Option<usize>,
+    ) -> Self {
+        // Exact v2 acquisition: one chain/anchor, both pools' pinned reads,
+        // then one canonical recheck. Reindex the actual fixture RPC responses.
+        let second_pool_start = transcripts[0].len() - 1;
+        let mut records = transcripts[0][..2].to_vec();
+        for transcript in &transcripts {
+            records.extend_from_slice(&transcript[2..transcript.len() - 1]);
+        }
+        records.push(transcripts.last().unwrap().last().unwrap().clone());
+        for (sequence, record) in records.iter_mut().enumerate() {
+            record.sequence = sequence as u64;
+            let mut response: Value = serde_json::from_str(&record.response).unwrap();
+            response["id"] = json!(sequence);
+            record.response = response.to_string();
+        }
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         listener.set_nonblocking(true).unwrap();
         let endpoint = format!("http://{}", listener.local_addr().unwrap());
         let done = Arc::new(AtomicBool::new(false));
         let finished = Arc::clone(&done);
+        let tip_advances = Arc::new(AtomicUsize::new(0));
+        let server_tip_advances = Arc::clone(&tip_advances);
         let server = std::thread::spawn(move || {
-            let records = transcripts.into_iter().flatten().collect::<Vec<_>>();
+            let original_tip: Value = serde_json::from_str(&records[1].response).unwrap();
+            let mut finalized_tip = original_tip.clone();
             let mut cursor = 0;
+            let mut completed_batches = 0;
             while !finished.load(Ordering::SeqCst) {
                 let Ok((mut stream, _)) = listener.accept() else {
                     std::thread::sleep(Duration::from_millis(2));
@@ -600,14 +625,39 @@ impl PairRpcGuard {
                 reader.read_exact(&mut body).unwrap();
                 let request: Value = serde_json::from_slice(&body).unwrap();
                 let record = &records[cursor];
+                if cursor == second_pool_start {
+                    // The provider's finalized tip advances between the two
+                    // pools. Hash-pinned reads and the old block's canonical
+                    // lookup still return the original anchored state.
+                    finalized_tip["result"]["hash"] = json!(format!("0x{}", "cd".repeat(32)));
+                    let old = original_tip["result"]["number"].as_str().unwrap();
+                    let next = u64::from_str_radix(old.trim_start_matches("0x"), 16).unwrap() + 1;
+                    finalized_tip["result"]["number"] = json!(format!("0x{next:x}"));
+                    server_tip_advances.fetch_add(1, Ordering::SeqCst);
+                }
                 assert_eq!(request["jsonrpc"], "2.0");
                 assert_eq!(request["id"], record.sequence);
                 assert_eq!(request["method"], record.method.wire_name());
                 assert_eq!(request["params"], record.params);
+                let response_body = if record.method
+                    == arb_adapter_api::ReadMethod::EthGetBlockByNumber
+                    && request["params"][0] == "finalized"
+                {
+                    finalized_tip["id"] = request["id"].clone();
+                    finalized_tip.to_string()
+                } else if cursor == records.len() - 1
+                    && fail_after.is_some_and(|limit| completed_batches >= limit)
+                {
+                    let mut response: Value = serde_json::from_str(&record.response).unwrap();
+                    response["result"]["hash"] = json!(format!("0x{}", "ab".repeat(32)));
+                    response.to_string()
+                } else {
+                    record.response.clone()
+                };
                 let response = format!(
                     "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                    record.response.len(),
-                    record.response
+                    response_body.len(),
+                    response_body
                 );
                 if stream.write_all(response.as_bytes()).is_err() {
                     assert!(
@@ -617,11 +667,16 @@ impl PairRpcGuard {
                     break;
                 }
                 cursor = (cursor + 1) % records.len();
+                if cursor == 0 {
+                    completed_batches += 1;
+                    finalized_tip = original_tip.clone();
+                }
             }
         });
         Self {
             endpoint,
             done,
+            tip_advances,
             server: Some(server),
         }
     }
@@ -913,6 +968,39 @@ async fn two_pool_worker_quotes_are_durable_and_visible_through_authenticated_ht
                 arb_capture::Origin::ManuallyConstructed
             );
             assert_eq!(bundle.manifest.config_digest, validated.digest());
+            assert_eq!(bundle.manifest.adapter_version, "arb_evm-pool-set-v2");
+            let records: Vec<RpcRecord> = serde_json::from_slice(
+                &bundle
+                    .objects
+                    .iter()
+                    .find(|(name, _)| name == "rpc.json")
+                    .unwrap()
+                    .1,
+            )
+            .unwrap();
+            assert_eq!(
+                records
+                    .iter()
+                    .filter(|record| record.method == arb_adapter_api::ReadMethod::EthChainId)
+                    .count(),
+                1
+            );
+            assert_eq!(
+                records
+                    .iter()
+                    .filter(|record| record.method
+                        == arb_adapter_api::ReadMethod::EthGetBlockByNumber
+                        && record.params[0] == "finalized")
+                    .count(),
+                1
+            );
+            for member in [FIRST_POOL, SECOND_POOL] {
+                assert!(
+                    records
+                        .iter()
+                        .any(|record| record.params[0]["to"] == member)
+                );
+            }
             assert!(!bundle.manifest.complete_for_quote);
             let raw: Value = serde_json::from_slice(
                 &bundle
@@ -941,6 +1029,10 @@ async fn two_pool_worker_quotes_are_durable_and_visible_through_authenticated_ht
         collections,
         (1, 2, 2),
         "one collection batch records exactly two decisions and two captures atomically"
+    );
+    assert!(
+        rpc.tip_advances.load(Ordering::SeqCst) >= 2,
+        "readiness and research both captured their pair while finalized tip advanced"
     );
     let stopped_generation: i64 = sqlx::query_scalar(
         "SELECT generation FROM research_sessions WHERE operator_id=$1 AND session_id=$2",
@@ -1337,9 +1429,9 @@ async fn provider_failure_is_redacted_and_killed_collection_stays_unresolved() {
 }
 
 #[tokio::test]
-async fn independently_valid_different_contexts_record_rejections_without_quoted_opportunities() {
+async fn canonical_batch_failure_admits_no_partial_captures_or_decisions() {
     let database = std::env::var("TEST_DATABASE_URL").expect(
-        "TEST_DATABASE_URL required; worker context rejection evidence must not silently skip",
+        "TEST_DATABASE_URL required; worker batch rejection evidence must not silently skip",
     );
     let store = Store::connect(&database).await.unwrap();
     store.migrate().await.unwrap();
@@ -1347,29 +1439,9 @@ async fn independently_valid_different_contexts_record_rejections_without_quoted
     let root = std::env::temp_dir().join(format!("arb-context-failure-{}", Uuid::new_v4()));
     let capture_root = root.join("captures");
     fs::create_dir_all(&capture_root).unwrap();
-    let (registry, mut transcripts) = two_pool_fixture();
-    let block: Value = serde_json::from_str(
-        &transcripts[1]
-            .iter()
-            .find(|record| record.method == arb_adapter_api::ReadMethod::EthGetBlockByNumber)
-            .unwrap()
-            .response,
-    )
-    .unwrap();
-    let old_hash = block["result"]["hash"].as_str().unwrap();
-    let different_hash = format!("0x{}", "ab".repeat(32));
-    assert_ne!(old_hash, different_hash);
-    for record in &mut transcripts[1] {
-        *record = serde_json::from_str(
-            &serde_json::to_string(record)
-                .unwrap()
-                .replace(old_hash, &different_hash),
-        )
-        .unwrap();
-    }
-    // Both independent captures validate, but their immutable contexts differ.
-    // The engine preserves per-route context rejection as durable decisions.
-    // This fixture is neither a whole-batch engine failure nor a provider outage.
+    let (registry, transcripts) = two_pool_fixture();
+    // Readiness succeeds. Subsequent research batches decode both pools but fail
+    // the single final canonical check, so no partial batch may be persisted.
     let config = two_pool_config(capture_root.to_str().unwrap(), &registry);
     let validated = ValidatedConfig::from_toml(&config).unwrap();
     let config_path = root.join("config.toml");
@@ -1393,16 +1465,16 @@ async fn independently_valid_different_contexts_record_rejections_without_quoted
                 network_id: "base-mainnet".into(),
                 mode: "OBSERVE".into(),
                 configuration_digest: validated.digest().into(),
-                experiment_id: "manual-different-block-contexts".into(),
+                experiment_id: "manual-canonical-batch-failure".into(),
                 strategy_ids: validated.strategy_ids().to_vec(),
             },
         )
         .await
         .unwrap();
     let id = session.session_id;
-    let mut rpc = PairRpcGuard::start(transcripts);
+    let mut rpc = PairRpcGuard::with_canonical_failure_after(transcripts, Some(1));
     let log = fs::File::create(root.join("worker.log")).unwrap();
-    let worker = ChildGuard(
+    let mut worker = ChildGuard(
         Command::new(env!("CARGO_BIN_EXE_research-worker"))
             .env("ARB_WORKER_CONFIG", &config_path)
             .env("ARB_POOL_REGISTRY", &registry_path)
@@ -1415,18 +1487,43 @@ async fn independently_valid_different_contexts_record_rejections_without_quoted
             .spawn()
             .unwrap(),
     );
-    wait_until(
-        async || {
-            store
-                .get_session(&operator, &id)
-                .await
-                .unwrap()
-                .observed_state
-                == "STOPPED"
-        },
-        10,
-    )
-    .await;
+    let diagnostics = async || {
+        let session = store.get_session(&operator, &id).await.unwrap();
+        let outcomes: Vec<(String, Option<String>, i64)> = sqlx::query_as("SELECT outcome,reason,decision_rows FROM collection_attempts WHERE session_id=$1 ORDER BY attempt_id LIMIT 20")
+            .bind(&id).fetch_all(&pool).await.unwrap();
+        let mut log = String::new();
+        fs::File::open(root.join("worker.log"))
+            .unwrap()
+            .take(16384)
+            .read_to_string(&mut log)
+            .unwrap();
+        format!(
+            "state={}, desired_revision={}, applied_revision={}, outstanding={}; collection outcomes (at most 20): {outcomes:?}; worker log (at most 16 KiB): {log}",
+            session.observed_state,
+            session.desired_revision,
+            session.applied_revision,
+            session.outstanding_attempts
+        )
+    };
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        if store
+            .get_session(&operator, &id)
+            .await
+            .unwrap()
+            .observed_state
+            == "STOPPED"
+        {
+            break;
+        }
+        if Instant::now() >= deadline {
+            panic!(
+                "canonical batch stage=recovery expected STOPPED within 10s; {}",
+                diagnostics().await
+            );
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
     store
         .issue_command(
             &operator,
@@ -1442,32 +1539,53 @@ async fn independently_valid_different_contexts_record_rejections_without_quoted
         .unwrap();
     let deadline = Instant::now() + Duration::from_secs(20);
     loop {
-        let completed: i64 = sqlx::query_scalar("SELECT count(*) FROM collection_attempts WHERE session_id=$1 AND purpose='RESEARCH' AND outcome='DECISIONS_RECORDED' AND captured_pools=2 AND decision_rows=2")
+        let completed: i64 = sqlx::query_scalar("SELECT count(*) FROM collection_attempts WHERE session_id=$1 AND purpose='RESEARCH' AND outcome='ACQUISITION_FAILED' AND reason='INPUT_VALIDATION_FAILED' AND captured_pools=0 AND decision_rows=0")
             .bind(&id).fetch_one(&pool).await.unwrap();
         if completed > 0 {
             break;
         }
         if Instant::now() >= deadline {
-            let outcomes: Vec<(String, Option<String>, i64)> = sqlx::query_as("SELECT outcome,reason,decision_rows FROM collection_attempts WHERE session_id=$1 ORDER BY attempt_id LIMIT 20")
-                .bind(&id).fetch_all(&pool).await.unwrap();
-            let mut log = String::new();
-            fs::File::open(root.join("worker.log"))
-                .unwrap()
-                .take(16384)
-                .read_to_string(&mut log)
-                .unwrap();
             panic!(
-                "expected a completed two-decision context-rejection batch within 20s; collection outcomes: {outcomes:?}; bounded worker log: {log}"
+                "canonical batch stage=acquisition expected rejected batch with no captures or decisions within 20s; {}",
+                diagnostics().await
+            );
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    // Readiness loss deliberately faults and terminates the worker. A STOP
+    // issued after that exit cannot be acknowledged by the departed process.
+    // Require the existing durable fault/generation fence and bounded exit.
+    let failed_generation: i64 = sqlx::query_scalar("SELECT generation FROM collection_attempts WHERE session_id=$1 AND purpose='RESEARCH' AND outcome='ACQUISITION_FAILED' ORDER BY attempt_id LIMIT 1")
+        .bind(&id).fetch_one(&pool).await.unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let state: (String, bool, i64) = sqlx::query_as("SELECT observed_state,local_fence,generation FROM research_sessions WHERE session_id=$1")
+            .bind(&id).fetch_one(&pool).await.unwrap();
+        let exit = worker.0.try_wait().unwrap();
+        if state.0 == "FAULTED" && state.1 && state.2 > failed_generation && exit.is_some() {
+            assert_eq!(
+                exit.unwrap().code(),
+                Some(2),
+                "readiness loss must report failure"
+            );
+            break;
+        }
+        if Instant::now() >= deadline {
+            panic!(
+                "canonical batch stage=fault-exit expected durable FAULTED, closed fence, newer generation and process exit within 5s; actual={state:?}, failed_generation={failed_generation}, exit={exit:?}; {}",
+                diagnostics().await
             );
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
     let session = store.get_session(&operator, &id).await.unwrap();
+    assert_eq!(session.outstanding_attempts, 0);
+    assert!(!session.execution_authorized);
     let stop = store
         .issue_command(
             &operator,
             &id,
-            "stop",
+            "stop-after-fault",
             NewCommand {
                 action: "STOP".into(),
                 expected_revision: session.desired_revision,
@@ -1476,57 +1594,36 @@ async fn independently_valid_different_contexts_record_rejections_without_quoted
         )
         .await
         .unwrap();
-    wait_until(
-        async || {
-            store
-                .get_command(&operator, &stop.command_id)
-                .await
-                .unwrap()
-                .status
-                == "APPLIED"
-        },
-        5,
-    )
-    .await;
+    assert_eq!(
+        stop.status, "PENDING",
+        "an exited worker cannot acknowledge STOP"
+    );
+    assert!(stop.applied_at.is_none());
+    let persisted_stop = store
+        .get_command(&operator, &stop.command_id)
+        .await
+        .unwrap();
+    assert_eq!(persisted_stop.status, "PENDING");
+    assert!(persisted_stop.applied_at.is_none());
     let captures: i64 =
         sqlx::query_scalar("SELECT count(*) FROM capture_admissions WHERE session_id=$1")
             .bind(&id)
             .fetch_one(&pool)
             .await
             .unwrap();
-    assert_eq!(
-        captures, 2,
-        "both captures committed before engine rejected their different contexts"
-    );
+    assert_eq!(captures, 0, "no pool from a failed batch may be admitted");
     let decisions = store
         .list_decision_traces(&operator, &id, None, 100)
         .await
         .unwrap();
     assert!(decisions.next_cursor.is_none());
-    assert_eq!(
-        decisions.items.len(),
-        2,
-        "both route directions retain their rejection evidence"
-    );
-    for stored in &decisions.items {
-        assert!(matches!(
-            &stored.trace.result,
-            arb_domain::DecisionResult::Rejected { reason_codes } if reason_codes == &["CAPTURE_CONTEXT_MISMATCH"]
-        ));
-        assert!(
-            stored.trace.to_opportunity().unwrap().is_none(),
-            "rejected contexts must not become quoted opportunities"
-        );
-    }
-    let evaluation_failures: i64 = sqlx::query_scalar("SELECT count(*) FROM collection_attempts WHERE session_id=$1 AND outcome='EVALUATION_FAILED'")
+    assert!(decisions.items.is_empty());
+    let completed: i64 = sqlx::query_scalar("SELECT count(*) FROM collection_attempts WHERE session_id=$1 AND purpose='RESEARCH' AND outcome='DECISIONS_RECORDED'")
         .bind(&id).fetch_one(&pool).await.unwrap();
-    assert_eq!(
-        evaluation_failures, 0,
-        "a recorded per-route rejection is not a whole-batch engine failure"
-    );
-    let provider_failures: i64 = sqlx::query_scalar("SELECT count(*) FROM collection_attempts WHERE session_id=$1 AND outcome='ACQUISITION_FAILED'")
-        .bind(&id).fetch_one(&pool).await.unwrap();
-    assert_eq!(provider_failures, 0);
+    assert_eq!(completed, 0);
+    // Exactly the original two readiness bundles remain. A failed batch must
+    // not write even its successfully decoded first pool's raw artifact.
+    assert_eq!(fs::read_dir(&capture_root).unwrap().count(), 2);
     rpc.finish();
     drop(worker);
     fs::remove_dir_all(root).unwrap();
