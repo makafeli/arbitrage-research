@@ -16,7 +16,7 @@ arb-registry.workspace = true
 arb-paper = { path = "../../crates/arb-paper" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-sha2 = "0.10"
+sha2 = "0.11"
 subtle = "2.6"
 getrandom = "0.4"
 async-trait = "0.1"
