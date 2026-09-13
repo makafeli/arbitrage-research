@@ -200,7 +200,13 @@ fn valid_unicode_and_literal_escape_text_remain_storage_compatible() {
         assert!(serde_json::from_str::<String>(input).is_ok());
         let (code, report) = run_audit_with_input(Chain::BaseMainnet, 150, false, Some(input));
         assert_eq!(code, 0, "{report}");
-        assert_eq!(report["dependencies"][0]["raw_artifact_status"], "AVAILABLE");
-        assert_eq!(report["dependencies"][0]["market_performance_eligible"], false);
+        assert_eq!(
+            report["dependencies"][0]["raw_artifact_status"],
+            "AVAILABLE"
+        );
+        assert_eq!(
+            report["dependencies"][0]["market_performance_eligible"],
+            false
+        );
     }
 }
