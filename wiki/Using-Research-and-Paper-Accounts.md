@@ -1,6 +1,6 @@
 # Using research and paper accounts
 
-The connected dashboard inspects retained research and virtual accounting. Current OBSERVE and PAPER workers capture read-only state and calculate bounded two-pool CANDIDATE decisions. They do not send transactions, simulate a complete atomic transaction or turn a positive quote into a paper fill. Demo mode remains visibly synthetic. See [implementation status](https://github.com/makafeli/arbitrage-research/blob/main/docs/12-IMPLEMENTATION-STATUS.md) and [integration verification](https://github.com/makafeli/arbitrage-research/blob/main/docs/17-RESEARCH-INTEGRATION-VERIFICATION.md) for current acceptance evidence.
+The connected dashboard inspects retained research and virtual accounting. Current OBSERVE and PAPER workers capture read-only state and calculate bounded two-pool CANDIDATE decisions. They do not send transactions, simulate a complete atomic transaction or turn a positive quote into a paper fill. Demo mode remains visibly synthetic. See [implementation status](https://github.com/makafeli/arbitrage-research/blob/main/docs/12-IMPLEMENTATION-STATUS.md) and [integration verification](https://github.com/makafeli/arbitrage-research/blob/main/docs/19-ANCHORED-CAPTURE-AND-COST-VERIFICATION.md) for current acceptance evidence.
 
 ## Prepare a session
 

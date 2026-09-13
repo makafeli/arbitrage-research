@@ -2,7 +2,21 @@
 
 This cohort advances ARB-018 and ARB-025, with integration work for capture, replay, storage, API, dashboard and exports. It follows merged PRs #90 and #91. The accepted preceding main checkpoint is `b65571ecd0e4e2b7f3ab6ed2a6612afd4055323a`: [all four validation jobs](https://github.com/makafeli/arbitrage-research/actions/runs/34725234701) and the [planning import](https://github.com/makafeli/arbitrage-research/actions/runs/34725234706) passed. That runtime had 225 Rust tests including 52 PostgreSQL tests, 36 Chromium scenarios and 25 Node tests; the corrected importer passed 23 regressions. These are baseline counts, not inferred results for this new source.
 
-The delivery pull request records actual local and remote checks on its exact commit. Full PostgreSQL/process, real HTTP-client, Chromium and container checks are required before this cohort is accepted. Authored tests and synthetic captures do not establish provider qualification, market coverage or profitability.
+The accepted runtime checkpoint is `6c8e39628282b95b4531cd2b1006fd4c2455ef64` in [PR #92](https://github.com/makafeli/arbitrage-research/pull/92). [All four validation jobs](https://github.com/makafeli/arbitrage-research/actions/runs/34728060968) passed on that exact source: **261 Rust tests**, including all **57 mandatory real PostgreSQL tests**, with zero failures, ignored or filtered tests; **43 Chromium scenarios**; **30 Node tests**; **23 importer regressions**; **43 negative contract cases across 26 API operations**; and **all three Railway container builds**. Rust formatting, strict Clippy, independent Uniswap oracle reproduction and the actual TypeScript-client/Rust-HTTP/PostgreSQL smoke also passed. The latter verifies cost capability, bounded empty history, an inaccessible source returning 404, six export source counts and repeatable export hashes. Successful assessment creation, idempotent retries, scoped rejection, persistence and export replay run against PostgreSQL in the HTTP/storage integration suites.
+
+The five new PostgreSQL tests are included in the 57, not counted separately. The independent cost fixture is reproduced by both Rust and TypeScript. Local checks covered 204 non-PostgreSQL Rust tests; full PostgreSQL, process and browser claims come from the linked remote execution. Subsequent evidence-only commits retain this runtime checkpoint; their exact-head CI results belong to the PR. No test result or synthetic capture establishes provider qualification, market coverage, profitability, a deployed Railway environment or independent security certification.
+
+## Review evidence
+
+The first CI run on `b356c9db35a18cb12d67484fecab808ea5d93e46` passed all 43 Chromium scenarios, 30 Node tests, specifications and all three container builds. Its Rust job exposed an incorrect new process-test expectation: it asked a worker that had already faulted and exited to acknowledge STOP. The revised test retains the five-second bound and requires durable FAULTED state, a closed local fence, a newer generation, zero outstanding attempts and process exit code 2. A STOP submitted after that exit remains PENDING without an applied timestamp. It still requires zero admitted captures/decisions and exactly the two previous readiness artifacts. Production lifecycle behavior was not weakened to satisfy the test.
+
+The three full-page screenshots below were recovered from that run's web job, with byte counts, sequence, dimensions and SHA-256 verified before visual inspection. The cost form, saved negative result and explicit unknown allocation were reviewed at each width. Wide audit tables scroll horizontally on narrow screens. These synthetic screenshots and automated cases do not complete keyboard, assistive-technology, zoom or contrast acceptance.
+
+| Viewport | Retained screenshot | Pixels | SHA-256 |
+|---|---|---|---|
+| 320 | [Cost assessment](review/cost-assessment-320.png) | 320 × 10182 | `499fcd02a556ca0e55bb56b313dbe6b6e65c5d10fff5771885e79a646a8e46a8` |
+| 390 | [Cost assessment](review/cost-assessment-390.png) | 390 × 9462 | `f6b85ac756def4a298bc45ba498779bada5248f72cfe273d40eeacccf20fe401` |
+| 1440 | [Cost assessment](review/cost-assessment-1440.png) | 1440 × 6337 | `f2b2ce732159487f368dc71f663a64171954a52735c0a2302abfac8ad283405a` |
 
 ## Shared acquisition and original evidence
 
