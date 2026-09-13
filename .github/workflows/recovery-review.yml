@@ -1,0 +1,43 @@
+name: Recovery review
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: recovery-review-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  recovery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    container: postgres:17.11
+    services:
+      postgres:
+        image: postgres:17.11
+        env:
+          POSTGRES_PASSWORD: recovery-test-only
+          POSTGRES_USER: postgres
+          POSTGRES_DB: postgres
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PGHOST: postgres
+      PGUSER: postgres
+      PGPASSWORD: recovery-test-only
+      ARB_RECOVERY_INTEGRATION: disposable-ci-service
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Python for standard-library recovery tools
+        run: apt-get update && apt-get install -y --no-install-recommends python3
+      - name: Run offline adversarial recovery tests
+        run: python3 scripts/test_recovery.py -v
+      - name: Restore the real migration schema and synthetic retained data
+        run: python3 scripts/test_recovery_postgres.py
