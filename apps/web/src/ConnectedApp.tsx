@@ -52,9 +52,7 @@ export function ConnectedApp({ onDemo }: { onDemo: () => void }) {
       if (!mounted.current) return;
       const authorized = api.isAuthorized();
       setAuthenticated(authorized);
-      if (authorized) {
-        setAnnouncement('Authenticated. Loading service records.');
-      } else {
+      if (!authorized) {
         setOnline(false); setInspected(null);
         setAnnouncement('Authorization unavailable. Sign in again; unresolved requests are retained.');
       }
