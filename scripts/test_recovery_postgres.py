@@ -68,22 +68,29 @@ INSERT INTO recovery_text_fixture(note,exact_amount) VALUES (E'quote " slash \\\
     r.require(len(initial['relations']) >= 12, 'Real migration relations not inventoried')
     r.require(any(row['kind'] == 'S' and row['rows'] == 1 for row in initial['relations']), 'Sequence evidence missing')
     with tempfile.TemporaryDirectory() as directory:
-        root = Path(directory).resolve(); captures = root / 'captures'; captures.mkdir()
+        root = Path(directory).resolve()
+        captures = root / 'captures'
+        captures.mkdir()
         (captures / 'fixture-capture').mkdir()
         raw = b'{"origin":"SYNTHETIC_STORAGE_FIXTURE","expires_at":"2000-01-01","not_a_market_capture":true}\n'
         (captures / 'fixture-capture/manifest.json').write_bytes(raw)
         (captures / 'fixture-capture/state.bin').write_bytes(bytes(range(256)) * 1024)
-        bundle = root / 'backup'; restored = root / 'restored'
+        bundle = root / 'backup'
+        restored = root / 'restored'
         source_commit = os.environ.get('GITHUB_SHA', '')
-        backup = r.backup(source, captures, bundle, source_commit, True, LIMITS)
-        sha = backup['manifest_sha256']; r.verify(bundle, sha, LIMITS)
+        backup_logs = r.Diagnostics('backup', root / 'backup-private')
+        backup = r.backup(source, captures, bundle, source_commit, True, LIMITS, diagnostics=backup_logs)
+        sha = backup['manifest_sha256']
+        r.verify(bundle, sha, LIMITS)
         # Tamper detection must leave the target empty and no destination created.
-        artifact = bundle / 'captures/fixture-capture/state.bin'; original = artifact.read_bytes()
+        artifact = bundle / 'captures/fixture-capture/state.bin'
+        original = artifact.read_bytes()
         artifact.write_bytes(b'corrupt')
         refusal(lambda: r.restore(bundle, sha, target, target, restored, True, LIMITS))
         r.require(r.db_evidence(target, LIMITS) == {'relations': []} and not restored.exists(), 'Failed verification mutated target')
         artifact.write_bytes(original)
-        result = r.restore(bundle, sha, target, target, restored, True, LIMITS)
+        restore_logs = r.Diagnostics('restore', root / 'restore-private')
+        result = r.restore(bundle, sha, target, target, restored, True, LIMITS, diagnostics=restore_logs)
         r.require(r.db_evidence(source, LIMITS) == initial == r.db_evidence(target, LIMITS), 'Source/restore contents or sequence states differ')
         r.require((restored / 'fixture-capture/manifest.json').read_bytes() == raw, 'Capture expiry/content changed')
         r.require(execute(target, "SELECT status FROM control_commands WHERE command_id='fixture-command'").strip() == b'PENDING', 'Pending command was applied or lost')
@@ -96,6 +103,22 @@ INSERT INTO recovery_text_fixture(note,exact_amount) VALUES (E'quote " slash \\\
         refusal(lambda: r.restore(bundle, sha, target, target, root / 'second', True, LIMITS))
         refusal(lambda: r.restore(bundle, sha, 'production', 'production', root / 'unsafe', True, LIMITS))
         r.require(not (root / 'second').exists() and not (root / 'unsafe').exists(), 'Rejected restore created output')
+        # Real psql, pg_dump and pg_restore failures retain stderr privately.
+        # None of these failure probes writes to a database or capture directory.
+        logs = r.Diagnostics('command', root / 'failure-private')
+        refusal(lambda: r.sql(target, 'SELECT * FROM public.recovery_missing_relation', LIMITS, diagnostics=logs))
+        refusal(lambda: r.command(['pg_dump', '-w', '--dbname', source, '--table=public.recovery_missing_relation'], LIMITS, diagnostics=logs))
+        refusal(lambda: r.command(['pg_restore', '--list', str(artifact)], LIMITS, diagnostics=logs))
+        for index in range(1, 4):
+            stderr = logs.root / f'command-{index:04d}.stderr'
+            metadata = json.loads((logs.root / f'command-{index:04d}.json').read_bytes())
+            r.require(0 < stderr.stat().st_size <= logs.max_file_bytes, 'Real failure diagnostic missing or unbounded')
+            r.require(not metadata['completed'] and metadata['returncode'] != 0, 'Failed command reported success')
+        for store in (backup_logs, restore_logs, logs):
+            r.require(store.root.stat().st_mode & 0o777 == 0o700, 'Diagnostic directory permissions unsafe')
+            r.require(all(p.stat().st_mode & 0o777 == 0o600 for p in store.root.iterdir()), 'Diagnostic file permissions unsafe')
+        r.verify(bundle, sha, LIMITS)
+        r.require(r.db_evidence(source, LIMITS) == initial == r.db_evidence(target, LIMITS), 'Diagnostic probes changed database data')
         # The actual command-line entrypoint also validates this same bundle.
         cli = json.loads(r.command([sys.executable, str(ROOT / 'scripts/recovery.py'), 'verify', '--bundle', str(bundle), '--manifest-sha256', sha], LIMITS, capture=True))
         r.require(cli['status'] == 'BUNDLE_BYTES_VERIFIED', 'CLI verification failed')
