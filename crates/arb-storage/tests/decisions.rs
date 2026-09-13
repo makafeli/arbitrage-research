@@ -653,7 +653,7 @@ async fn cost_assessment_history_is_append_only_and_rejects_self_consistent_tamp
     );
     let mut bad = record.assessment.clone();
     bad.report.transaction_net = Some("999".parse().unwrap());
-    let digest = format!("{:x}", Sha256::digest(serde_json::to_vec(&bad).unwrap()));
+    let digest = hex::encode(Sha256::digest(serde_json::to_vec(&bad).unwrap()));
     let bad_id = Uuid::now_v7().to_string();
     sqlx::query("INSERT INTO cost_assessments(record_id,operator_id,session_id,source_trace_id,observation_id,configuration_digest,experiment_id,network_id,idempotency_key,request_digest,payload_digest,payload) SELECT $2,operator_id,session_id,source_trace_id,observation_id,configuration_digest,experiment_id,network_id,'corrupt-copy',request_digest,$3,$4 FROM cost_assessments WHERE record_id=$1")
         .bind(&record.record_id).bind(&bad_id).bind(digest).bind(serde_json::to_value(bad).unwrap()).execute(&pool).await.unwrap();
@@ -845,10 +845,7 @@ async fn self_consistent_policy_tamper_is_rejected_by_reads_costs_and_frozen_exp
     let changed = freshness_trace(trace(&id, generation, 1001, "QUOTED"), 200);
     changed.validate().unwrap(); // Arithmetic and observation hash alone are valid.
     let payload = serde_json::to_value(&changed).unwrap();
-    let digest = format!(
-        "{:x}",
-        Sha256::digest(serde_json::to_vec(&changed).unwrap())
-    );
+    let digest = hex::encode(Sha256::digest(serde_json::to_vec(&changed).unwrap()));
     let pool = sqlx::PgPool::connect(&std::env::var("TEST_DATABASE_URL").unwrap())
         .await
         .unwrap();

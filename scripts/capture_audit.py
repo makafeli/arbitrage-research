@@ -86,7 +86,21 @@ def decode(data: bytes) -> Any:
         elif byte in (93, 125):
             depth -= 1
     try:
-        return json.loads(data.decode('utf-8'), object_pairs_hook=unique, parse_constant=nonfinite)
+        value = json.loads(data.decode('utf-8'), object_pairs_hook=unique, parse_constant=nonfinite)
+        # Rust strings contain Unicode scalar values; json.loads also accepts
+        # lone escaped surrogates. Validate keys and values without rewriting
+        # source bytes or normalizing valid text. Input size/depth are bounded.
+        pending = [value]
+        while pending:
+            item = pending.pop()
+            if isinstance(item, str):
+                item.encode('utf-8')
+            elif isinstance(item, dict):
+                pending.extend(item)
+                pending.extend(item.values())
+            elif isinstance(item, list):
+                pending.extend(item)
+        return value
     except (UnicodeError, ValueError, RecursionError) as error:
         if isinstance(error, AuditError):
             raise

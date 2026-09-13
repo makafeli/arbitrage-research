@@ -99,6 +99,11 @@ storage contract. Duplicate reference pairs are rejected before capture reads;
 the same capture ID with different expected digests remains two distinct rows.
 Duplicate JSON keys, unknown v1 fields, wrong types, inconsistent identity/network/
 configuration, invalid ordering/context/completeness and unsupported versions fail.
+Escaped lone Unicode surrogates in JSON keys or values are rejected as `INVALID_JSON`,
+matching Rust string decoding. Valid Unicode scalar text, paired surrogate escapes
+and literal backslash sequences remain supported without normalizing or rewriting
+the bytes whose digest is checked. A malformed manifest stays a reported dependency
+gap; later valid references are still inspected.
 The audit never trusts a digest recomputed from an untrusted replacement as proof
 of origin: independently retain the expected manifest digests. `request_sha256` is
 a deterministic digest of this small request, not a signature or native export hash.
@@ -154,3 +159,9 @@ exports, actual summaries and qualified asset metadata. Before closing #58:
 application-aware replay/ledger recovery, worker restart/degraded-provider tests,
 scheduled retention and protected offsite backups remain. No signing/broadcasting,
 funding, provider purchase or research-worker activation is part of this change.
+
+The continuation against main `22aa50c4` adds four Python Unicode regressions and
+two Rust/Python interoperability tests. The Rust tests begin with real writer output,
+then explicitly compare valid and invalid JSON string decoding with serde_json;
+re-anchoring the manifest hash does not make malformed strings valid. Runtime CI
+results belong to the exact PR revision recorded on #105, not this description.

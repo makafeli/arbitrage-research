@@ -320,6 +320,51 @@ class CaptureAuditTests(unittest.TestCase):
             with self.subTest(raw=raw[:30]), self.assertRaises(a.AuditError):
                 a.decode(raw)
 
+    def test_unpaired_escaped_unicode_is_rejected_in_values_and_keys(self):
+        """Python's permissive JSON strings must not certify invalid Rust strings."""
+        for raw in [br'"\ud800"', br'"\udfff"', br'{"\ud800":1}',
+                    br'{"nested":["\ud800x"]}', br'"\udc00\ud800"',
+                    br'"\ud800\ud800"']:
+            with self.subTest(raw=raw), self.assertRaisesRegex(a.AuditError, 'INVALID_JSON'):
+                a.decode(raw)
+
+    def test_valid_unicode_and_literal_escape_text_are_not_normalized(self):
+        """Valid scalar text, surrogate pairs and literal backslashes retain meaning."""
+        for raw, expected in [(br'"\ud83d\ude80"', '\U0001f680'),
+                              (br'"\\ud800"', r'\ud800'),
+                              ('"caf\u00e9"'.encode(), 'caf\u00e9'),
+                              (br'{"\ud83d\ude80":["\u0000"]}', {'\U0001f680': ['\x00']})]:
+            with self.subTest(raw=raw):
+                self.assertEqual(a.decode(raw), expected)
+
+    def test_invalid_unicode_capture_does_not_hide_later_valid_reference(self):
+        """A newly retained digest cannot repair a malformed string's schema."""
+        self.changed_manifest(lambda m: m.update(required_inputs=['state', '\ud800']))
+        self.publish(manifest('capture-2'))
+        report = self.report()
+        self.assertEqual(report['status'], 'COMPLETE_WITH_GAPS')
+        self.assertEqual(report['references_reported'], 2)
+        broken, valid = report['dependencies']
+        self.assertEqual(broken['raw_artifact_status'], 'CORRUPT')
+        self.assertEqual(broken['reason'], 'INVALID_JSON')
+        self.assertEqual(broken['origin'], 'UNKNOWN')
+        self.assertEqual(valid['raw_artifact_status'], 'AVAILABLE')
+
+    def test_cli_invalid_unicode_manifest_is_a_redacted_gap(self):
+        """Malformed manifest strings produce a retained gap, not a traceback."""
+        self.changed_manifest(lambda m: m.update(required_inputs=['PRIVATE_SECRET\udfff']))
+        path = self.root / 'request.json'
+        path.write_text(json.dumps(self.request))
+        result = subprocess.run(
+            [sys.executable, str(Path(a.__file__).resolve()), '--root', str(self.captures),
+             '--request', str(path), '--now-ms', '150'],
+            capture_output=True, text=True, timeout=5, check=False)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertEqual(json.loads(result.stdout)['dependencies'][0]['reason'], 'INVALID_JSON')
+        self.assertEqual(result.stderr, '')
+        self.assertNotIn('PRIVATE_SECRET', result.stdout)
+        self.assertNotIn(str(self.root), result.stdout)
+
     def test_empty_request_is_not_a_healthy_evidence_claim(self):
         """No requested inputs is an explicit evidence gap, not successful replay."""
         self.request['captures'] = []

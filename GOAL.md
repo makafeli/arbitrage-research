@@ -29,7 +29,15 @@ Root integration owns shared manifests, lockfiles, CI, publication and final acc
 
 ## Current delivery checkpoint
 
-Latest merged integration baseline: PR [#104](https://github.com/makafeli/arbitrage-research/pull/104),
+The maintenance baseline now includes merged PR #106 (descriptive comparison and
+structural holdout checks), #108 (five-worker Codex startup configuration), #86
+(Base64 compatibility) and #87 (SHA-256 compatibility). Main was verified at
+`22aa50c4b9714578d6fd3708c31bae85485dfc55` for the #105 capture-audit integration.
+Those merges do not establish original-ticket acceptance, a running AI team or
+complete transaction simulation. The last verified agent-start attempt remains
+blocked by the unavailable runtime/environment; #107 retains that separate gate.
+
+Recovery baseline: PR [#104](https://github.com/makafeli/arbitrage-research/pull/104),
 `94d045cebcd0c4087302c2faefdf13913300c698` (13 September 2026). The quiesced backup,
 verified isolated restore and final-descriptor binding are delivered; bounded #103
 was closed after review, merge and successful main checks. [Main project CI
@@ -58,7 +66,7 @@ PR [#93](https://github.com/makafeli/arbitrage-research/pull/93) was merged on 1
 
 The preceding PR [#92](https://github.com/makafeli/arbitrage-research/pull/92) adds common-anchor pool-set acquisition, original-batch replay and immutable manual cost assessments to the collection/export baseline from PR [#90](https://github.com/makafeli/arbitrage-research/pull/90). The platform connects same-network captured route evaluation, durable decision queries, offline economic replay and immutable virtual accounts to the dashboard. Base V3 and Solana Whirlpool calculations use exact amounts; unsupported state and inconsistent capture contexts fail closed. Both OBSERVE and PAPER workers recover stopped and require an explicit START. The paper ledger supports reservations and reconciled outcomes internally, but the worker does not automatically convert quotes into virtual fills.
 
-[Common-anchor and cost verification](docs/19-ANCHORED-CAPTURE-AND-COST-VERIFICATION.md) records the reviewed source, original-input compatibility, exact manual-cost reproduction and visual evidence. The [collection/export record](docs/18-COLLECTION-AND-EXPORT-VERIFICATION.md) retains the preceding baseline. Match the latest record's tested commit to the branch before claiming acceptance.
+[Common-anchor and cost verification](docs/19-ANCHORED-CAPTURE-AND-COST-VERIFICATION.md) records the reviewed source, original-input compatibility, exact manual-cost replay and visual evidence. The [collection/export record](docs/18-COLLECTION-AND-EXPORT-VERIFICATION.md) retains the preceding baseline. Match the latest record's tested commit to the branch before claiming acceptance.
 
 The [chain-time and support cohort](docs/20-CHAIN-TIME-AND-SUPPORT-VERIFICATION.md) adds opt-in captured-time assessment and explicit operator capability diagnostics. The next usable-market milestone still requires qualified providers/pools, calibrated chain-lag evidence and durable rollback/gap invalidation. Complete atomic transaction simulation, explicit costs/inclusion assumptions and scenario-driven paper settlement remain necessary for executable paper research. A gross route quote or virtual opening balance establishes neither profitable arbitrage nor a simulated complete transaction.
 

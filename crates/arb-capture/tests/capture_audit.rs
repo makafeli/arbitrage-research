@@ -31,6 +31,15 @@ impl Drop for Fixture {
 }
 
 fn run_audit(network: Chain, now: u64, remove_object: bool) -> (i32, Value) {
+    run_audit_with_input(network, now, remove_object, None)
+}
+
+fn run_audit_with_input(
+    network: Chain,
+    now: u64,
+    remove_object: bool,
+    required_input_json: Option<&str>,
+) -> (i32, Value) {
     let root = Fixture::new();
     let captures = root.0.join("captures");
     fs::create_dir(&captures).unwrap();
@@ -77,6 +86,21 @@ fn run_audit(network: Chain, now: u64, remove_object: bool) -> (i32, Value) {
         4096,
     )
     .unwrap();
+    let checksum = if let Some(input) = required_input_json {
+        let path = captures.join("synthetic-audit/manifest.json");
+        let original = fs::read_to_string(&path).unwrap();
+        let changed = original.replacen("\"state\"", input, 1);
+        assert_ne!(changed, original);
+        let string_is_valid = serde_json::from_str::<String>(input).is_ok();
+        assert_eq!(
+            serde_json::from_str::<CaptureManifest>(&changed).is_ok(),
+            string_is_valid
+        );
+        fs::write(path, changed.as_bytes()).unwrap();
+        digest(changed.as_bytes())
+    } else {
+        checksum
+    };
     let request_path = root.0.join("request.json");
     fs::write(
         &request_path,
@@ -152,5 +176,31 @@ fn expired_rust_bundle_stays_visible_with_or_without_raw_objects() {
             }
         );
         assert_eq!(report["references_reported"], 1);
+    }
+}
+
+#[test]
+fn malformed_unicode_is_rejected_by_rust_and_reported_as_a_python_gap() {
+    for input in [r#""\ud800""#, r#""\udfff""#, r#""\ud800x""#] {
+        assert!(serde_json::from_str::<String>(input).is_err());
+        for network in [Chain::BaseMainnet, Chain::SolanaMainnet] {
+            let (code, report) = run_audit_with_input(network, 150, false, Some(input));
+            assert_eq!(code, 1, "{report}");
+            assert_eq!(report["dependencies"][0]["raw_artifact_status"], "CORRUPT");
+            assert_eq!(report["dependencies"][0]["reason"], "INVALID_JSON");
+            assert_eq!(report["dependencies"][0]["origin"], "UNKNOWN");
+            assert_eq!(report["references_reported"], 1);
+        }
+    }
+}
+
+#[test]
+fn valid_unicode_and_literal_escape_text_remain_storage_compatible() {
+    for input in [r#""\ud83d\ude80""#, r#""\\ud800""#] {
+        assert!(serde_json::from_str::<String>(input).is_ok());
+        let (code, report) = run_audit_with_input(Chain::BaseMainnet, 150, false, Some(input));
+        assert_eq!(code, 0, "{report}");
+        assert_eq!(report["dependencies"][0]["raw_artifact_status"], "AVAILABLE");
+        assert_eq!(report["dependencies"][0]["market_performance_eligible"], false);
     }
 }
