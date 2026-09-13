@@ -43,9 +43,11 @@ jobs:
           python3 -m venv /tmp/recovery-lint
           /tmp/recovery-lint/bin/pip install --disable-pip-version-check ruff==0.11.13
       - name: Lint recovery source and tests
-        run: /tmp/recovery-lint/bin/ruff check --isolated --select E4,E7,E9,F scripts/recovery.py scripts/test_recovery.py scripts/test_recovery_postgres.py scripts/capture_audit.py scripts/test_capture_audit.py
+        run: /tmp/recovery-lint/bin/ruff check --isolated --select E4,E7,E9,F scripts/recovery.py scripts/test_recovery.py scripts/test_recovery_postgres.py scripts/capture_audit.py scripts/test_capture_audit.py scripts/export_capture_audit.py scripts/test_export_capture_audit.py
       - name: Run capture dependency audit regressions
         run: python3 scripts/test_capture_audit.py -v
+      - name: Run export-bound audit regressions
+        run: python3 scripts/test_export_capture_audit.py -v
       - name: Run offline adversarial recovery tests
         run: python3 scripts/test_recovery.py -v
       - name: Restore the real migration schema and synthetic retained data

@@ -47,3 +47,12 @@ export function frozenExportFixture(): FrozenExport {
         { ...collectionAttempt(), attempt_id: 'attempt-unfinished', outcome: 'IN_PROGRESS', reason: null, elapsed_ms: null, finished_at: null }],
     } });
 }
+
+export function auditExportFixture(): FrozenExport {
+  // Use canonical synthetic storage identities only in the local-audit fixtures.
+  const raw = JSON.stringify(frozenExportFixture())
+    .replaceAll('"sha256:paper-fixture-config"', JSON.stringify(exportHash))
+    .replaceAll('"sha256:manifest-fixture"', JSON.stringify('sha256:' + 'b'.repeat(64)))
+    .replaceAll('"sha256:manifest-fixture-second"', JSON.stringify('sha256:' + 'c'.repeat(64)));
+  return sealExport(JSON.parse(raw) as FrozenExport);
+}
