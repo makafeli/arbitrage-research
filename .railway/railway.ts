@@ -5,7 +5,10 @@ import { defineRailway, github, postgres, project, service } from "railway/iac";
 export default defineRailway((ctx) => {
   const db = postgres("postgres");
   const api = service("control-api", {
-    source: github("makafeli/arbitrage-research", { branch: "main" }),
+    source: github("makafeli/arbitrage-research", {
+      branch: "main",
+      checkSuites: true,
+    }),
     replicas: 1,
     healthcheck: "/healthz",
     healthcheckTimeout: 60,
@@ -21,7 +24,10 @@ export default defineRailway((ctx) => {
     },
   });
   const web = service("web", {
-    source: github("makafeli/arbitrage-research", { branch: "main" }),
+    source: github("makafeli/arbitrage-research", {
+      branch: "main",
+      checkSuites: true,
+    }),
     replicas: 1,
     healthcheck: "/healthz",
     env: {

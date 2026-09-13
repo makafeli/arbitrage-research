@@ -1,6 +1,6 @@
 # Railway deployment runbook
 
-Railway is the selected host, confirmed by the user on 12 September 2026. This is a prepared deployment definition. No Railway project, billable resource or deployment has been created by this implementation session; an authenticated Railway connection and target environment are not available here.
+Railway is the selected host, confirmed by the user on 12 September 2026. The initial `postgres` + private `control-api` + public `web` foundation was applied to the dedicated `arbitrage-research` production environment on 13 September 2026; see the [deployment verification](../docs/21-RAILWAY-DEPLOYMENT-VERIFICATION.md). The checked-in definition remains the desired-state source for later reviewed changes.
 
 ## Services and isolation
 
@@ -19,7 +19,7 @@ The API binds to `::` inside its container only after an explicit HTTPS public o
 ## Prepare and review the environment
 
 1. Merge the tested implementation into the repository branch selected by the deployment definition.
-2. Select or create a dedicated Railway project and environment for `arbitrage-research`. Do not link this definition to an unrelated existing project: a full desired-state plan can affect resources that are absent from its resource list.
+2. Link the dedicated Railway project and `production` environment for `arbitrage-research`. Do not link this definition to an unrelated existing project: a full desired-state plan can affect resources that are absent from its resource list.
 3. Configure shared variables `ARB_OPERATOR_SECRET` and `ARB_PUBLIC_ORIGIN` in Railway. Generate the operator secret with a password manager or a cryptographically secure generator; it must contain at least 32 bytes as text. The origin is the exact HTTPS dashboard origin, with no path or trailing slash.
 4. Authenticate the Railway CLI and link the intended project/environment. Keep secret values in Railway; the definition uses references, and the frontend receives neither database credentials nor RPC secrets.
 5. Evaluate the plan and inspect resource additions, deletions, volumes, service count, region and projected resource settings before applying it.
