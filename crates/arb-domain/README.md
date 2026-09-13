@@ -65,3 +65,20 @@ Current coverage includes exact arithmetic boundary/exhaustive bounded propertie
 route mutation properties, shared JSON example round-trip, simulation/evidence gates,
 lifecycle controls, corrupt snapshots and restart fencing. The local and CI execution evidence is recorded separately from service integration
 guarantees.
+
+Chain-time evidence uses an explicit `finalized-chain-time-v1` research policy and
+DecisionTrace 1.1. The report recomputes each source's age from its recorded chain
+timestamp and the trace's UTC reference plus monotonic elapsed duration. Timestamp,
+policy, context, ordered capture bindings and exact arithmetic are validated; bounded
+UTC values reject overflow rather than becoming zero. Aggregate precedence is FUTURE,
+UNKNOWN, STALE, WITHIN_POLICY; an empty source set is UNKNOWN. Known future timestamps
+have a null age. A non-WITHIN_POLICY report requires its matching public failure reason
+and cannot be sealed as QUOTED. Source kind distinguishes a captured finalized Base
+block timestamp from an estimated Solana block time. No status implies chain rollback
+tracking, provider qualification or evidence above CANDIDATE.
+
+Legacy DecisionTrace 1.0 omits `chain_freshness`; both old trace hashes and the independent
+historical cost fixture remain unchanged. Freshness reports require schema 1.1 and the
+new calculation version. Explicit null reports are invalid; absence is reserved for
+legacy records. The original opportunity projection still never claims fresh coherent
+state, even when the new declared time assumption passes.

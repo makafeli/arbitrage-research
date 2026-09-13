@@ -91,17 +91,42 @@ fn verify_loaded(bundle: &LoadedBundle) -> Result<Value, CaptureError> {
             .authorize(config)
             .map_err(|_| CaptureError("replay registry is outside recorded configuration"))?;
     }
+    // Version 3 binds an exact-slot time lookup to a validated frozen policy.
+    // Enforce this for synthetic economic fixtures too: rehashing a stripped
+    // transcript and changing the adapter label must not remove that lookup.
+    let chain_time_v3 = bundle.manifest.adapter_version == "arb_solana-pool-set-v3";
+    let policy_config = arb_config::ValidatedConfig::from_effective_json(
+        std::str::from_utf8(objects["effective-config.json"])
+            .map_err(|_| CaptureError("invalid effective configuration encoding"))?,
+    )
+    .ok();
+    let chain_time_required = network == arb_domain::NetworkId::SolanaMainnet
+        && policy_config
+            .as_ref()
+            .is_some_and(|config| config.chain_freshness(network).is_some());
+    if chain_time_v3 != chain_time_required {
+        return Err(CaptureError(
+            "Solana chain-time policy and capture version differ",
+        ));
+    }
+    if chain_time_v3 {
+        document
+            .authorize(policy_config.as_ref().unwrap())
+            .map_err(|_| CaptureError("chain-time registry is outside frozen configuration"))?;
+    }
     if (recorded_config.is_some() || document.format() == arb_registry::DocumentFormat::PoolSetV1)
         && bundle.manifest.adapter_version != document.adapter_version()
         && bundle.manifest.adapter_version != document.legacy_adapter_version()
+        && !chain_time_v3
     {
         return Err(CaptureError("unsupported registry capture format"));
     }
     let pool = expected["pool"]
         .as_str()
         .ok_or(CaptureError("snapshot has no pool identity"))?;
-    let batch = document.format() == arb_registry::DocumentFormat::PoolSetV1
-        && bundle.manifest.adapter_version == document.adapter_version();
+    let batch = chain_time_v3
+        || (document.format() == arb_registry::DocumentFormat::PoolSetV1
+            && bundle.manifest.adapter_version == document.adapter_version());
     let actual = match document
         .select(pool)
         .map_err(|_| CaptureError("captured pool is absent from registry"))?
@@ -145,9 +170,16 @@ fn verify_loaded(bundle: &LoadedBundle) -> Result<Value, CaptureError> {
                         _ => Err(CaptureError("mixed replay registry networks")),
                     })
                     .collect::<Result<Vec<_>, _>>()?;
-                let snapshots =
+                let snapshots = if chain_time_v3 {
+                    arb_solana::capture_pools_with_chain_time(
+                        &mut rpc,
+                        &registries,
+                        bundle.manifest.created_at_ms,
+                    )
+                } else {
                     arb_solana::capture_pools(&mut rpc, &registries, bundle.manifest.created_at_ms)
-                        .map_err(|_| CaptureError("Solana batch transcript replay failed"))?;
+                }
+                .map_err(|_| CaptureError("Solana batch transcript replay failed"))?;
                 snapshots
                     .into_iter()
                     .find(|snapshot| snapshot.pool == pool)

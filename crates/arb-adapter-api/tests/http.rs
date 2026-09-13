@@ -62,6 +62,29 @@ fn request_is_read_only_and_exact_success_body_is_retained() {
     assert!(!request.contains("sendTransaction"));
 }
 #[test]
+fn block_time_uses_allowlisted_wire_method_and_retains_exact_success_or_null_body() {
+    for result in [json!(1_700_000_000), serde_json::Value::Null] {
+        let body = format!("{{\n\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{result}\n}}");
+        let (endpoint, server) = server("200 OK", body.clone(), "");
+        let mut rpc = HttpReadRpc::new(&endpoint, Duration::from_secs(2), 1024, 1).unwrap();
+        assert_eq!(
+            rpc.call(ReadMethod::GetBlockTime, json!([987_654]))
+                .unwrap(),
+            result
+        );
+        let records = rpc.into_records();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].method, ReadMethod::GetBlockTime);
+        assert_eq!(records[0].params, json!([987_654]));
+        assert_eq!(records[0].response, body);
+        let request = server.join().unwrap();
+        let request: serde_json::Value =
+            serde_json::from_str(request.split_once("\r\n\r\n").unwrap().1).unwrap();
+        assert_eq!(request["method"], "getBlockTime");
+        assert_eq!(request["params"], json!([987_654]));
+    }
+}
+#[test]
 fn rpc_errors_do_not_leak_provider_body_and_consume_quota() {
     let body=json!({"jsonrpc":"2.0","id":0,"error":{"message":"https://provider.invalid/DO_NOT_LOG_API_KEY"}}).to_string();
     let (endpoint, server) = server("200 OK", body, "");

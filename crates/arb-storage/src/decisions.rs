@@ -105,6 +105,13 @@ impl Store {
         let config: String = session.try_get("configuration_digest")?;
         let experiment: String = session.try_get("experiment_id")?;
         let strategies: Value = session.try_get("strategy_ids")?;
+        let network_key = match claim.network_id.as_str() {
+            "base-mainnet" => "base",
+            "solana-mainnet" => "solana",
+            _ => return Err(StoreError::CorruptState),
+        };
+        let policy: Option<Value> = sqlx::query_scalar("SELECT snapshot #> ARRAY['networks',$3,'chain_freshness'] FROM configuration_snapshots WHERE operator_id=$1 AND configuration_digest=$2")
+            .bind(&claim.operator_id).bind(&config).bind(network_key).fetch_one(&mut **tx).await?;
         let mut result = Vec::with_capacity(traces.len());
         for trace in traces {
             if trace.session_id != claim.session_id
@@ -122,9 +129,14 @@ impl Store {
                     "decision scope differs from immutable session",
                 ));
             }
+            validate_frozen_policy(trace, policy.as_ref()).map_err(|_| {
+                StoreError::InvalidInput(
+                    "decision chain policy differs from immutable configuration",
+                )
+            })?;
             let digest = payload_digest(trace)?;
             if let Some(existing) = sqlx::query(
-                "SELECT * FROM decision_traces WHERE session_id=$1 AND observation_id=$2",
+                "SELECT *,(SELECT c.snapshot #> ARRAY['networks',CASE decision_traces.payload->>'network_id' WHEN 'base-mainnet' THEN 'base' WHEN 'solana-mainnet' THEN 'solana' END,'chain_freshness'] FROM configuration_snapshots c WHERE c.operator_id=decision_traces.operator_id AND c.configuration_digest=decision_traces.configuration_digest) AS configuration_chain_freshness,(SELECT s.network_id FROM research_sessions s WHERE s.session_id=decision_traces.session_id AND s.operator_id=decision_traces.operator_id) AS session_network_id FROM decision_traces WHERE session_id=$1 AND observation_id=$2",
             )
             .bind(&claim.session_id)
             .bind(&trace.observation_id)
@@ -148,7 +160,7 @@ impl Store {
                     ));
                 }
             }
-            let row=sqlx::query("INSERT INTO decision_traces(trace_id,operator_id,session_id,observation_id,payload_digest,configuration_digest,generation,observed_at_unix_ms,result_status,grouping_version,grouping_key,window_start_ms,payload) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *").bind(Uuid::now_v7().to_string()).bind(&claim.operator_id).bind(&claim.session_id).bind(&trace.observation_id).bind(digest).bind(&trace.configuration_digest).bind(i64::try_from(generation).map_err(|_|StoreError::CorruptState)?).bind(i64::try_from(trace.observed_at_unix_ms).map_err(|_|StoreError::InvalidInput("decision timestamp out of range"))?).bind(trace.result.status()).bind(&trace.grouping.version).bind(&trace.grouping.key).bind(i64::try_from(trace.grouping.window_start_ms).map_err(|_|StoreError::InvalidInput("group timestamp out of range"))?).bind(serde_json::to_value(trace).map_err(|_|StoreError::CorruptState)?).fetch_one(&mut **tx).await?;
+            let row=sqlx::query("INSERT INTO decision_traces(trace_id,operator_id,session_id,observation_id,payload_digest,configuration_digest,generation,observed_at_unix_ms,result_status,grouping_version,grouping_key,window_start_ms,payload) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *,(SELECT c.snapshot #> ARRAY['networks',CASE decision_traces.payload->>'network_id' WHEN 'base-mainnet' THEN 'base' WHEN 'solana-mainnet' THEN 'solana' END,'chain_freshness'] FROM configuration_snapshots c WHERE c.operator_id=decision_traces.operator_id AND c.configuration_digest=decision_traces.configuration_digest) AS configuration_chain_freshness,(SELECT s.network_id FROM research_sessions s WHERE s.session_id=decision_traces.session_id AND s.operator_id=decision_traces.operator_id) AS session_network_id").bind(Uuid::now_v7().to_string()).bind(&claim.operator_id).bind(&claim.session_id).bind(&trace.observation_id).bind(digest).bind(&trace.configuration_digest).bind(i64::try_from(generation).map_err(|_|StoreError::CorruptState)?).bind(i64::try_from(trace.observed_at_unix_ms).map_err(|_|StoreError::InvalidInput("decision timestamp out of range"))?).bind(trace.result.status()).bind(&trace.grouping.version).bind(&trace.grouping.key).bind(i64::try_from(trace.grouping.window_start_ms).map_err(|_|StoreError::InvalidInput("group timestamp out of range"))?).bind(serde_json::to_value(trace).map_err(|_|StoreError::CorruptState)?).fetch_one(&mut **tx).await?;
             result.push(decision_record(&row)?);
         }
         audit(tx,&claim.session_id,&claim.operator_id,"DECISIONS_RECORDED",None,json!({"observations":result.iter().map(|r|&r.trace.observation_id).collect::<Vec<_>>(),"generation":generation.to_string(),"evidence":"CANDIDATE_OR_REJECTION_ONLY"})).await?;
@@ -160,7 +172,7 @@ impl Store {
         observation_id: &str,
     ) -> Result<StoredDecisionTrace, StoreError> {
         let row =
-            sqlx::query("SELECT * FROM decision_traces WHERE operator_id=$1 AND observation_id=$2")
+            sqlx::query("SELECT *,(SELECT c.snapshot #> ARRAY['networks',CASE decision_traces.payload->>'network_id' WHEN 'base-mainnet' THEN 'base' WHEN 'solana-mainnet' THEN 'solana' END,'chain_freshness'] FROM configuration_snapshots c WHERE c.operator_id=decision_traces.operator_id AND c.configuration_digest=decision_traces.configuration_digest) AS configuration_chain_freshness,(SELECT s.network_id FROM research_sessions s WHERE s.session_id=decision_traces.session_id AND s.operator_id=decision_traces.operator_id) AS session_network_id FROM decision_traces WHERE operator_id=$1 AND observation_id=$2")
                 .bind(operator)
                 .bind(observation_id)
                 .fetch_optional(&self.pool)
@@ -177,7 +189,7 @@ impl Store {
     ) -> Result<DecisionTracePage, StoreError> {
         validate_trace_page(cursor, limit)?;
         self.get_session(operator, session_id).await?;
-        let rows=sqlx::query("SELECT * FROM decision_traces WHERE operator_id=$1 AND session_id=$2 AND ($3::text IS NULL OR trace_id>$3) ORDER BY trace_id LIMIT $4").bind(operator).bind(session_id).bind(cursor).bind(i64::from(limit)+1).fetch_all(&self.pool).await?;
+        let rows=sqlx::query("SELECT *,(SELECT c.snapshot #> ARRAY['networks',CASE decision_traces.payload->>'network_id' WHEN 'base-mainnet' THEN 'base' WHEN 'solana-mainnet' THEN 'solana' END,'chain_freshness'] FROM configuration_snapshots c WHERE c.operator_id=decision_traces.operator_id AND c.configuration_digest=decision_traces.configuration_digest) AS configuration_chain_freshness,(SELECT s.network_id FROM research_sessions s WHERE s.session_id=decision_traces.session_id AND s.operator_id=decision_traces.operator_id) AS session_network_id FROM decision_traces WHERE operator_id=$1 AND session_id=$2 AND ($3::text IS NULL OR trace_id>$3) ORDER BY trace_id LIMIT $4").bind(operator).bind(session_id).bind(cursor).bind(i64::from(limit)+1).fetch_all(&self.pool).await?;
         let more = rows.len() > limit as usize;
         let items: Vec<_> = rows
             .iter()
@@ -287,7 +299,7 @@ impl Store {
                 .and_then(|v| v.as_str().map(str::to_owned))
         });
         // Apply eligibility/source filters BEFORE LIMIT, preserving complete page counts.
-        let rows=sqlx::query("SELECT * FROM decision_traces WHERE operator_id=$1 AND result_status='QUOTED' AND ($2::text IS NULL OR session_id=$2) AND ($3::text IS NULL OR payload->>'network_id'=$3) AND ($4::text IS NULL OR $4='CANDIDATE') AND ($5::text IS NULL OR payload->>'source_kind'=$5) AND ($6::text IS NULL OR trace_id>$6) ORDER BY trace_id LIMIT $7").bind(operator).bind(filter.session_id).bind(filter.network_id.map(|n|n.as_str())).bind(evidence).bind(source).bind(cursor).bind(i64::from(limit)+1).fetch_all(&self.pool).await?;
+        let rows=sqlx::query("SELECT *,(SELECT c.snapshot #> ARRAY['networks',CASE decision_traces.payload->>'network_id' WHEN 'base-mainnet' THEN 'base' WHEN 'solana-mainnet' THEN 'solana' END,'chain_freshness'] FROM configuration_snapshots c WHERE c.operator_id=decision_traces.operator_id AND c.configuration_digest=decision_traces.configuration_digest) AS configuration_chain_freshness,(SELECT s.network_id FROM research_sessions s WHERE s.session_id=decision_traces.session_id AND s.operator_id=decision_traces.operator_id) AS session_network_id FROM decision_traces WHERE operator_id=$1 AND result_status='QUOTED' AND ($2::text IS NULL OR session_id=$2) AND ($3::text IS NULL OR payload->>'network_id'=$3) AND ($4::text IS NULL OR $4='CANDIDATE') AND ($5::text IS NULL OR payload->>'source_kind'=$5) AND ($6::text IS NULL OR trace_id>$6) ORDER BY trace_id LIMIT $7").bind(operator).bind(filter.session_id).bind(filter.network_id.map(|n|n.as_str())).bind(evidence).bind(source).bind(cursor).bind(i64::from(limit)+1).fetch_all(&self.pool).await?;
         let more = rows.len() > limit as usize;
         let mut items = Vec::new();
         let mut last = None;
@@ -331,7 +343,10 @@ pub(super) fn decision_record(row: &PgRow) -> Result<StoredDecisionTrace, StoreE
     let trace: DecisionTrace =
         serde_json::from_value(row.try_get("payload")?).map_err(|_| StoreError::CorruptState)?;
     trace.validate().map_err(|_| StoreError::CorruptState)?;
-    if payload_digest(&trace)? != row.try_get::<String, _>("payload_digest")?
+    let policy: Option<Value> = row.try_get("configuration_chain_freshness")?;
+    validate_frozen_policy(&trace, policy.as_ref())?;
+    if trace.network_id.as_str() != row.try_get::<String, _>("session_network_id")?
+        || payload_digest(&trace)? != row.try_get::<String, _>("payload_digest")?
         || trace.observation_id != row.try_get::<String, _>("observation_id")?
         || trace.session_id != row.try_get::<String, _>("session_id")?
         || trace.configuration_digest != row.try_get::<String, _>("configuration_digest")?
@@ -349,4 +364,22 @@ pub(super) fn decision_record(row: &PgRow) -> Result<StoredDecisionTrace, StoreE
         recorded_at: row.try_get::<DateTime<Utc>, _>("recorded_at")?.to_rfc3339(),
         trace,
     })
+}
+
+/// The immutable snapshot binds optional freshness policy independently of the
+/// observation hash. Re-sealing a report cannot change or remove this policy.
+fn validate_frozen_policy(trace: &DecisionTrace, policy: Option<&Value>) -> Result<(), StoreError> {
+    let policy = policy
+        .filter(|value| !value.is_null())
+        .map(|value| serde_json::from_value::<arb_domain::ChainFreshnessPolicy>(value.clone()))
+        .transpose()
+        .map_err(|_| StoreError::CorruptState)?;
+    if let Some(policy) = &policy {
+        policy.validate().map_err(|_| StoreError::CorruptState)?;
+    }
+    match (policy.as_ref(), trace.chain_freshness.as_ref()) {
+        (None, None) => Ok(()),
+        (Some(policy), Some(report)) if policy == &report.policy => Ok(()),
+        _ => Err(StoreError::CorruptState),
+    }
 }

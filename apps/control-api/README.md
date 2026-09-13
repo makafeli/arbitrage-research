@@ -210,3 +210,38 @@ The canonical V1 hash algorithm is unchanged and now covers the sixth dataset. R
 assessments preserve source bindings and safe provenance labels without exposing operator
 idempotency keys, provider URLs or freeform credential-bearing text. Full transaction
 simulation, measured fee collection and automatic paper fills remain separate work.
+
+## Adapter support and declared chain-time policy
+
+`GET /v1/adapter-support` is an authenticated, read-only startup catalog. Its schema is
+`1.0.0`, catalog version `immutable-scope-v1`. Each immutable configuration reports both
+networks and the compiled `arb_engine::capabilities` result. `LOADED_AUTHORIZED` means
+only that a locally loaded registry matches the configuration digest, enabled network,
+allowlisted pools/assets and expected genesis identity. It does not qualify an RPC provider,
+deployed bytecode, token behavior, transaction construction, simulation or submission.
+All qualified execution capability flags remain false.
+
+Optionally set `ARB_SUPPORT_REGISTRY_FILES` to comma-separated `network=path` entries,
+for example `base-mainnet=/app/config/base-registry.json,solana-mainnet=/app/config/solana-registry.json`.
+There may be at most 16 entries, each document at most 1 MiB and eight pools. Several
+registry digests for the same network support different frozen configurations. Duplicate
+network/digest documents and malformed explicitly configured files fail startup with a
+redacted error. Omit the variable to expose `NOT_LOADED`. Registry paths, raw contents,
+qualification-reference text, provider references and credentials are never returned.
+No RPC requests or filesystem reads occur when serving the endpoint.
+
+The catalog distinguishes declared identities from loaded, structurally authorized pool,
+token and program relationships. Missing, disabled, digest-mismatched and out-of-scope
+registries expose reason codes and no pool relationships. For declared allowlists exceeding
+eight pools or 16 assets, both identity arrays are empty, exact counts remain visible,
+and `identities_expanded=false` with `DECLARED_SCOPE_NOT_EXPANDED`; authorization still
+checks the full frozen lists. Larger existing configurations and repeated equivalent
+configuration files continue to start. The catalog coalesces duplicate configuration digests.
+
+The optional immutable per-network policy reports `CONFIGURED` with
+`{ "version": "finalized-chain-time-v1", "max_chain_age_ms": ... }`, otherwise
+`NOT_CONFIGURED`. A configured threshold is an operator research assumption. Runtime
+freshness evidence is returned on decision schema 1.1.0; legacy decisions retain schema
+1.0.0 with no new report field. Storage binds a new report's policy exactly to its scoped
+immutable snapshot and rejects attempts to remove or change that policy by resealing a
+trace. Historical legacy snapshots with no policy continue to read unchanged.

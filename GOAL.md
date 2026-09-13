@@ -33,7 +33,7 @@ PR [#92](https://github.com/makafeli/arbitrage-research/pull/92) adds common-anc
 
 [Common-anchor and cost verification](docs/19-ANCHORED-CAPTURE-AND-COST-VERIFICATION.md) records the reviewed source, original-input compatibility, exact manual-cost reproduction and visual evidence. The [collection/export record](docs/18-COLLECTION-AND-EXPORT-VERIFICATION.md) retains the preceding baseline. Match the latest record's tested commit to the branch before claiming acceptance.
 
-The next usable-market milestone still requires qualified providers/pools, chain-lag evidence and durable rollback/gap invalidation. Complete atomic transaction simulation, explicit costs/inclusion assumptions and scenario-driven paper settlement remain necessary for executable paper research. A gross route quote or virtual opening balance establishes neither profitable arbitrage nor a simulated complete transaction.
+The [chain-time and support cohort](docs/20-CHAIN-TIME-AND-SUPPORT-VERIFICATION.md) adds opt-in captured-time assessment and explicit operator capability diagnostics. The next usable-market milestone still requires qualified providers/pools, calibrated chain-lag evidence and durable rollback/gap invalidation. Complete atomic transaction simulation, explicit costs/inclusion assumptions and scenario-driven paper settlement remain necessary for executable paper research. A gross route quote or virtual opening balance establishes neither profitable arbitrage nor a simulated complete transaction.
 
 ## External prerequisites
 

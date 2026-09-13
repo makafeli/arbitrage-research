@@ -1,6 +1,6 @@
 # Using research and paper accounts
 
-The connected dashboard inspects retained research and virtual accounting. Current OBSERVE and PAPER workers capture read-only state and calculate bounded two-pool CANDIDATE decisions. They do not send transactions, simulate a complete atomic transaction or turn a positive quote into a paper fill. Demo mode remains visibly synthetic. See [implementation status](https://github.com/makafeli/arbitrage-research/blob/main/docs/12-IMPLEMENTATION-STATUS.md) and [integration verification](https://github.com/makafeli/arbitrage-research/blob/main/docs/19-ANCHORED-CAPTURE-AND-COST-VERIFICATION.md) for current acceptance evidence.
+The connected dashboard inspects retained research and virtual accounting. Current OBSERVE and PAPER workers capture read-only state and calculate bounded two-pool CANDIDATE decisions. They do not send transactions, simulate a complete atomic transaction or turn a positive quote into a paper fill. Demo mode remains visibly synthetic. See [implementation status](https://github.com/makafeli/arbitrage-research/blob/main/docs/12-IMPLEMENTATION-STATUS.md) and [integration verification](https://github.com/makafeli/arbitrage-research/blob/main/docs/20-CHAIN-TIME-AND-SUPPORT-VERIFICATION.md) for current acceptance evidence.
 
 ## Prepare a session
 
@@ -69,3 +69,9 @@ A controlled worker owns one network and captures 1–8 allowlisted pools in a b
 Pool-set capture uses one finalized Base block hash for the complete batch, including a final canonical check, or one finalized Solana account-union response with at most 100 accounts. Each version-2 bundle preserves the complete original batch transcript; replay validates every selected pool. A common anchor does not qualify a provider or establish Solana bank/write coherence, chain-state lag or stream continuity. Those remain acceptance work.
 
 Capture quotas include old and incomplete bundles. Retention metadata does not automatically delete files. A healthy API, passing synthetic fixture or stored candidate is insufficient to claim an operating market campaign or positive returns.
+
+## Inspect captured time and support
+
+In a decision inspector, a version1.1 report shows historical chain time separately from processing elapsed time and the configured age limit. Base block time and Solana estimated block time are different sources. Unknown, future and stale remain explicit; legacy1.0 records without policy do not become chain-fresh retroactively. A recent page refresh is not a new chain observation.
+
+System shows code capabilities, declared scope and optionally loaded local registry relationships. Structural authorization is not trading qualification. An unexpanded large scope still reports its full counts. Missing registry, unavailable API support and failed catalog refresh have separate messages. The catalog is a startup snapshot; it is not provider health or worker heartbeat.

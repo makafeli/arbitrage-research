@@ -15,6 +15,7 @@ fn snapshot(pool: u8) -> PoolSnapshot {
             commitment: "finalized".into(),
             account_context: "single-getMultipleAccounts-response".into(),
         },
+        block_time_seconds: None,
         state: WhirlpoolState {
             whirlpools_config: key(8),
             tick_spacing: 64,

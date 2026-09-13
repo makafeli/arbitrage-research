@@ -9,6 +9,7 @@ use sha2::{Digest, Sha256};
 use std::{collections::HashSet, fmt};
 
 pub const DECISION_SCHEMA_VERSION: &str = "1.0.0";
+pub const FRESHNESS_DECISION_SCHEMA_VERSION: &str = "1.1.0";
 pub const GROUPING_VERSION: &str = "route-size-window-v1";
 /// Only named public diagnostics may cross the API; raw provider errors and URLs cannot.
 pub const DECISION_REASON_CODES: &[&str] = &[
@@ -45,6 +46,10 @@ pub const DECISION_REASON_CODES: &[&str] = &[
     "EVALUATION_BUDGET_EXHAUSTED",
     "MAX_POOL_BOUND_EXCEEDED",
     "STALE_INPUT",
+    "CHAIN_TIME_UNAVAILABLE",
+    "CHAIN_TIME_FUTURE",
+    "CHAIN_TIME_STALE",
+    "CHAIN_TIME_INVALID",
     "WORK_GENERATION_CANCELLED",
     "DEADLINE_EXPIRED",
     "SNAPSHOT_NOT_ATOMIC",
@@ -153,6 +158,12 @@ pub struct DecisionTrace {
     pub dataset_origin: DatasetOrigin,
     pub observed_at_unix_ms: u64,
     pub input_age_ms: Option<u64>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::freshness::deserialize_present_report"
+    )]
+    pub chain_freshness: Option<crate::ChainFreshnessReport>,
     pub capture_refs: Vec<DecisionCaptureRef>,
     pub route: Vec<DecisionLeg>,
     pub amount_in_minor: Option<AtomicAmount>,
@@ -222,7 +233,9 @@ impl DecisionTrace {
         Ok(self)
     }
     pub fn validate(&self) -> Result<(), DecisionError> {
-        if self.schema_version != DECISION_SCHEMA_VERSION {
+        if ![DECISION_SCHEMA_VERSION, FRESHNESS_DECISION_SCHEMA_VERSION]
+            .contains(&self.schema_version.as_str())
+        {
             return Err(invalid("schema_version", "unsupported decision version"));
         }
         for (field, value) in [
@@ -263,6 +276,55 @@ impl DecisionTrace {
                 "observed_at_unix_ms",
                 "timestamp or age outside supported exact millisecond range",
             ));
+        }
+        match &self.chain_freshness {
+            None if self.schema_version != DECISION_SCHEMA_VERSION
+                || self.calculation_version == crate::FRESHNESS_CALCULATION_VERSION =>
+            {
+                return Err(invalid(
+                    "chain_freshness",
+                    "freshness schema and calculation require an explicit report",
+                ));
+            }
+            Some(report) => {
+                if self.schema_version != FRESHNESS_DECISION_SCHEMA_VERSION
+                    || self.calculation_version != crate::FRESHNESS_CALCULATION_VERSION
+                    || report.reference_observed_at_unix_ms != self.observed_at_unix_ms
+                    || Some(report.evaluation_elapsed_ms) != self.input_age_ms
+                    || report.sources.len() != self.capture_refs.len()
+                    || report
+                        .sources
+                        .iter()
+                        .zip(&self.capture_refs)
+                        .any(|(source, capture)| {
+                            source.capture_id != capture.capture_id
+                                || source.source.network_id() != self.network_id
+                        })
+                {
+                    return Err(invalid(
+                        "chain_freshness",
+                        "freshness version, clock, network and ordered capture bindings must match trace",
+                    ));
+                }
+                report.validate()?;
+                if let Some(code) = report.status.reason_code() {
+                    let has_reason = match &self.result {
+                        DecisionResult::Rejected { reason_codes }
+                        | DecisionResult::NoRoute { reason_codes }
+                        | DecisionResult::DataUnavailable { reason_codes } => {
+                            reason_codes.iter().any(|reason| reason == code)
+                        }
+                        DecisionResult::Quoted { .. } => false,
+                    };
+                    if !has_reason {
+                        return Err(invalid(
+                            "chain_freshness",
+                            "non-fresh evidence requires matching rejection or missing-data reason",
+                        ));
+                    }
+                }
+            }
+            None => {}
         }
         if self.capture_refs.len() > 64 {
             return Err(invalid("capture_refs", "capture reference bound exceeded"));
@@ -634,6 +696,7 @@ mod tests {
             dataset_origin: DatasetOrigin::ManuallyConstructed,
             observed_at_unix_ms: 1_700_000_000_100,
             input_age_ms: Some(17),
+            chain_freshness: None,
             capture_refs: captures,
             route: vec![
                 DecisionLeg {
@@ -673,6 +736,67 @@ mod tests {
         }
         .seal()
         .unwrap()
+    }
+    #[test]
+    fn independent_chain_time_and_historical_cost_fixtures_roundtrip_exactly() {
+        let fixtures: serde_json::Value =
+            serde_json::from_str(include_str!("../../../specs/chain-freshness.example.json"))
+                .unwrap();
+        for case in fixtures["cases"].as_array().unwrap() {
+            let value = case["record"]["trace"].clone();
+            let trace: DecisionTrace = serde_json::from_value(value.clone()).unwrap();
+            trace.validate().unwrap();
+            assert_eq!(trace.clone().seal().unwrap(), trace);
+            assert_eq!(serde_json::to_value(trace).unwrap(), value);
+        }
+        let fixture: serde_json::Value =
+            serde_json::from_str(include_str!("../../../specs/cost-assessment.example.json"))
+                .unwrap();
+        let trace: DecisionTrace =
+            serde_json::from_value(fixture["source_decision"]["trace"].clone()).unwrap();
+        trace.validate().unwrap();
+        assert_eq!(
+            trace.observation_id,
+            "sha256:c958bdc0502550be216657922b083d8a27b4f345221f7ee874569c6cf1119b32"
+        );
+        assert!(trace.chain_freshness.is_none());
+        assert_eq!(
+            serde_json::to_value(trace).unwrap(),
+            fixture["source_decision"]["trace"]
+        );
+    }
+    #[test]
+    fn chain_time_cannot_be_resealed_with_wrong_bindings_status_or_version() {
+        let fixtures: serde_json::Value =
+            serde_json::from_str(include_str!("../../../specs/chain-freshness.example.json"))
+                .unwrap();
+        let original: DecisionTrace =
+            serde_json::from_value(fixtures["cases"][0]["record"]["trace"].clone()).unwrap();
+        for mutation in 0..8 {
+            let mut trace = original.clone();
+            match mutation {
+                0 => trace.schema_version = DECISION_SCHEMA_VERSION.into(),
+                1 => trace.chain_freshness = None,
+                2 => trace.input_age_ms = Some(1),
+                3 => trace.chain_freshness.as_mut().unwrap().sources.swap(0, 1),
+                4 => trace.chain_freshness.as_mut().unwrap().sources[0].age_ms = Some(0),
+                5 => {
+                    trace.chain_freshness.as_mut().unwrap().status =
+                        crate::ChainFreshnessStatus::Stale
+                }
+                6 => trace.calculation_version = "research-math-v1".into(),
+                _ => trace.chain_freshness.as_mut().unwrap().sources[0].chain_time_seconds = None,
+            }
+            assert!(
+                trace.seal().is_err(),
+                "mutation {mutation} must fail even when resealed"
+            );
+        }
+        let opportunity = original.to_opportunity().unwrap().unwrap();
+        assert_eq!(opportunity.evidence_label, Evidence::Candidate);
+        assert!(!opportunity.eligibility_checks.state_fresh_and_coherent);
+        assert!(!opportunity.eligibility_checks.atomic_route_supported);
+        assert_eq!(opportunity.simulation_status, SimulationStatus::NotRun);
     }
     #[test]
     fn observation_integrity_and_exact_generation_wire_roundtrip() {

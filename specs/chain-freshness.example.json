@@ -1,0 +1,378 @@
+{
+  "fixture_origin": "MANUALLY_CONSTRUCTED",
+  "description": "Independent Python canonical fixtures for exact captured-time age, historical processing delay and explicit unknown/future/stale rejection. They do not establish provider qualification.",
+  "cases": [
+    {
+      "name": "within-policy",
+      "record": {
+        "trace_id": "sha256:f68b1b5bb7c5ea4bf49121839cc34480c95aa86938c21f78f6184ff5b8195f53",
+        "recorded_at": "2026-09-12T12:00:01.000Z",
+        "trace": {
+          "schema_version": "1.1.0",
+          "observation_id": "sha256:f68b1b5bb7c5ea4bf49121839cc34480c95aa86938c21f78f6184ff5b8195f53",
+          "session_id": "fixture-session",
+          "experiment_id": "fixture-experiment",
+          "generation": "1",
+          "configuration_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "calculation_version": "capture-pair-research-v2;bounds8x63;group1000;finalized-chain-time-v1",
+          "strategy_id": "fixture-strategy",
+          "network_id": "base-mainnet",
+          "mode": "OBSERVE",
+          "source_kind": "SYNTHETIC_FIXTURE",
+          "dataset_origin": "MANUALLY_CONSTRUCTED",
+          "observed_at_unix_ms": 1789214400000,
+          "input_age_ms": 750,
+          "capture_refs": [
+            {
+              "capture_id": "capture-one",
+              "manifest_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+              "snapshot_id": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+            },
+            {
+              "capture_id": "capture-two",
+              "manifest_digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+              "snapshot_id": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+            }
+          ],
+          "route": [
+            {
+              "pool_id": "base-mainnet:0x0000000000000000000000000000000000000003",
+              "asset_in": "base-mainnet:0x0000000000000000000000000000000000000001",
+              "asset_out": "base-mainnet:0x0000000000000000000000000000000000000002",
+              "venue_family": "uniswap-v3"
+            },
+            {
+              "pool_id": "base-mainnet:0x0000000000000000000000000000000000000004",
+              "asset_in": "base-mainnet:0x0000000000000000000000000000000000000002",
+              "asset_out": "base-mainnet:0x0000000000000000000000000000000000000001",
+              "venue_family": "uniswap-v3"
+            }
+          ],
+          "amount_in_minor": "1000000",
+          "result": {
+            "status": "QUOTED",
+            "quoted_output_minor": "1010000",
+            "gross_delta_minor": "10000",
+            "included_pool_fees": [
+              "3000",
+              "3000"
+            ]
+          },
+          "grouping": {
+            "version": "route-size-window-v1",
+            "key": "sha256:3d8595d1f7fc11461855a9b9c656caf04ebcacf4315430b461fcdcd33ab7106f",
+            "window_ms": 1000,
+            "window_start_ms": 1789214400000
+          },
+          "diagnostics": [
+            "RESEARCH_MATH_ONLY",
+            "FULL_TRANSACTION_SIMULATION_NOT_RUN",
+            "EXTERNAL_COSTS_UNAVAILABLE"
+          ],
+          "chain_freshness": {
+            "policy": {
+              "version": "finalized-chain-time-v1",
+              "max_chain_age_ms": 5000
+            },
+            "reference_observed_at_unix_ms": 1789214400000,
+            "evaluation_elapsed_ms": 750,
+            "sources": [
+              {
+                "capture_id": "capture-one",
+                "source": {
+                  "kind": "BASE_FINALIZED_BLOCK_TIMESTAMP",
+                  "block_number": "12345678",
+                  "block_hash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "parent_hash": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                },
+                "chain_time_seconds": 1789214400,
+                "age_ms": 750,
+                "status": "WITHIN_POLICY"
+              },
+              {
+                "capture_id": "capture-two",
+                "source": {
+                  "kind": "BASE_FINALIZED_BLOCK_TIMESTAMP",
+                  "block_number": "12345678",
+                  "block_hash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "parent_hash": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                },
+                "chain_time_seconds": 1789214400,
+                "age_ms": 750,
+                "status": "WITHIN_POLICY"
+              }
+            ],
+            "status": "WITHIN_POLICY"
+          }
+        }
+      }
+    },
+    {
+      "name": "stale",
+      "record": {
+        "trace_id": "sha256:fd1161c7e48581e2a61ab62f6124985e6efe953ecd29bb3100431935138c6f9a",
+        "recorded_at": "2026-09-12T12:00:01.000Z",
+        "trace": {
+          "schema_version": "1.1.0",
+          "observation_id": "sha256:fd1161c7e48581e2a61ab62f6124985e6efe953ecd29bb3100431935138c6f9a",
+          "session_id": "fixture-session",
+          "experiment_id": "fixture-experiment",
+          "generation": "1",
+          "configuration_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "calculation_version": "capture-pair-research-v2;bounds8x63;group1000;finalized-chain-time-v1",
+          "strategy_id": "fixture-strategy",
+          "network_id": "base-mainnet",
+          "mode": "OBSERVE",
+          "source_kind": "SYNTHETIC_FIXTURE",
+          "dataset_origin": "MANUALLY_CONSTRUCTED",
+          "observed_at_unix_ms": 1789214400000,
+          "input_age_ms": 750,
+          "capture_refs": [
+            {
+              "capture_id": "capture-one",
+              "manifest_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+              "snapshot_id": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+            },
+            {
+              "capture_id": "capture-two",
+              "manifest_digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+              "snapshot_id": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+            }
+          ],
+          "route": [],
+          "amount_in_minor": null,
+          "result": {
+            "status": "DATA_UNAVAILABLE",
+            "reason_codes": [
+              "CHAIN_TIME_STALE"
+            ]
+          },
+          "grouping": {
+            "version": "route-size-window-v1",
+            "key": "sha256:044f13841ca9ae0c170682c3424469102ff39994d4a92e985bd3548629fcea1e",
+            "window_ms": 1000,
+            "window_start_ms": 1789214400000
+          },
+          "diagnostics": [
+            "RESEARCH_MATH_ONLY",
+            "FULL_TRANSACTION_SIMULATION_NOT_RUN",
+            "EXTERNAL_COSTS_UNAVAILABLE"
+          ],
+          "chain_freshness": {
+            "policy": {
+              "version": "finalized-chain-time-v1",
+              "max_chain_age_ms": 5000
+            },
+            "reference_observed_at_unix_ms": 1789214400000,
+            "evaluation_elapsed_ms": 750,
+            "sources": [
+              {
+                "capture_id": "capture-one",
+                "source": {
+                  "kind": "BASE_FINALIZED_BLOCK_TIMESTAMP",
+                  "block_number": "12345678",
+                  "block_hash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "parent_hash": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                },
+                "chain_time_seconds": 1789214395,
+                "age_ms": 5750,
+                "status": "STALE"
+              },
+              {
+                "capture_id": "capture-two",
+                "source": {
+                  "kind": "BASE_FINALIZED_BLOCK_TIMESTAMP",
+                  "block_number": "12345678",
+                  "block_hash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "parent_hash": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                },
+                "chain_time_seconds": 1789214395,
+                "age_ms": 5750,
+                "status": "STALE"
+              }
+            ],
+            "status": "STALE"
+          }
+        }
+      }
+    },
+    {
+      "name": "future",
+      "record": {
+        "trace_id": "sha256:230bceb903b07775e4919d6075bcc5753de425111c4668bce9cda282fb6d1e24",
+        "recorded_at": "2026-09-12T12:00:01.000Z",
+        "trace": {
+          "schema_version": "1.1.0",
+          "observation_id": "sha256:230bceb903b07775e4919d6075bcc5753de425111c4668bce9cda282fb6d1e24",
+          "session_id": "fixture-session",
+          "experiment_id": "fixture-experiment",
+          "generation": "1",
+          "configuration_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "calculation_version": "capture-pair-research-v2;bounds8x63;group1000;finalized-chain-time-v1",
+          "strategy_id": "fixture-strategy",
+          "network_id": "base-mainnet",
+          "mode": "OBSERVE",
+          "source_kind": "SYNTHETIC_FIXTURE",
+          "dataset_origin": "MANUALLY_CONSTRUCTED",
+          "observed_at_unix_ms": 1789214400000,
+          "input_age_ms": 750,
+          "capture_refs": [
+            {
+              "capture_id": "capture-one",
+              "manifest_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+              "snapshot_id": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+            },
+            {
+              "capture_id": "capture-two",
+              "manifest_digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+              "snapshot_id": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+            }
+          ],
+          "route": [],
+          "amount_in_minor": null,
+          "result": {
+            "status": "DATA_UNAVAILABLE",
+            "reason_codes": [
+              "CHAIN_TIME_FUTURE"
+            ]
+          },
+          "grouping": {
+            "version": "route-size-window-v1",
+            "key": "sha256:044f13841ca9ae0c170682c3424469102ff39994d4a92e985bd3548629fcea1e",
+            "window_ms": 1000,
+            "window_start_ms": 1789214400000
+          },
+          "diagnostics": [
+            "RESEARCH_MATH_ONLY",
+            "FULL_TRANSACTION_SIMULATION_NOT_RUN",
+            "EXTERNAL_COSTS_UNAVAILABLE"
+          ],
+          "chain_freshness": {
+            "policy": {
+              "version": "finalized-chain-time-v1",
+              "max_chain_age_ms": 5000
+            },
+            "reference_observed_at_unix_ms": 1789214400000,
+            "evaluation_elapsed_ms": 750,
+            "sources": [
+              {
+                "capture_id": "capture-one",
+                "source": {
+                  "kind": "BASE_FINALIZED_BLOCK_TIMESTAMP",
+                  "block_number": "12345678",
+                  "block_hash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "parent_hash": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                },
+                "chain_time_seconds": 1789214401,
+                "age_ms": null,
+                "status": "FUTURE"
+              },
+              {
+                "capture_id": "capture-two",
+                "source": {
+                  "kind": "BASE_FINALIZED_BLOCK_TIMESTAMP",
+                  "block_number": "12345678",
+                  "block_hash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "parent_hash": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                },
+                "chain_time_seconds": 1789214401,
+                "age_ms": null,
+                "status": "FUTURE"
+              }
+            ],
+            "status": "FUTURE"
+          }
+        }
+      }
+    },
+    {
+      "name": "unknown",
+      "record": {
+        "trace_id": "sha256:44669543fef029f677594d6dcb464508dc7ef2365de3ede020ca7633f229647a",
+        "recorded_at": "2026-09-12T12:00:01.000Z",
+        "trace": {
+          "schema_version": "1.1.0",
+          "observation_id": "sha256:44669543fef029f677594d6dcb464508dc7ef2365de3ede020ca7633f229647a",
+          "session_id": "fixture-session",
+          "experiment_id": "fixture-experiment",
+          "generation": "1",
+          "configuration_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "calculation_version": "capture-pair-research-v2;bounds8x63;group1000;finalized-chain-time-v1",
+          "strategy_id": "fixture-strategy",
+          "network_id": "base-mainnet",
+          "mode": "OBSERVE",
+          "source_kind": "SYNTHETIC_FIXTURE",
+          "dataset_origin": "MANUALLY_CONSTRUCTED",
+          "observed_at_unix_ms": 1789214400000,
+          "input_age_ms": 750,
+          "capture_refs": [
+            {
+              "capture_id": "capture-one",
+              "manifest_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+              "snapshot_id": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+            },
+            {
+              "capture_id": "capture-two",
+              "manifest_digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+              "snapshot_id": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+            }
+          ],
+          "route": [],
+          "amount_in_minor": null,
+          "result": {
+            "status": "DATA_UNAVAILABLE",
+            "reason_codes": [
+              "CHAIN_TIME_UNAVAILABLE"
+            ]
+          },
+          "grouping": {
+            "version": "route-size-window-v1",
+            "key": "sha256:044f13841ca9ae0c170682c3424469102ff39994d4a92e985bd3548629fcea1e",
+            "window_ms": 1000,
+            "window_start_ms": 1789214400000
+          },
+          "diagnostics": [
+            "RESEARCH_MATH_ONLY",
+            "FULL_TRANSACTION_SIMULATION_NOT_RUN",
+            "EXTERNAL_COSTS_UNAVAILABLE"
+          ],
+          "chain_freshness": {
+            "policy": {
+              "version": "finalized-chain-time-v1",
+              "max_chain_age_ms": 5000
+            },
+            "reference_observed_at_unix_ms": 1789214400000,
+            "evaluation_elapsed_ms": 750,
+            "sources": [
+              {
+                "capture_id": "capture-one",
+                "source": {
+                  "kind": "BASE_FINALIZED_BLOCK_TIMESTAMP",
+                  "block_number": "12345678",
+                  "block_hash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "parent_hash": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                },
+                "chain_time_seconds": null,
+                "age_ms": null,
+                "status": "UNKNOWN"
+              },
+              {
+                "capture_id": "capture-two",
+                "source": {
+                  "kind": "BASE_FINALIZED_BLOCK_TIMESTAMP",
+                  "block_number": "12345678",
+                  "block_hash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "parent_hash": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                },
+                "chain_time_seconds": null,
+                "age_ms": null,
+                "status": "UNKNOWN"
+              }
+            ],
+            "status": "UNKNOWN"
+          }
+        }
+      }
+    }
+  ]
+}

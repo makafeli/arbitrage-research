@@ -195,6 +195,48 @@ for name,label,source,mutate in [
  try:check(api['components']['schemas'][name],bad)
  except AssertionError:negatives.append(label)
  else:raise AssertionError('negative example accepted: '+label)
+freshness=json.loads((root/'specs/chain-freshness.example.json').read_text())
+for case in freshness['cases']:
+ record=case['record'];check(api['components']['schemas']['StoredDecisionTrace'],record)
+ trace=record['trace'];report=trace['chain_freshness'];now=report['reference_observed_at_unix_ms']+report['evaluation_elapsed_ms']
+ assert report['reference_observed_at_unix_ms']==trace['observed_at_unix_ms'] and report['evaluation_elapsed_ms']==trace['input_age_ms']
+ assert 0<now<=253402300799999 and [s['capture_id'] for s in report['sources']]==[r['capture_id'] for r in trace['capture_refs']]
+ for source in report['sources']:
+  stamp=source['chain_time_seconds'];age=None if stamp is None or stamp*1000>now else now-stamp*1000
+  status='UNKNOWN' if stamp is None else 'FUTURE' if age is None else 'STALE' if age>report['policy']['max_chain_age_ms'] else 'WITHIN_POLICY'
+  assert source['age_ms']==age and source['status']==status
+ aggregate=next((status for status in ['FUTURE','UNKNOWN','STALE'] if any(s['status']==status for s in report['sources'])),'WITHIN_POLICY' if report['sources'] else 'UNKNOWN')
+ assert report['status']==aggregate
+ assert trace['observation_id']==canonical_digest({k:v for k,v in trace.items() if k!='observation_id'})==record['trace_id']
+support=json.loads((root/'specs/adapter-support.example.json').read_text())
+check(api['components']['schemas']['AdapterSupportCatalog'],support)
+fresh=freshness['cases'][0]['record']
+for name,label,source,mutate in [
+ ('StoredDecisionTrace','freshness-legacy-schema-with-report',fresh,lambda x:x['trace'].update(schema_version='1.0.0')),
+ ('StoredDecisionTrace','freshness-report-removed',fresh,lambda x:x['trace'].pop('chain_freshness')),
+ ('StoredDecisionTrace','freshness-report-null',fresh,lambda x:x['trace'].update(chain_freshness=None)),
+ ('StoredDecisionTrace','freshness-zero-policy-limit',fresh,lambda x:x['trace']['chain_freshness']['policy'].update(max_chain_age_ms=0)),
+ ('StoredDecisionTrace','freshness-unsupported-policy',fresh,lambda x:x['trace']['chain_freshness']['policy'].update(version='future-v999')),
+ ('StoredDecisionTrace','freshness-numeric-block-height',fresh,lambda x:x['trace']['chain_freshness']['sources'][0]['source'].update(block_number=1234)),
+ ('StoredDecisionTrace','freshness-floating-timestamp',fresh,lambda x:x['trace']['chain_freshness']['sources'][0].update(chain_time_seconds=0.5)),
+ ('StoredDecisionTrace','freshness-future-has-fabricated-age',freshness['cases'][2]['record'],lambda x:x['trace']['chain_freshness']['sources'][0].update(age_ms=0)),
+ ('StoredDecisionTrace','freshness-unknown-has-fabricated-time',freshness['cases'][3]['record'],lambda x:x['trace']['chain_freshness']['sources'][0].update(chain_time_seconds=0)),
+ ('StoredDecisionTrace','freshness-quote-claims-stale',fresh,lambda x:x['trace']['chain_freshness'].update(status='STALE')),
+ ('AdapterSupportCatalog','support-submit-promoted',support,lambda x:x['configurations'][0]['networks'][0]['capability'].update(submit=True)),
+ ('AdapterSupportCatalog','support-quote-qualified',support,lambda x:x['configurations'][0]['networks'][0]['capability'].update(qualified_quote=True)),
+ ('AdapterSupportCatalog','support-unloaded-authorized',support,lambda x:x['configurations'][0]['networks'][0]['registry'].update(status='LOADED_AUTHORIZED')),
+ ('AdapterSupportCatalog','support-policy-missing',support,lambda x:x['configurations'][0]['networks'][0]['chain_freshness'].update(status='CONFIGURED')),
+ ('AdapterSupportCatalog','support-private-path-exposed',support,lambda x:x['configurations'][0]['networks'][0]['registry'].update(path='/private/registry.json')),
+ ('AdapterSupportCatalog','support-unexpanded-without-explanation',support,lambda x:x['configurations'][0]['networks'][0]['declared_scope'].update(identities_expanded=False)),
+]:
+ bad=copy.deepcopy(source);mutate(bad)
+ try:check(api['components']['schemas'][name],bad)
+ except AssertionError:negatives.append(label)
+ else:raise AssertionError('negative example accepted: '+label)
+optin=tomllib.loads((root/'config/chain-freshness.example.toml').read_text())
+assert all(not n['enabled'] and not n['verified_pool_ids'] for n in optin['networks'].values())
+for network in optin['networks'].values():check(api['components']['schemas']['ChainFreshnessPolicy'],network['chain_freshness'])
+
 assert e['route'][0]['asset_in']==e['start_asset_id']
 for first,second in zip(e['route'],e['route'][1:]):assert first['asset_out']==second['asset_in']
 assert e['route'][-1]['asset_out']==e['start_asset_id']

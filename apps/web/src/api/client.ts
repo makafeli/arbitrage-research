@@ -1,3 +1,4 @@
+import { parseAdapterSupport } from './support.ts';
 import { canonicalCostJson, parseCostAssessment, verifyCostAssessment } from './costs.ts';
 import type { CostAssessmentRequest } from './costs.ts';
 import { parseAsset, parseCoverage, parseDecision, parseGroup, parseJournal, parsePaperRun, parseReservation } from './research.ts';
@@ -26,7 +27,7 @@ export interface Configuration {
 export interface Capabilities {
   modes: ResearchMode[]; live_execution: boolean; market_data: boolean; opportunity_capture: boolean;
   registered_configurations: Configuration[]; command_application?: string;
-  decision_history?: boolean; paper_ledger?: boolean; paper_run_creation?: boolean; collection_telemetry?: boolean; session_export?: boolean; cost_assessments?: boolean;
+  decision_history?: boolean; paper_ledger?: boolean; paper_run_creation?: boolean; collection_telemetry?: boolean; session_export?: boolean; cost_assessments?: boolean; adapter_support?: boolean;
 }
 export interface CreateSession {
   network_id: Network; mode: ResearchMode; configuration_digest: string; experiment_id: string; strategy_ids: string[];
@@ -121,7 +122,7 @@ function parseCapabilities(value: unknown): Capabilities {
   const v = object(value);
   assert(Array.isArray(v.modes) && v.modes.every(mode => oneOf(mode, modes.slice(0, 3))));
   assert(['live_execution', 'market_data', 'opportunity_capture'].every(k => typeof v[k] === 'boolean'));
-  assert(['decision_history', 'paper_ledger', 'paper_run_creation', 'collection_telemetry', 'session_export', 'cost_assessments'].every(k => v[k] === undefined || typeof v[k] === 'boolean'));
+  assert(['decision_history', 'paper_ledger', 'paper_run_creation', 'collection_telemetry', 'session_export', 'cost_assessments', 'adapter_support'].every(k => v[k] === undefined || typeof v[k] === 'boolean'));
   assert(Array.isArray(v.registered_configurations));
   for (const config of v.registered_configurations) {
     const c = object(config);
@@ -183,6 +184,7 @@ export class ControlApi {
   async auth(signal?: AbortSignal) { const auth = parseAuth(await this.request('/auth/session', { signal })); this.csrf = auth.csrf_token; return auth; }
   async login(operator_secret: string) { const auth = parseAuth(await this.request('/auth/login', { method: 'POST', body: { operator_secret } })); this.csrf = auth.csrf_token; return auth; }
   async logout() { await this.request('/auth/logout', { method: 'POST' }); this.clearAuth(); }
+  async adapterSupport(signal?: AbortSignal) { return parseAdapterSupport(await this.request('/adapter-support', { signal })); }
   async capabilities(signal?: AbortSignal) { return parseCapabilities(await this.request('/capabilities', { signal })); }
   async sessions(signal?: AbortSignal, cursor?: string) { return parsePage(await this.request(`/sessions?limit=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`, { signal }), parseSession); }
   async opportunities(signal?: AbortSignal) { return parsePage(await this.request('/opportunities?limit=100&source_kind=CAPTURED_MARKET_DATA', { signal }), parseOpportunity); }

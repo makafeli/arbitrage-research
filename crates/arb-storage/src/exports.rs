@@ -174,7 +174,7 @@ async fn export_in_snapshot(
         return Err(StoreError::ExportLimitExceeded);
     }
     let rows = sqlx::query(
-        "SELECT * FROM decision_traces WHERE operator_id=$1 AND session_id=$2 ORDER BY trace_id",
+        "SELECT *,(SELECT c.snapshot #> ARRAY['networks',CASE decision_traces.payload->>'network_id' WHEN 'base-mainnet' THEN 'base' WHEN 'solana-mainnet' THEN 'solana' END,'chain_freshness'] FROM configuration_snapshots c WHERE c.operator_id=decision_traces.operator_id AND c.configuration_digest=decision_traces.configuration_digest) AS configuration_chain_freshness,(SELECT s.network_id FROM research_sessions s WHERE s.session_id=decision_traces.session_id AND s.operator_id=decision_traces.operator_id) AS session_network_id FROM decision_traces WHERE operator_id=$1 AND session_id=$2 ORDER BY trace_id",
     )
     .bind(operator)
     .bind(session_id)

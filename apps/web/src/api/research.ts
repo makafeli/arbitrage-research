@@ -1,4 +1,6 @@
 import type { Network } from './client.ts';
+import { parseChainFreshness } from './freshness.ts';
+import type { ChainFreshness } from './freshness.ts';
 
 export type Origin = 'SYNTHETIC' | 'MANUALLY_CONSTRUCTED' | 'RECORDED_LIVE';
 export type SourceKind = 'SYNTHETIC_FIXTURE' | 'CAPTURED_MARKET_DATA';
@@ -21,7 +23,7 @@ export interface DecisionTrace {
   schema_version: string; observation_id: string; session_id: string; experiment_id: string; generation: string;
   configuration_digest: string; calculation_version: string; strategy_id: string; network_id: Network;
   mode: 'OBSERVE' | 'PAPER' | 'REPLAY'; source_kind: SourceKind; dataset_origin: Origin;
-  observed_at_unix_ms: number; input_age_ms: number | null;
+  observed_at_unix_ms: number; input_age_ms: number | null; chain_freshness?: ChainFreshness;
   capture_refs: { capture_id: string; manifest_digest: string; snapshot_id: string }[];
   route: { pool_id: string; asset_in: string; asset_out: string; venue_family: string }[];
   amount_in_minor: string | null;
@@ -59,7 +61,7 @@ function instant(value: unknown): value is string { return text(value) && Number
 function ms(value: unknown): value is number { return Number.isSafeInteger(value) && (value as number) >= 0 && (value as number) <= 8640000000000000; }
 const networks = ['base-mainnet', 'solana-mainnet'];
 function stringList(value: unknown): string[] { requireValue(Array.isArray(value) && value.length <= 128 && value.every(text)); return value as string[]; }
-const reasonCodes: readonly string[] = ["NO_CAPTURE_INPUTS","CAPTURE_UNAVAILABLE","PROVIDER_UNAVAILABLE","CAPTURE_CONFIGURATION_MISMATCH","CAPTURE_ORIGIN_MISMATCH","CAPTURE_IDENTITY_MISMATCH","CAPTURE_CONTEXT_MISMATCH","CAPTURE_PAIR_INCOMPLETE","CAPTURE_DATA_INCOMPLETE","UNSUPPORTED_POOL_MODEL","UNSUPPORTED_TOKEN_BEHAVIOR","UNSUPPORTED_SIZE","UNSUPPORTED_REQUESTED_CAPABILITY","CURRENT_PROTOCOL_EQUIVALENCE_UNQUALIFIED","TOKEN_BEHAVIOR_UNQUALIFIED","RESEARCH_MATH_ONLY","FULL_TRANSACTION_SIMULATION_NOT_RUN","EXTERNAL_COSTS_UNAVAILABLE","VIRTUAL_FUNDING_NOT_RESERVED","NO_CONFIGURED_START_ASSET","NO_CONFIGURED_TRADE_SIZES","NO_ELIGIBLE_POOL_PAIRS","DISTINCT_POOL_REQUIRED","ASSET_CONTINUITY_MISMATCH","ARITHMETIC_OVERFLOW","ZERO_LIQUIDITY","INCOMPLETE_TICK_COVERAGE","MATH_INPUT_REJECTED","OUTPUT_ROUNDS_TO_ZERO","ROUTE_BUDGET_EXHAUSTED","EVALUATION_BUDGET_EXHAUSTED","MAX_POOL_BOUND_EXCEEDED","STALE_INPUT","WORK_GENERATION_CANCELLED","DEADLINE_EXPIRED","SNAPSHOT_NOT_ATOMIC","POOLS_OUTSIDE_CONFIG","SOURCE_QUALIFICATION_PENDING","RATE_LIMITED","CAPTURE_LIMIT_REACHED","QUOTE_CAPABILITY_UNQUALIFIED","NO_QUOTED_ROUTES"];
+const reasonCodes: readonly string[] = ["NO_CAPTURE_INPUTS","CAPTURE_UNAVAILABLE","PROVIDER_UNAVAILABLE","CAPTURE_CONFIGURATION_MISMATCH","CAPTURE_ORIGIN_MISMATCH","CAPTURE_IDENTITY_MISMATCH","CAPTURE_CONTEXT_MISMATCH","CAPTURE_PAIR_INCOMPLETE","CAPTURE_DATA_INCOMPLETE","UNSUPPORTED_POOL_MODEL","UNSUPPORTED_TOKEN_BEHAVIOR","UNSUPPORTED_SIZE","UNSUPPORTED_REQUESTED_CAPABILITY","CURRENT_PROTOCOL_EQUIVALENCE_UNQUALIFIED","TOKEN_BEHAVIOR_UNQUALIFIED","RESEARCH_MATH_ONLY","FULL_TRANSACTION_SIMULATION_NOT_RUN","EXTERNAL_COSTS_UNAVAILABLE","VIRTUAL_FUNDING_NOT_RESERVED","NO_CONFIGURED_START_ASSET","NO_CONFIGURED_TRADE_SIZES","NO_ELIGIBLE_POOL_PAIRS","DISTINCT_POOL_REQUIRED","ASSET_CONTINUITY_MISMATCH","ARITHMETIC_OVERFLOW","ZERO_LIQUIDITY","INCOMPLETE_TICK_COVERAGE","MATH_INPUT_REJECTED","OUTPUT_ROUNDS_TO_ZERO","ROUTE_BUDGET_EXHAUSTED","EVALUATION_BUDGET_EXHAUSTED","MAX_POOL_BOUND_EXCEEDED","STALE_INPUT","WORK_GENERATION_CANCELLED","DEADLINE_EXPIRED","SNAPSHOT_NOT_ATOMIC","POOLS_OUTSIDE_CONFIG","SOURCE_QUALIFICATION_PENDING","RATE_LIMITED","CAPTURE_LIMIT_REACHED","QUOTE_CAPABILITY_UNQUALIFIED","NO_QUOTED_ROUTES","CHAIN_TIME_UNAVAILABLE","CHAIN_TIME_FUTURE","CHAIN_TIME_STALE","CHAIN_TIME_INVALID"];
 function publicCodes(value: unknown, allowEmpty = false): string[] {
   requireValue(Array.isArray(value) && value.length <= 64 && (allowEmpty || value.length > 0) && value.every(code => typeof code === 'string' && reasonCodes.includes(code)), 'Only named public decision codes are accepted.');
   return value as string[];
@@ -115,7 +117,8 @@ export function parseDecision(value: unknown): StoredDecision {
   requireValue(text(wrapper.trace_id) && instant(wrapper.recorded_at));
   provenance(v);
   requireValue(['schema_version', 'observation_id', 'session_id', 'experiment_id', 'configuration_digest', 'calculation_version', 'strategy_id'].every(key => text(v[key])));
-  requireValue(v.schema_version === '1.0.0');
+  requireValue(v.schema_version === '1.0.0' || v.schema_version === '1.1.0');
+  requireValue(v.schema_version === '1.0.0' ? !Object.hasOwn(v, 'chain_freshness') && v.calculation_version !== 'capture-pair-research-v2;bounds8x63;group1000;finalized-chain-time-v1' : Object.hasOwn(v, 'chain_freshness') && v.calculation_version === 'capture-pair-research-v2;bounds8x63;group1000;finalized-chain-time-v1', 'Decision schema and chain freshness calculation version disagree.');
   requireValue(unsigned(v.generation) && choice(v.network_id, networks) && choice(v.mode, ['OBSERVE', 'PAPER', 'REPLAY']) && ms(v.observed_at_unix_ms));
   requireValue(v.input_age_ms === null || ms(v.input_age_ms));
   requireValue(v.amount_in_minor === null || unsigned(v.amount_in_minor));
@@ -141,6 +144,8 @@ export function parseDecision(value: unknown): StoredDecision {
     dataset_origin: v.dataset_origin as Origin, observed_at_unix_ms: v.observed_at_unix_ms, input_age_ms: v.input_age_ms as number | null,
     capture_refs: refs, route, amount_in_minor: v.amount_in_minor as string | null, result,
     grouping: { version: g.version, key: g.key, window_ms: g.window_ms, window_start_ms: g.window_start_ms }, diagnostics: publicCodes(v.diagnostics, true) };
+  // An absent legacy field stays absent: adding null changes sealed decision and export digests.
+  if (Object.hasOwn(v, 'chain_freshness')) trace.chain_freshness = parseChainFreshness(v.chain_freshness, trace);
   return { trace_id: wrapper.trace_id, recorded_at: wrapper.recorded_at, trace };
 }
 export function parseGroup(value: unknown): DecisionGroup {

@@ -224,6 +224,7 @@ fn capture_document(
     document: &RegistryDocument,
     rpc: &mut impl ReadRpc,
     observed: u64,
+    chain_time_enabled: bool,
 ) -> Result<Vec<(Value, StateContext, bool)>, AnyError> {
     let batch = document.format() == arb_registry::DocumentFormat::PoolSetV1;
     match document.network() {
@@ -261,7 +262,9 @@ fn capture_document(
                     _ => Err("mixed registry networks"),
                 })
                 .collect::<Result<Vec<_>, _>>()?;
-            let snapshots = if batch {
+            let snapshots = if chain_time_enabled {
+                arb_solana::capture_pools_with_chain_time(rpc, &pools, observed)?
+            } else if batch {
                 arb_solana::capture_pools(rpc, &pools, observed)?
             } else {
                 vec![arb_solana::capture_pool(rpc, &pools[0], observed)?]
@@ -280,8 +283,17 @@ fn capture_document(
     }
 }
 
+fn capture_adapter_version(document: &RegistryDocument, chain_time_enabled: bool) -> &'static str {
+    if chain_time_enabled && document.network() == NetworkId::SolanaMainnet {
+        "arb_solana-pool-set-v3"
+    } else {
+        document.adapter_version()
+    }
+}
+
 struct CapturePlan {
     registry: RegistryDocument,
+    chain_time_enabled: bool,
     origin: Origin,
     registry_bytes: Vec<u8>,
     config_bytes: Vec<u8>,
@@ -390,7 +402,8 @@ fn capture_blocking(plan: &CapturePlan) -> Result<CompletedBatch, AttemptFailure
     // Pool-set v2 acquires and validates every member before writing artifacts.
     // Every bundle retains the actual complete batch transcript, including the
     // common anchor/union response. Never synthesize per-pool provider responses.
-    let snapshots = capture_document(&plan.registry, &mut rpc, observed).map_err(|_| {
+    let snapshots = capture_document(&plan.registry, &mut rpc, observed, plan.chain_time_enabled)
+        .map_err(|_| {
         AttemptFailure::acquisition(
             rpc.failure
                 .unwrap_or(CollectionReason::InputValidationFailed),
@@ -437,7 +450,8 @@ fn capture_blocking(plan: &CapturePlan) -> Result<CompletedBatch, AttemptFailure
                 origin: plan.origin.clone(),
                 network: registry.chain(),
                 provider_alias: plan.provider_alias.clone(),
-                adapter_version: plan.registry.adapter_version().into(),
+                adapter_version: capture_adapter_version(&plan.registry, plan.chain_time_enabled)
+                    .into(),
                 adapter_source_commit: registry.source().into(),
                 build_digest: plan.build_digest.clone(),
                 config_digest: plan.config_digest.clone(),
@@ -608,6 +622,7 @@ async fn run() -> Result<(), AnyError> {
         arb_adapter_api::EndpointKind::HttpsRemote => Origin::RecordedLive,
     };
     let plan = Arc::new(CapturePlan {
+        chain_time_enabled: config.chain_freshness(network).is_some(),
         registry,
         origin,
         registry_bytes,
@@ -914,7 +929,7 @@ mod tests {
         ))
         .unwrap();
         let mut rpc = TranscriptRpc::new(records);
-        let (snapshot, context, coherent) = capture_document(&registry, &mut rpc, 100)
+        let (snapshot, context, coherent) = capture_document(&registry, &mut rpc, 100, false)
             .unwrap()
             .remove(0);
         rpc.finish().unwrap();
@@ -945,7 +960,7 @@ mod tests {
             .unwrap();
             let registry = RegistryDocument::from_bytes(&document, network).unwrap();
             let mut rpc = TranscriptRpc::new(serde_json::from_str(transcript).unwrap());
-            let snapshots = capture_document(&registry, &mut rpc, 100).unwrap();
+            let snapshots = capture_document(&registry, &mut rpc, 100, false).unwrap();
             rpc.finish().unwrap();
             assert_eq!(snapshots.len(), 2);
             assert_eq!(snapshots[0].1, snapshots[1].1);
@@ -955,6 +970,62 @@ mod tests {
                 assert_eq!(snapshot["quality"]["complete_for_quote"], false);
                 assert_eq!(snapshot["quality"]["quote_implementation_qualified"], false);
             }
+        }
+    }
+
+    #[test]
+    fn solana_policy_dispatch_records_exact_slot_time_for_single_and_batch_registry() {
+        for batch in [false, true] {
+            let (registries, transcript) = if batch {
+                (
+                    include_str!("../../../crates/arb-solana/tests/fixtures/batch-registries.json"),
+                    include_str!("../../../crates/arb-solana/tests/fixtures/batch-rpc.json"),
+                )
+            } else {
+                (
+                    include_str!("../../../crates/arb-solana/tests/fixtures/registry.json"),
+                    include_str!("../../../crates/arb-solana/tests/fixtures/rpc.json"),
+                )
+            };
+            let mut registry: Value = serde_json::from_str(registries).unwrap();
+            if batch {
+                registry =
+                    json!({"schema_version":1,"network_id":"solana-mainnet","pools":registry});
+            }
+            let document = RegistryDocument::from_bytes(
+                &serde_json::to_vec(&registry).unwrap(),
+                NetworkId::SolanaMainnet,
+            )
+            .unwrap();
+            let mut records: Vec<RpcRecord> = serde_json::from_str(transcript).unwrap();
+            let accounts: Value = serde_json::from_str(&records[1].response).unwrap();
+            let sequence = records.len() as u64;
+            records.push(RpcRecord {
+                sequence,
+                method: arb_adapter_api::ReadMethod::GetBlockTime,
+                params: json!([accounts["result"]["context"]["slot"]]),
+                response: json!({"jsonrpc":"2.0","id":sequence,"result":90}).to_string(),
+            });
+            let mut rpc = TranscriptRpc::new(records.clone());
+            let snapshots = capture_document(&document, &mut rpc, 100000, true).unwrap();
+            rpc.finish().unwrap();
+            assert_eq!(snapshots.len(), if batch { 2 } else { 1 });
+            assert_eq!(
+                capture_adapter_version(&document, true),
+                "arb_solana-pool-set-v3"
+            );
+            assert_eq!(
+                capture_adapter_version(&document, false),
+                document.adapter_version()
+            );
+            for (snapshot, _, _) in snapshots {
+                assert_eq!(snapshot["block_time_seconds"], 90);
+                assert_eq!(snapshot["quality"]["coherent"], false);
+                assert_eq!(snapshot["quality"]["quote_implementation_qualified"], false);
+            }
+            records.pop();
+            let mut missing_time = TranscriptRpc::new(records);
+            assert!(capture_document(&document, &mut missing_time, 100000, true).is_err());
         }
     }
 
