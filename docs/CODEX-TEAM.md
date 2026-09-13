@@ -49,6 +49,24 @@ An existing chat may not acquire new tools just because a file was added. App
 launch does not run the Python authentication preflight; check the selected
 account, quota and permission mode before submitting the task.
 
+## Git environment isolation
+
+Preflight subprocesses and the final foreground process replacement receive a
+copy of the caller environment with Git checkout-local overrides removed.
+This includes repository, working-tree, common-directory, object-store and
+index variables, plus injected Git configuration parameters that could spoof
+the intended remote. The caller's environment is not modified. Unrelated
+PATH, home, proxy, authentication-socket and Codex settings are retained.
+
+Regression tests use real disposable repositories and five linked worktrees:
+a foreign repository/index cannot redirect a check, a dirty worktree is still
+refused, and clean siblings remain valid. A separate subprocess test verifies
+environment inheritance; the final execve boundary is checked with a test
+double, not a real Codex invocation. These checks do not validate malicious
+machine-local Git configuration, native agent permissions or running agents.
+See the Git guidance on checkout-local environment variables:
+https://git-scm.com/docs/githooks#_description
+
 ## Team
 
 | Native role | Focus | Existing manager lane |

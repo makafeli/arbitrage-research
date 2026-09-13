@@ -21,6 +21,25 @@ ORIGINS = {
 }
 
 
+# Git hooks export checkout-local state even when a child changes its cwd.
+# Keep caller auth/proxy/user preferences, not repository/index redirection.
+GIT_LOCAL_VARIABLES = frozenset({
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_CONFIG", "GIT_CONFIG_PARAMETERS",
+    "GIT_CONFIG_COUNT", "GIT_OBJECT_DIRECTORY", "GIT_DIR", "GIT_WORK_TREE",
+    "GIT_IMPLICIT_WORK_TREE", "GIT_GRAFT_FILE", "GIT_INDEX_FILE",
+    "GIT_NO_REPLACE_OBJECTS", "GIT_REPLACE_REF_BASE", "GIT_PREFIX",
+    "GIT_SHALLOW_FILE", "GIT_COMMON_DIR", "GIT_NAMESPACE",
+    "GIT_INTERNAL_SUPER_PREFIX", "GIT_QUARANTINE_PATH",
+})
+
+
+def clean_environment() -> dict[str, str]:
+    """Copy the caller environment without Git checkout-local overrides."""
+    return {key: value for key, value in os.environ.items()
+            if key not in GIT_LOCAL_VARIABLES
+            and not key.startswith(("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_"))}
+
+
 class SetupError(ValueError):
     """Fixed, non-sensitive preflight failure."""
 
@@ -54,7 +73,7 @@ def validate_setup(root: Path) -> str:
 
 def run_readonly(command: list[str], root: Path) -> subprocess.CompletedProcess:
     return subprocess.run(command, cwd=root, capture_output=True, text=True,
-                          check=False, timeout=15)
+                          check=False, timeout=15, env=clean_environment())
 
 
 def verify_repository(root: Path) -> None:
@@ -116,8 +135,8 @@ def main(argv: list[str] | None = None) -> int:
         command = launch_command(binary, ROOT, prompt)
         print("Opening one foreground orchestrator; five-worker dispatch is not yet verified.",
               flush=True)
-        os.execv(binary, command)
-        return 0  # Only reachable with an injected test double, never real execv.
+        os.execve(binary, command, clean_environment())
+        return 0  # Only reachable with an injected test double, never real execve.
     except SetupError as exc:
         print(json.dumps({"status": "START_BLOCKED", "reason": str(exc), "agents_started": 0}))
         return 2

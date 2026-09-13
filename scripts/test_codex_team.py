@@ -3,6 +3,7 @@
 import contextlib
 import io
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -36,7 +37,7 @@ class TeamTests(unittest.TestCase):
     def test_default_check_does_not_execute_any_process(self):
         with mock.patch.object(team.shutil, 'which', return_value='/usr/bin/codex'), \
              mock.patch.object(team.subprocess, 'run') as run, \
-             mock.patch.object(team.os, 'execv') as execute:
+             mock.patch.object(team.os, 'execve') as execute:
             code, output = self.invoke([])
         self.assertEqual(code, 0)
         report = json.loads(output)
@@ -55,7 +56,7 @@ class TeamTests(unittest.TestCase):
 
     def test_explicit_start_without_runtime_fails_closed(self):
         with mock.patch.object(team.shutil, 'which', return_value=None), \
-             mock.patch.object(team.os, 'execv') as execute:
+             mock.patch.object(team.os, 'execve') as execute:
             code, output = self.invoke(['--start'])
         self.assertEqual(code, 2)
         self.assertEqual(json.loads(output)['reason'], 'CODEX_RUNTIME_MISSING')
@@ -65,7 +66,7 @@ class TeamTests(unittest.TestCase):
     def test_noninteractive_start_is_refused(self):
         with mock.patch.object(team.shutil, 'which', return_value='/usr/bin/codex'), \
              mock.patch.object(team.sys.stdin, 'isatty', return_value=False), \
-             mock.patch.object(team.os, 'execv') as execute:
+             mock.patch.object(team.os, 'execve') as execute:
             code, output = self.invoke(['--start'])
         self.assertEqual(code, 2)
         self.assertEqual(json.loads(output)['reason'], 'INTERACTIVE_TERMINAL_REQUIRED')
@@ -204,7 +205,7 @@ class TeamTests(unittest.TestCase):
              mock.patch.object(team.sys.stdin, 'isatty', return_value=True), \
              mock.patch.object(team, 'verify_repository'), \
              mock.patch.object(team, 'run_readonly', return_value=subprocess.CompletedProcess([], 0, '', message)), \
-             mock.patch.object(team.os, 'execv') as execute, \
+             mock.patch.object(team.os, 'execve') as execute, \
              contextlib.redirect_stdout(output):
             code = team.main(['--start'])
         self.assertEqual(code, 2)
@@ -223,7 +224,7 @@ class TeamTests(unittest.TestCase):
              mock.patch.object(team, 'verify_repository'), \
              mock.patch.object(team, 'run_readonly', side_effect=subprocess.TimeoutExpired(
                  'private-command', 15, output='private-auth-output')), \
-             mock.patch.object(team.os, 'execv') as execute, \
+             mock.patch.object(team.os, 'execve') as execute, \
              contextlib.redirect_stdout(output):
             code = team.main(['--start'])
         self.assertEqual(code, 2)
@@ -258,7 +259,7 @@ class TeamTests(unittest.TestCase):
              mock.patch.object(team.sys.stdin, 'isatty', return_value=True), \
              mock.patch.object(team, 'verify_repository') as repo, \
              mock.patch.object(team, 'verify_login') as auth, \
-             mock.patch.object(team.os, 'execv') as execute, \
+             mock.patch.object(team.os, 'execve') as execute, \
              contextlib.redirect_stdout(output):
             code = team.main(['--start'])
         self.assertEqual(code, 0)
@@ -274,6 +275,126 @@ class TeamTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout)['status'], 'CONFIGURED_NOT_STARTED')
         self.assertEqual(json.loads(result.stdout)['agents_started'], 0)
+
+
+class EnvironmentTests(unittest.TestCase):
+    """Real local Git fixtures, without a model process or network access."""
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.fixture_env = {k: v for k, v in os.environ.items() if not k.startswith('GIT_')}
+        self.fixture_env.update(GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL=os.devnull)
+        self.template = self.root / 'empty-template'
+        self.template.mkdir()
+
+    def git(self, root, *args):
+        return subprocess.run(['git', *args], cwd=root, env=self.fixture_env,
+                              capture_output=True, text=True, check=True, timeout=10)
+
+    def repository(self, name, origin='https://github.com/makafeli/arbitrage-research.git'):
+        root = self.root / name
+        root.mkdir()
+        self.git(root, 'init', '-q', '--template=' + str(self.template))
+        self.git(root, 'config', 'user.name', 'Synthetic Test')
+        self.git(root, 'config', 'user.email', 'test@example.invalid')
+        self.git(root, 'remote', 'add', 'origin', origin)
+        (root / 'tracked.txt').write_text('fixture\n')
+        self.git(root, 'add', 'tracked.txt')
+        self.git(root, 'commit', '-qm', 'synthetic fixture')
+        return root
+
+    def test_location_and_index_overrides_are_not_inherited_by_subprocess(self):
+        source = {'PATH': '/usr/bin', 'GIT_DIR': '/foreign/.git',
+                  'GIT_WORK_TREE': '/foreign', 'GIT_INDEX_FILE': '/foreign/index',
+                  'HOME': '/home/example', 'SSH_AUTH_SOCK': '/tmp/test-socket'}
+        with mock.patch.dict(os.environ, source, clear=True), \
+             mock.patch.object(team.subprocess, 'run') as run:
+            team.run_readonly(['git', 'status'], self.root)
+        env = run.call_args.kwargs.get('env', {})
+        self.assertEqual(env, {k: source[k] for k in ('PATH', 'HOME', 'SSH_AUTH_SOCK')})
+        self.assertEqual(run.call_args.kwargs['cwd'], self.root)
+
+    def test_environment_copy_preserves_unrelated_configuration(self):
+        source = {'PATH': '/bin', 'CODEX_HOME': '/private/codex', 'HTTP_PROXY': 'http://proxy.invalid',
+                  'GIT_AUTHOR_NAME': 'Test Author', 'GIT_DIR': '/wrong', 'GIT_CONFIG_COUNT': '1',
+                  'GIT_CONFIG_KEY_0': 'core.worktree', 'GIT_CONFIG_VALUE_0': '/wrong'}
+        with mock.patch.dict(os.environ, source, clear=True):
+            cleaned = team.clean_environment()
+            self.assertEqual(dict(os.environ), source)
+        self.assertEqual(cleaned, {k: source[k] for k in ('PATH', 'CODEX_HOME', 'HTTP_PROXY', 'GIT_AUTHOR_NAME')})
+
+    def test_known_git_local_environment_variables_are_removed(self):
+        keys = self.git(self.root, 'rev-parse', '--local-env-vars').stdout.splitlines()
+        keys += ['GIT_NAMESPACE', 'GIT_CONFIG_KEY_2', 'GIT_CONFIG_VALUE_2', 'GIT_INTERNAL_SUPER_PREFIX']
+        with mock.patch.dict(os.environ, {k: 'synthetic' for k in keys}, clear=True):
+            self.assertEqual(team.clean_environment(), {})
+
+    def test_real_preflight_ignores_foreign_git_directory_and_index(self):
+        intended = self.repository('intended')
+        foreign = self.repository('foreign', 'https://github.com/synthetic/other.git')
+        index_before = (foreign / '.git/index').read_bytes()
+        overrides = dict(self.fixture_env, GIT_DIR=str(foreign / '.git'),
+                         GIT_WORK_TREE=str(foreign), GIT_INDEX_FILE=str(foreign / '.git/index'))
+        with mock.patch.dict(os.environ, overrides, clear=True):
+            team.verify_repository(intended)
+        self.assertEqual(index_before, (foreign / '.git/index').read_bytes())
+
+    def test_environment_cannot_spoof_an_allowed_remote(self):
+        target = self.repository('wrong-origin', 'https://github.com/synthetic/other.git')
+        overrides = dict(self.fixture_env, GIT_CONFIG_COUNT='1', GIT_CONFIG_KEY_0='remote.origin.url',
+                         GIT_CONFIG_VALUE_0='https://github.com/makafeli/arbitrage-research.git')
+        with mock.patch.dict(os.environ, overrides, clear=True), \
+             self.assertRaisesRegex(team.SetupError, 'UNEXPECTED_REPOSITORY_ORIGIN'):
+            team.verify_repository(target)
+
+    def test_five_worktrees_resolve_their_own_state_despite_foreign_overrides(self):
+        primary = self.repository('primary')
+        workers = [self.root / ('worker-' + role) for role in team.ROLES]
+        for role, worker in zip(team.ROLES, workers):
+            self.git(primary, 'worktree', 'add', '-q', '-b', role, str(worker))
+        foreign = self.repository('foreign', 'https://github.com/synthetic/other.git')
+        index_before = (foreign / '.git/index').read_bytes()
+        overrides = dict(self.fixture_env, GIT_DIR=str(foreign / '.git'),
+                         GIT_WORK_TREE=str(foreign), GIT_COMMON_DIR=str(foreign / '.git'),
+                         GIT_INDEX_FILE=str(foreign / '.git/index'))
+        with mock.patch.dict(os.environ, overrides, clear=True):
+            for root in [primary, *workers]:
+                with self.subTest(root=root.name):
+                    team.verify_repository(root)
+            (workers[0] / 'tracked.txt').write_text('changed\n')
+            with self.assertRaisesRegex(team.SetupError, 'WORKTREE_NOT_CLEAN'):
+                team.verify_repository(workers[0])
+            for root in [primary, *workers[1:]]:
+                team.verify_repository(root)
+        self.assertEqual(index_before, (foreign / '.git/index').read_bytes())
+
+    def test_real_child_receives_clean_environment(self):
+        overrides = dict(self.fixture_env, GIT_DIR='/foreign', GIT_WORK_TREE='/foreign',
+                         GIT_INDEX_FILE='/foreign/index', TEAM_TEST_SENTINEL='retained')
+        source = 'import os,json;print(json.dumps({k:os.environ.get(k) for k in ("GIT_DIR","GIT_WORK_TREE","GIT_INDEX_FILE","TEAM_TEST_SENTINEL")}))'
+        with mock.patch.dict(os.environ, overrides, clear=True):
+            result = team.run_readonly([sys.executable, '-c', source], self.root)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(json.loads(result.stdout), {'GIT_DIR': None, 'GIT_WORK_TREE': None,
+                          'GIT_INDEX_FILE': None, 'TEAM_TEST_SENTINEL': 'retained'})
+
+    def test_final_replacement_uses_sanitized_environment(self):
+        output = io.StringIO()
+        output.isatty = lambda: True
+        overrides = {'PATH': '/bin', 'GIT_DIR': '/foreign', 'GIT_WORK_TREE': '/foreign',
+                     'GIT_INDEX_FILE': '/foreign/index', 'TEAM_TEST_SENTINEL': 'retained'}
+        with mock.patch.dict(os.environ, overrides, clear=True), \
+             mock.patch.object(team.shutil, 'which', return_value='/bin/codex'), \
+             mock.patch.object(team.sys.stdin, 'isatty', return_value=True), \
+             mock.patch.object(team, 'verify_repository'), mock.patch.object(team, 'verify_login'), \
+             mock.patch.object(team.os, 'execv') as unsafe_exec, \
+             mock.patch.object(team.os, 'execve') as safe_exec, contextlib.redirect_stdout(output):
+            self.assertEqual(team.main(['--start']), 0)
+        unsafe_exec.assert_not_called()
+        safe_exec.assert_called_once()
+        self.assertEqual(safe_exec.call_args.args[2], {'PATH': '/bin', 'TEAM_TEST_SENTINEL': 'retained'})
+        self.assertIn('dispatch is not yet verified', output.getvalue())
 
 
 if __name__ == '__main__':
