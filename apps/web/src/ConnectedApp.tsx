@@ -46,11 +46,22 @@ export function ConnectedApp({ onDemo }: { onDemo: () => void }) {
   useEffect(() => {
     mounted.current = true;
     const controller = new AbortController();
-    void api.auth(controller.signal).then(() => { if (mounted.current) setAuthenticated(true); }).catch(e => {
+    // Child requests share this authorization state. Do not unmount the
+    // workspace on revocation: uncertain mutation payloads/keys must survive.
+    const unsubscribe = api.subscribeAuth(() => {
+      if (!mounted.current) return;
+      const authorized = api.isAuthorized();
+      setAuthenticated(authorized);
+      if (!authorized) {
+        setOnline(false); setInspected(null);
+        setAnnouncement('Authorization unavailable. Sign in again; unresolved requests are retained.');
+      }
+    });
+    void api.auth(controller.signal).catch(e => {
       if (!mounted.current || controller.signal.aborted) return;
-      if (!(e instanceof ApiError && e.status === 401)) setError(errorMessage(e));
-    }).finally(() => { if (mounted.current) setAuthLoading(false); });
-    return () => { mounted.current = false; controller.abort(); api.clearAuth(); };
+      if (!(e instanceof ApiError && (e.status === 401 || e.code === 'AUTH_CONTEXT_CHANGED'))) setError(errorMessage(e));
+    }).finally(() => { if (mounted.current && !controller.signal.aborted) setAuthLoading(false); });
+    return () => { mounted.current = false; unsubscribe(); controller.abort(); api.clearAuth(); };
   }, [api]);
   function updateCommands(update: (previous: Record<string, PendingCommand>) => Record<string, PendingCommand>) {
     const next = update(commandRef.current); commandRef.current = next;
@@ -62,6 +73,7 @@ export function ConnectedApp({ onDemo }: { onDemo: () => void }) {
     const controller = new AbortController();
     async function refresh() {
       if (refreshingRef.current || !active) return;
+      const authVersion = api.authorizationVersion();
       refreshingRef.current = true; setRefreshing(true);
       try {
         // Receipts are independent of market reads; a query failure cannot
@@ -71,7 +83,7 @@ export function ConnectedApp({ onDemo }: { onDemo: () => void }) {
         const pending = [...waiting.slice(offset), ...waiting.slice(0, offset)].slice(0, 5);
         receiptOffset.current = offset + pending.length;
         const receipts = await Promise.allSettled(pending.map(([, p]) => api.receipt(p.receipt!.command_id, controller.signal)));
-        if (!active) return;
+        if (!active || authVersion !== api.authorizationVersion()) return;
         receipts.forEach((result, i) => {
           const [id, previous] = pending[i];
           if (result.status === 'fulfilled') {
@@ -80,14 +92,13 @@ export function ConnectedApp({ onDemo }: { onDemo: () => void }) {
           } else updateCommands(old => old[id]?.key === previous.key ? ({ ...old, [id]: { ...old[id], error: `Receipt refresh unavailable. Last status retained: ${errorMessage(result.reason)}` } }) : old);
         });
         const results = await Promise.all([api.sessions(controller.signal), api.opportunities(controller.signal), api.capabilities(controller.signal)]);
-        if (!active) return;
+        if (!active || authVersion !== api.authorizationVersion()) return;
         setSnapshot({ sessions: results[0], opportunities: results[1], capabilities: results[2], at: Date.now() });
         setOnline(true); setError(null); failureCount.current = 0; retryAt.current = 0;
       } catch (e) {
-        if (!active || controller.signal.aborted) return;
+        if (!active || controller.signal.aborted || authVersion !== api.authorizationVersion()) return;
         setOnline(false); setError(errorMessage(e));
         failureCount.current += 1; retryAt.current = Date.now() + Math.min(30_000, 5_000 * 2 ** (failureCount.current - 1));
-        if (e instanceof ApiError && e.status === 401) setAuthenticated(false);
       } finally { refreshingRef.current = false; if (active) setRefreshing(false); }
     }
     refreshTrigger.current = refresh;
@@ -98,12 +109,12 @@ export function ConnectedApp({ onDemo }: { onDemo: () => void }) {
   async function login(event: FormEvent) {
     event.preventDefault(); setAuthLoading(true); setError(null);
     const entered = secret; setSecret('');
-    try { await api.login(entered); if (mounted.current) { setAuthenticated(true); setAnnouncement('Authenticated. Loading service records.'); } }
+    try { await api.login(entered); if (mounted.current && api.isAuthorized()) setAnnouncement('Authenticated. Loading service records.'); }
     catch (e) { if (mounted.current) setError(errorMessage(e)); }
     finally { if (mounted.current) setAuthLoading(false); }
   }
   async function logout() {
-    try { await api.logout(); setAuthenticated(false); setOnline(false); setAnnouncement('Signed out. Existing commands continue independently.'); }
+    try { await api.logout(); if (mounted.current && !api.isAuthorized()) setAnnouncement('Signed out. Existing commands continue independently.'); }
     catch (e) { setError(errorMessage(e)); }
   }
   async function send(session: Session, action: CommandAction, retry = false) {
@@ -123,7 +134,6 @@ export function ConnectedApp({ onDemo }: { onDemo: () => void }) {
       const uncertain = Boolean(retry && previous?.uncertain) || !(e instanceof ApiError && [400, 401, 403, 404, 409, 422, 429].includes(e.status));
       updateCommands(old => ({ ...old, [session.session_id]: { ...pending, sending: false, uncertain, error: errorMessage(e) } }));
       setAnnouncement(`${session.session_id}: ${uncertain ? 'delivery uncertain; retry uses the same request' : 'command rejected'}. ${errorMessage(e)}`);
-      if (e instanceof ApiError && e.status === 401) setAuthenticated(false);
       void refreshTrigger.current();
     }
   }

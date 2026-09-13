@@ -17,24 +17,40 @@ function failure(error: unknown): string {
   return 'The complete snapshot could not be prepared or its schema, counts or content digest could not be verified. No new download is available; check the service and retry.';
 }
 export function FrozenSessionExport({ api, sessionId, active, available }: { api: ControlApi; sessionId: string; active: boolean; available: boolean }) {
-  const [state, setState] = useState<{ scope: string; bundle: FrozenExport | null; loading: boolean; error: string }>({ scope: '', bundle: null, loading: false, error: '' });
+  const [state, setState] = useState<{ scope: string; epoch: number; bundle: FrozenExport | null; loading: boolean; error: string }>({ scope: '', epoch: -1, bundle: null, loading: false, error: '' });
   const request = useRef<AbortController | null>(null);
-  useEffect(() => () => { request.current?.abort(); request.current = null; }, [sessionId, active]);
-  const bundle = state.scope === sessionId ? state.bundle : null;
+  useEffect(() => () => { request.current?.abort(); request.current = null; }, [api, sessionId, active, available]);
+  useEffect(() => {
+    function authorizationChanged() {
+      request.current?.abort(); request.current = null;
+      setState({ scope: '', epoch: -1, bundle: null, loading: false, error: '' });
+    }
+    authorizationChanged();
+    return api.subscribeAuth(authorizationChanged);
+  }, [api]);
+  useEffect(() => {
+    if (!available) setState({ scope: '', epoch: -1, bundle: null, loading: false, error: '' });
+  }, [available]);
+  const authorized = api.isAuthorized();
+  const bundle = authorized && state.epoch === api.authorizationVersion() && state.scope === sessionId ? state.bundle : null;
   const loading = state.scope === sessionId && state.loading && request.current !== null;
   async function prepare() {
-    if (!active || !available || request.current) return;
-    const controller = new AbortController(); request.current = controller;
-    setState(previous => ({ scope: sessionId, bundle: previous.scope === sessionId ? previous.bundle : null, loading: true, error: '' }));
+    if (!active || !available || !api.isAuthorized() || request.current) return;
+    const controller = new AbortController(), epoch = api.authorizationVersion(); request.current = controller;
+    setState(previous => ({ scope: sessionId, epoch, bundle: previous.scope === sessionId && previous.epoch === epoch ? previous.bundle : null, loading: true, error: '' }));
     try {
       const next = await api.frozenExport(sessionId, controller.signal);
-      if (!controller.signal.aborted) setState({ scope: sessionId, bundle: next, loading: false, error: '' });
+      if (!controller.signal.aborted && request.current === controller && api.isAuthorized() && api.authorizationVersion() === epoch) setState({ scope: sessionId, epoch, bundle: next, loading: false, error: '' });
     } catch (error) {
-      if (!controller.signal.aborted) setState(previous => ({ ...previous, loading: false, error: failure(error) }));
+      if (!controller.signal.aborted && request.current === controller && api.authorizationVersion() === epoch) {
+        const revoke = error instanceof ApiError && [401, 403, 404].includes(error.status);
+        setState(previous => ({ ...previous, bundle: revoke ? null : previous.bundle, loading: false, error: failure(error) }));
+      }
     } finally { if (request.current === controller) request.current = null; }
   }
   function download(format: 'json' | 'csv') {
-    if (!bundle) return;
+    // Recheck at the action boundary, not only when the button was rendered.
+    if (!active || !available || !api.isAuthorized() || state.epoch !== api.authorizationVersion() || !bundle) return;
     try {
       const value = format === 'json' ? frozenJson(bundle) : frozenCsv(bundle);
       const url = URL.createObjectURL(new Blob([value], { type: format === 'json' ? 'application/json' : 'text/csv;charset=utf-8' }));
@@ -46,7 +62,7 @@ export function FrozenSessionExport({ api, sessionId, active, available }: { api
   if (!available) return <p className="notice space-top">Frozen session exports are unavailable in this API version. Page exports remain limited received snapshots.</p>;
   return <section className="panel space-top frozen-export" aria-label="Frozen session export"><div className="sectionhead"><div><h3>Freeze a complete stored session</h3><p>A single database snapshot includes decisions, paper accounting, collection attempts, manual cost assessments and capture dependencies.</p></div><span className="pill blue">FROZEN EXPORT</span></div>
     <p className="tiny space-top">Selected session: {sessionId}. Live browsing pages can change independently. The six defined source datasets are decisions, paper runs, paper journal events, capture catalog entries, collection attempts and cost assessments. This is not a full database backup: configuration content, audit records and control history are outside the export. Up to 10,000 source rows and 8 MiB are read together; larger sessions fail without truncation.</p>
-    <div className="research-actions space-top"><button disabled={!active || loading} onClick={() => { void prepare(); }}>{loading ? 'Preparing frozen snapshot…' : bundle ? 'Prepare a new frozen snapshot' : 'Prepare frozen session export'}</button><button disabled={!bundle} onClick={() => download('json')}>Download frozen JSON</button><button disabled={!bundle} onClick={() => download('csv')}>Download frozen CSV</button></div>
+    <div className="research-actions space-top"><button disabled={!active || !authorized || loading} onClick={() => { void prepare(); }}>{loading ? 'Preparing frozen snapshot…' : bundle ? 'Prepare a new frozen snapshot' : 'Prepare frozen session export'}</button><button disabled={!active || !authorized || !bundle} onClick={() => download('json')}>Download frozen JSON</button><button disabled={!active || !authorized || !bundle} onClick={() => download('csv')}>Download frozen CSV</button></div>
     {state.scope === sessionId && state.error && <p className="notice error-notice" role="alert">{state.error}</p>}
     {loading && <p className="tiny space-top" role="status">Reading one database snapshot and verifying its content digest…</p>}
     {bundle && <><div className="notice" role="status"><strong>Frozen database snapshot verified</strong><p>{bundle.exported_at} · {bundle.export_id}</p><p className="mono">Content SHA-256: {bundle.content_sha256}</p><p>Both downloads use this exact received bundle. Downloading does not refresh it.</p></div>
