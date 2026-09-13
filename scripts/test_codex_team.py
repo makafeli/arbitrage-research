@@ -162,6 +162,75 @@ class TeamTests(unittest.TestCase):
                     with self.assertRaisesRegex(team.SetupError, 'CHATGPT_LOGIN_NOT_VERIFIED'):
                         team.verify_login('/usr/bin/codex', self.root)
 
+    def test_negative_or_ambiguous_zero_exit_auth_is_rejected(self):
+        for message in (
+            'Not logged in using ChatGPT',
+            'Please sign in with ChatGPT',
+            'ChatGPT authentication failed',
+            'Logged in using ChatGPT access token',
+            'Logged in using ChatGPT\nAuthentication failed',
+            'Warning: account expired\nLogged in using ChatGPT',
+            'Logged in using ChatGPT\nLogged in using ChatGPT',
+        ):
+            result = subprocess.CompletedProcess([], 0, '', message)
+            with self.subTest(message=message), \
+                 mock.patch.object(team, 'run_readonly', return_value=result), \
+                 self.assertRaisesRegex(team.SetupError, 'CHATGPT_LOGIN_NOT_VERIFIED'):
+                team.verify_login('/usr/bin/codex', self.root)
+
+    def test_auth_requires_one_complete_status_line(self):
+        for stdout, stderr, accepted in (
+            ('Logged in using ChatGPT\n', '', True),
+            ('', 'Logged in using ChatGPT\r\n', True),
+            ('\n', '  Logged in using ChatGPT  \n', True),
+            ('Logged in us', 'ing ChatGPT', False),
+            ('Logged in using ChatGPT', 'Not authenticated', False),
+        ):
+            result = subprocess.CompletedProcess([], 0, stdout, stderr)
+            with self.subTest(stdout=stdout, stderr=stderr), \
+                 mock.patch.object(team, 'run_readonly', return_value=result):
+                if accepted:
+                    team.verify_login('/usr/bin/codex', self.root)
+                else:
+                    with self.assertRaisesRegex(team.SetupError, 'CHATGPT_LOGIN_NOT_VERIFIED'):
+                        team.verify_login('/usr/bin/codex', self.root)
+
+    def test_auth_refusal_does_not_exec_or_reveal_status_output(self):
+        output = io.StringIO()
+        output.isatty = lambda: True
+        message = 'ChatGPT authentication failed: private-account@example.invalid'
+        with mock.patch.object(team, 'ROOT', self.root), \
+             mock.patch.object(team.shutil, 'which', return_value='/usr/bin/codex'), \
+             mock.patch.object(team.sys.stdin, 'isatty', return_value=True), \
+             mock.patch.object(team, 'verify_repository'), \
+             mock.patch.object(team, 'run_readonly', return_value=subprocess.CompletedProcess([], 0, '', message)), \
+             mock.patch.object(team.os, 'execv') as execute, \
+             contextlib.redirect_stdout(output):
+            code = team.main(['--start'])
+        self.assertEqual(code, 2)
+        self.assertEqual(json.loads(output.getvalue()), {
+            'status': 'START_BLOCKED', 'reason': 'CHATGPT_LOGIN_NOT_VERIFIED', 'agents_started': 0,
+        })
+        self.assertNotIn('private-account', output.getvalue())
+        execute.assert_not_called()
+
+    def test_auth_timeout_is_redacted_and_does_not_exec(self):
+        output = io.StringIO()
+        output.isatty = lambda: True
+        with mock.patch.object(team, 'ROOT', self.root), \
+             mock.patch.object(team.shutil, 'which', return_value='/usr/bin/codex'), \
+             mock.patch.object(team.sys.stdin, 'isatty', return_value=True), \
+             mock.patch.object(team, 'verify_repository'), \
+             mock.patch.object(team, 'run_readonly', side_effect=subprocess.TimeoutExpired(
+                 'private-command', 15, output='private-auth-output')), \
+             mock.patch.object(team.os, 'execv') as execute, \
+             contextlib.redirect_stdout(output):
+            code = team.main(['--start'])
+        self.assertEqual(code, 2)
+        self.assertEqual(json.loads(output.getvalue())['reason'], 'PREFLIGHT_FAILED')
+        self.assertNotIn('private', output.getvalue())
+        execute.assert_not_called()
+
     def test_readonly_process_calls_have_timeout_and_no_shell(self):
         with mock.patch.object(team.subprocess, 'run') as run:
             team.run_readonly(['git', 'status'], self.root)

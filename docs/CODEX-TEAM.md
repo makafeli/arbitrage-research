@@ -36,6 +36,12 @@ credentials/configuration. It selects the built-in OpenAI provider and ChatGPT
 authentication for this invocation. Your existing account quota and usage
 policy still apply; remaining quota/extra billing cannot be checked here.
 Do not approve extra spending. Authentication status output is not logged.
+The launcher accepts only the complete positive `Logged in using ChatGPT`
+status line and a zero exit code. Negative, ambiguous, duplicate or additional
+status output is refused without echoing it. A future CLI output format may
+require an explicit parser update; the launcher never guesses from the word
+ChatGPT. This checks a local authentication-mode acknowledgement, not live
+credential validity, remaining quota or the availability of agent tools.
 
 In the app, open a **new local project task** after retrieving these files,
 trust the checkout, and submit: `Read .codex/ORCHESTRATOR.md and start the 5+1 team.`
@@ -89,6 +95,21 @@ external processes; they do not spend tokens, open an agent runtime or count
 as independent reviews. The path-scoped Codex team review runs these checks
 in CI. Actual role discovery, effective runtime capacity, authentication flow,
 six live threads and worktree isolation still require a real Codex session.
+
+## Continuation verification: 13 September 2026
+
+Source review found that the original substring-based authentication check
+accepted some negative or unrecognized status text on exit code zero. Four new
+regression tests reproduce ten failed assertions against the original source;
+the corrected launcher requires exactly one complete positive status line.
+All 24 startup-contract tests pass after the correction. They include refusal
+before `execv`, redacted timeout/failure handling and stdout/stderr separation.
+These tests do not start agents or independently validate any account.
+
+The Codex connector previously replied on PR #108 that this repository needs
+a cloud environment. Its reply links to the account's environment settings.
+No startup or automatic retry is implied by merging this setup. Issue #107
+retains the latest runtime blocker and any subsequent verified startup result.
 
 ## Official references checked on 13 September 2026
 

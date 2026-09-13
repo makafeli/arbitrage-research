@@ -77,10 +77,14 @@ def base_command(binary: str, root: Path) -> list[str]:
 
 def verify_login(binary: str, root: Path) -> None:
     result = run_readonly(base_command(binary, root) + ["login", "status"], root)
-    mode = (result.stdout + result.stderr).lower()
-    require(result.returncode == 0 and "chatgpt" in mode and "api key" not in mode
-            and "api_key" not in mode, "CHATGPT_LOGIN_NOT_VERIFIED")
-    # Never print authentication output. Unknown CLI formats fail closed.
+    # Match one complete positive status line, never a provider-name substring.
+    # Keep stream boundaries: two partial lines must not become a valid status.
+    lines = [line.strip() for stream in (result.stdout, result.stderr)
+             for line in stream.splitlines() if line.strip()]
+    require(result.returncode == 0 and lines == ["Logged in using ChatGPT"],
+            "CHATGPT_LOGIN_NOT_VERIFIED")
+    # A local status acknowledgement does not validate quota or live access.
+    # Unknown CLI formats fail closed. Never print authentication output.
 
 
 def launch_command(binary: str, root: Path, prompt: str) -> list[str]:
