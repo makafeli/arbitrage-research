@@ -147,43 +147,93 @@ function parsePage<T>(value: unknown, parse: (v: unknown) => T): Page<T> {
 
 export class ControlApi {
   private csrf: string | null = null;
+  private authEpoch = 0;
+  private readonly authListeners = new Set<() => void>();
   private readonly transport: typeof fetch;
   // Native browser fetch requires the Window receiver. Keeping it directly as
   // a class property and calling this.transport(...) triggers Illegal invocation.
   constructor(transport: typeof fetch = (input, init) => globalThis.fetch(input, init)) { this.transport = transport; }
-  clearAuth() { this.csrf = null; }
+  authorizationVersion() { return this.authEpoch; }
+  isAuthorized() { return this.csrf !== null; }
+  subscribeAuth(listener: () => void): () => void {
+    this.authListeners.add(listener);
+    return () => { this.authListeners.delete(listener); };
+  }
+  private notifyAuth() {
+    // A broken observer must not prevent credential invalidation or other observers.
+    for (const listener of this.authListeners) { try { listener(); } catch { /* isolated observer */ } }
+  }
+  clearAuth() { this.csrf = null; this.authEpoch += 1; this.notifyAuth(); }
+  private assertAuthVersion(epoch: number) {
+    if (epoch !== this.authEpoch) throw new ApiError(0, 'AUTH_CONTEXT_CHANGED', 'Authorization changed while the request was in flight. A mutation may still have completed; retain its original retry key.');
+  }
   private async request(path: string, options: { body?: unknown; key?: string; signal?: AbortSignal; method?: string; maxResponseBytes?: number } = {}): Promise<unknown> {
+    const epoch = this.authEpoch;
     const headers: Record<string, string> = { Accept: 'application/json' };
     if (options.body !== undefined) headers['Content-Type'] = 'application/json';
     if (options.method === 'POST' && this.csrf) headers['X-CSRF-Token'] = this.csrf;
     if (options.key) headers['Idempotency-Key'] = options.key;
     const response = await this.transport(`/v1${path}`, { method: options.method ?? 'GET', credentials: 'same-origin', cache: 'no-store', headers, body: options.body === undefined ? undefined : JSON.stringify(options.body), signal: options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(10_000)]) : AbortSignal.timeout(10_000) });
+    // Authentication failure is authoritative before JSON decoding, including
+    // HTML, empty, array and indefinitely streaming error responses. A response
+    // from an older authorization context cannot revoke a newer login.
+    if (epoch !== this.authEpoch || response.status === 401) {
+      void response.body?.cancel().catch(() => {});
+      this.assertAuthVersion(epoch);
+      this.clearAuth();
+      throw new ApiError(401, 'UNAUTHENTICATED', 'Your operator session is no longer authorized. Sign in again.');
+    }
+    options.signal?.throwIfAborted();
     if (response.status === 204) return null;
     let body: unknown;
     try {
       if (options.maxResponseBytes && response.body) {
         const reader = response.body.getReader(), chunks: Uint8Array[] = []; let size = 0;
-        while (true) {
-          const next = await reader.read(); if (next.done) break;
-          size += next.value.byteLength;
-          if (size > options.maxResponseBytes) { await reader.cancel(); throw new ApiError(response.status, 'EXPORT_LIMIT_EXCEEDED', 'Frozen export exceeds the 8 MiB response bound. No partial download was prepared.'); }
-          chunks.push(next.value);
-        }
+        try {
+          while (true) {
+            const next = await reader.read();
+            this.assertAuthVersion(epoch); options.signal?.throwIfAborted();
+            if (next.done) break;
+            size += next.value.byteLength;
+            if (size > options.maxResponseBytes) throw new ApiError(response.status, 'EXPORT_LIMIT_EXCEEDED', 'Frozen export exceeds the 8 MiB response bound. No partial download was prepared.');
+            chunks.push(next.value);
+          }
+        } catch (error) { void reader.cancel().catch(() => {}); throw error; }
+        finally { reader.releaseLock(); }
         const bytes = new Uint8Array(size); let offset = 0;
         for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
         body = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
       } else body = await response.json();
-    } catch (e) { if (e instanceof ApiError) throw e; throw new ApiError(response.status, 'INVALID_RESPONSE', 'The API did not return JSON. Check the same-origin service configuration.'); }
+    } catch (e) {
+      this.assertAuthVersion(epoch); options.signal?.throwIfAborted();
+      if (e instanceof ApiError) throw e;
+      throw new ApiError(response.status, 'INVALID_RESPONSE', 'The API did not return JSON. Check the same-origin service configuration.');
+    }
+    this.assertAuthVersion(epoch); options.signal?.throwIfAborted();
     if (!response.ok) {
-      const error = object(body);
-      if (response.status === 401) this.clearAuth();
+      // Preserve HTTP authorization/scope errors even for non-object JSON.
+      const error = body && typeof body === 'object' && !Array.isArray(body) ? body as Record<string, unknown> : {};
       throw new ApiError(response.status, typeof error.code === 'string' ? error.code : 'REQUEST_FAILED', typeof error.message === 'string' ? error.message : 'The service rejected the request.');
     }
     return body;
   }
-  async auth(signal?: AbortSignal) { const auth = parseAuth(await this.request('/auth/session', { signal })); this.csrf = auth.csrf_token; return auth; }
-  async login(operator_secret: string) { const auth = parseAuth(await this.request('/auth/login', { method: 'POST', body: { operator_secret } })); this.csrf = auth.csrf_token; return auth; }
-  async logout() { await this.request('/auth/logout', { method: 'POST' }); this.clearAuth(); }
+  async auth(signal?: AbortSignal) {
+    this.clearAuth(); const epoch = this.authEpoch;
+    const auth = parseAuth(await this.request('/auth/session', { signal }));
+    this.assertAuthVersion(epoch); signal?.throwIfAborted();
+    this.csrf = auth.csrf_token; this.notifyAuth(); return auth;
+  }
+  async login(operator_secret: string) {
+    this.clearAuth(); const epoch = this.authEpoch;
+    const auth = parseAuth(await this.request('/auth/login', { method: 'POST', body: { operator_secret } }));
+    this.assertAuthVersion(epoch);
+    this.csrf = auth.csrf_token; this.notifyAuth(); return auth;
+  }
+  async logout() {
+    const epoch = this.authEpoch;
+    try { await this.request('/auth/logout', { method: 'POST' }); }
+    finally { if (epoch === this.authEpoch) this.clearAuth(); }
+  }
   async adapterSupport(signal?: AbortSignal) { return parseAdapterSupport(await this.request('/adapter-support', { signal })); }
   async capabilities(signal?: AbortSignal) { return parseCapabilities(await this.request('/capabilities', { signal })); }
   async sessions(signal?: AbortSignal, cursor?: string) { return parsePage(await this.request(`/sessions?limit=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`, { signal }), parseSession); }
@@ -226,9 +276,12 @@ export class ControlApi {
     assert(canonicalCostJson(item.assessment.scenario) === canonicalCostJson(body.scenario), 'Cost assessment response does not preserve the submitted scenario.'); return verifyCostAssessment(item);
   }
   async frozenExport(sessionId: string, signal?: AbortSignal) {
+    const epoch = this.authEpoch;
     const bundle = parseFrozenExport(await this.request('/sessions/' + encodeURIComponent(sessionId) + '/export', { signal, maxResponseBytes: MAX_FROZEN_EXPORT_BYTES }));
     assert(bundle.data.session.session_id === sessionId, 'Frozen export response has the wrong session scope.');
-    return verifyFrozenExport(bundle);
+    const verified = await verifyFrozenExport(bundle);
+    this.assertAuthVersion(epoch); signal?.throwIfAborted();
+    return verified;
   }
   async paperRuns(sessionId: string, cursor?: string, signal?: AbortSignal) {
     const page = parsePage(await this.request('/sessions/' + encodeURIComponent(sessionId) + '/paper-runs?' + this.query(cursor), { signal }), parsePaperRun);
