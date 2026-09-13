@@ -120,10 +120,19 @@ fn rust_base_and_solana_bundles_pass_python_storage_audit() {
     for network in [Chain::BaseMainnet, Chain::SolanaMainnet] {
         let (code, report) = run_audit(network, 150, false);
         assert_eq!(code, 0, "{report}");
-        assert_eq!(report["dependencies"][0]["raw_artifact_status"], "AVAILABLE");
-        assert_eq!(report["dependencies"][0]["expiration_status"], "NOT_EXPIRED");
+        assert_eq!(
+            report["dependencies"][0]["raw_artifact_status"],
+            "AVAILABLE"
+        );
+        assert_eq!(
+            report["dependencies"][0]["expiration_status"],
+            "NOT_EXPIRED"
+        );
         assert_eq!(report["dependencies"][0]["origin"], "synthetic");
-        assert_eq!(report["dependencies"][0]["market_performance_eligible"], false);
+        assert_eq!(
+            report["dependencies"][0]["market_performance_eligible"],
+            false
+        );
         assert_eq!(report["execution_authorized"], false);
     }
 }
@@ -136,7 +145,11 @@ fn expired_rust_bundle_stays_visible_with_or_without_raw_objects() {
         assert_eq!(report["dependencies"][0]["expiration_status"], "EXPIRED");
         assert_eq!(
             report["dependencies"][0]["raw_artifact_status"],
-            if remove_object { "MISSING" } else { "AVAILABLE" }
+            if remove_object {
+                "MISSING"
+            } else {
+                "AVAILABLE"
+            }
         );
         assert_eq!(report["references_reported"], 1);
     }
