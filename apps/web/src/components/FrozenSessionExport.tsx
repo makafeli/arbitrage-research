@@ -5,6 +5,7 @@ import type { FrozenExport } from '../api/frozenExport';
 import { exportSourceKeys } from '../api/frozenExport';
 import { frozenCsv, frozenJson } from '../domain/frozenExport';
 import { Exact } from './ResearchShared';
+import { CaptureAuditPanel } from './CaptureAuditPanel';
 
 function failure(error: unknown): string {
   if (error instanceof ApiError) {
@@ -69,6 +70,7 @@ export function FrozenSessionExport({ api, sessionId, active, available }: { api
       <dl className="research-facts">{exportSourceKeys.map(key => <div className="export-count" key={key}><dt>{key.replaceAll('_', ' ')}</dt><dd><Exact value={bundle.snapshot.source_counts[key]} /></dd></div>)}</dl>
       <p className="notice">Defined research datasets: COMPLETE within this session and database transaction. Scheduled collection completeness: UNKNOWN. This export cannot establish unrecorded activity, market coverage, executable opportunities or realized profit.</p>
       <p className="tiny space-top">Amounts remain exact base-unit integer strings. Token decimals are not retained in this database, configuration content is represented by its digest, and source quote costs remain unknown. Manual cost assessments retain their separate hypothetical assumptions. Paper reasons are redacted and paper identifiers are pseudonymized consistently; source event digests identify original journal payloads.</p>
+      <CaptureAuditPanel key={bundle.export_id + bundle.content_sha256 + state.epoch} api={api} bundle={bundle} active={active} />
       <details className="space-top"><summary>Capture dependency availability: {bundle.data.capture_dependencies.filter(item => item.catalog_status === 'MISSING').length} missing catalog entries · {bundle.data.capture_dependencies.length} raw artifacts unverified</summary>
         <p className="notice">A present catalog entry does not prove that its raw files remain available. Raw artifacts are excluded and unverified; expiration status is UNKNOWN. This bundle alone cannot reproduce capture-based calculations.</p>
         {bundle.data.capture_dependencies.slice(0, 20).map(item => <p className="tiny space-top" key={item.capture_id + item.manifest_digest}><strong>{item.catalog_status}</strong> · {item.capture_id}<br />{item.manifest_digest} · expiration UNKNOWN · raw artifact NOT VERIFIED</p>)}

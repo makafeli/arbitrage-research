@@ -1,7 +1,9 @@
+import { createCaptureAuditRequest, auditRequestDigest } from '../../src/domain/captureAudit';
+import type { CaptureAuditReport, CaptureAuditRequest } from '../../src/domain/captureAudit';
 import { expect, test } from '@playwright/test';
 import type { Page, Route } from '@playwright/test';
 import { coverage, decision, nativeAsset, principalAsset } from '../research.fixture';
-import { collectionCoverage, frozenExportFixture } from '../exports.fixture';
+import { auditExportFixture, collectionCoverage, frozenExportFixture } from '../exports.fixture';
 
 const session = { session_id: 'session-paper', network_id: 'base-mainnet', mode: 'PAPER', observed_state: 'RUNNING', health: 'UNKNOWN', desired_revision: '1', applied_revision: '1', outstanding_attempts: 0, execution_authorized: false, last_heartbeat_at: null, configuration_digest: 'sha256:paper-fixture-config' };
 const capabilities = { modes: ['OBSERVE', 'PAPER', 'REPLAY'], live_execution: false, market_data: false, opportunity_capture: false, decision_history: true, paper_ledger: true, paper_run_creation: true, collection_telemetry: true, session_export: true,
@@ -165,4 +167,117 @@ test('child authorization loss preserves uncertain command intent and the exact 
   await card.getByRole('button', { name: 'Retry same request', exact: true }).click();
   await expect(card.getByText('STOP · PENDING', { exact: true })).toBeVisible();
   expect(requests).toHaveLength(2); expect(requests[1]).toEqual(requests[0]); expect(requests[0].key).toBeTruthy();
+});
+
+// Operator-supplied report fixtures only. The real local filesystem round-trip
+// is exercised separately in captureAudit.test.ts, not by these browser stubs.
+async function missingAuditReport(request: CaptureAuditRequest): Promise<CaptureAuditReport> {
+  const refs = request.capture_request.captures;
+  return { schema_version: 1, kind: 'FROZEN_EXPORT_CAPTURE_AUDIT', source_export: request.source_export,
+    request_sha256: await auditRequestDigest(request), audit: { schema_version: 1, kind: 'CAPTURE_DEPENDENCY_AUDIT',
+      checked_at_ms: '1789336200000', network: request.capture_request.network, config_digest: request.capture_request.config_digest,
+      request_sha256: await auditRequestDigest(request.capture_request), status: 'COMPLETE_WITH_GAPS',
+      references_requested: refs.length, references_reported: refs.length, raw_status_counts: { MISSING: refs.length },
+      bytes_read_budgeted: '0', max_bytes: '268435456', source_authenticity: 'CALLER_RETAINED_DIGEST_NOT_INDEPENDENTLY_AUTHENTICATED',
+      filesystem_snapshot: 'NON_ATOMIC_KEEP_ROOT_QUIESCED', execution_authorized: false,
+      dependencies: refs.map(ref => ({ ...ref, raw_artifact_status: 'MISSING', reason: 'CAPTURE_DIRECTORY_OR_INPUT_MISSING',
+        expiration_status: 'UNKNOWN', capture_time_status: 'UNKNOWN', origin: 'UNKNOWN', created_at_ms: null, raw_expires_at_ms: null,
+        quote_inputs_declared_complete: null, verified_objects: 0, missing_objects: 0, corrupt_objects: 0,
+        replay_status: 'NOT_ASSESSED', market_performance_eligible: false })) } };
+}
+const auditPanel = (page: Page) => page.getByRole('region', { name: 'Local capture audit', exact: true });
+async function uploadAudit(page: Page, value: unknown) {
+  await auditPanel(page).getByLabel('Import local audit JSON').setInputFiles({ name: 'local-report.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(value)) });
+}
+async function prepareAudit(page: Page) {
+  await prepare(page);
+  await expect(auditPanel(page).getByRole('button', { name: 'Download capture audit request', exact: true })).toBeEnabled();
+}
+for (const width of [320, 390, 1440]) {
+  test(`capture audit download/import stays local and readable at ${width}px`, async ({ page }, info) => {
+    await page.setViewportSize({ width, height: 1000 });
+    await stub(page, async (route, url) => {
+      if (!url.pathname.endsWith('/export')) return false;
+      await route.fulfill({ json: auditExportFixture() }); return true;
+    });
+    await prepareAudit(page);
+    const event = page.waitForEvent('download');
+    await auditPanel(page).getByRole('button', { name: 'Download capture audit request', exact: true }).click();
+    const download = await event, stream = await download.createReadStream();
+    if (!stream) throw new Error('Audit request download missing');
+    const chunks: Buffer[] = []; for await (const chunk of stream) chunks.push(Buffer.from(chunk));
+    const request = JSON.parse(Buffer.concat(chunks).toString()) as CaptureAuditRequest;
+    expect(request).toEqual(await createCaptureAuditRequest(auditExportFixture()));
+    const posted: string[] = []; page.on('request', req => { if (req.method() === 'POST') posted.push(req.url()); });
+    await uploadAudit(page, await missingAuditReport(request));
+    await expect(auditPanel(page).getByText('Imported local audit: COMPLETE_WITH_GAPS', { exact: true })).toBeVisible();
+    await expect(auditPanel(page).getByText('MISSING: 2', { exact: true })).toBeVisible();
+    await expect(auditPanel(page).getByText('Operator-supplied, not independently authenticated.', { exact: false })).toBeVisible();
+    expect(posted).toEqual([]);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
+    await auditPanel(page).screenshot({ path: info.outputPath(`capture-audit-${width}.png`) });
+  });
+}
+test('mismatched and incomplete local audit results clear the prior imported result', async ({ page }) => {
+  await stub(page, async (route, url) => {
+    if (!url.pathname.endsWith('/export')) return false;
+    await route.fulfill({ json: auditExportFixture() }); return true;
+  });
+  await prepareAudit(page);
+  const valid = await missingAuditReport(await createCaptureAuditRequest(auditExportFixture()));
+  await uploadAudit(page, valid); await expect(auditPanel(page).getByText('Imported local audit: COMPLETE_WITH_GAPS', { exact: true })).toBeVisible();
+  const wrong = structuredClone(valid); wrong.source_export.export_id = 'another-export';
+  await uploadAudit(page, wrong); await expect(auditPanel(page).getByRole('alert')).toBeVisible();
+  await expect(auditPanel(page).getByText('Imported local audit:', { exact: false })).toHaveCount(0);
+  const incomplete = structuredClone(valid); incomplete.audit.dependencies.pop(); incomplete.audit.references_reported--;
+  await uploadAudit(page, incomplete); await expect(auditPanel(page).getByRole('alert')).toBeVisible();
+  await expect(auditPanel(page).getByRole('button', { name: 'Download bound audit report', exact: true })).toHaveCount(0);
+});
+test('preparing a different frozen export invalidates an earlier local audit', async ({ page }) => {
+  let calls = 0;
+  await stub(page, async (route, url) => {
+    if (!url.pathname.endsWith('/export')) return false;
+    const source = auditExportFixture(); if (++calls > 1) source.export_id = 'export-new';
+    await route.fulfill({ json: source }); return true;
+  });
+  await prepareAudit(page);
+  const old = await missingAuditReport(await createCaptureAuditRequest(auditExportFixture()));
+  await uploadAudit(page, old); await expect(auditPanel(page).getByText('Imported local audit: COMPLETE_WITH_GAPS', { exact: true })).toBeVisible();
+  await panel(page).getByRole('button', { name: 'Prepare a new frozen snapshot', exact: true }).click();
+  await expect(panel(page).getByText('export-new', { exact: false })).toBeVisible();
+  await expect(auditPanel(page).getByText('Imported local audit:', { exact: false })).toHaveCount(0);
+  await expect(auditPanel(page).getByLabel('Import local audit JSON')).toBeEnabled();
+  await uploadAudit(page, old); await expect(auditPanel(page).getByRole('alert')).toBeVisible();
+});
+test('logout invalidates a pending local file read and prevents its late result returning', async ({ page }) => {
+  await stub(page, async (route, url) => {
+    if (!url.pathname.endsWith('/export')) return false;
+    await route.fulfill({ json: auditExportFixture() }); return true;
+  });
+  await prepareAudit(page);
+  await page.evaluate(() => {
+    const original = File.prototype.text;
+    File.prototype.text = function() { const file = this; return new Promise<string>(resolve => {
+      (window as unknown as { releaseAuditFile: () => void }).releaseAuditFile = () => { void original.call(file).then(resolve); };
+    }); };
+  });
+  await uploadAudit(page, await missingAuditReport(await createCaptureAuditRequest(auditExportFixture())));
+  await expect(auditPanel(page).getByText('Checking local report binding...', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Sign out', exact: true }).click(); await revoked(page);
+  await page.evaluate(() => (window as unknown as { releaseAuditFile: () => void }).releaseAuditFile());
+  await page.getByLabel('Operator secret', { exact: true }).fill('fixture-operator-secret-0000000000');
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(panel(page).getByRole('button', { name: 'Download frozen JSON', exact: true })).toBeDisabled();
+  await expect(auditPanel(page)).toHaveCount(0);
+});
+test('hidden capture audit controls cannot download or import after navigation', async ({ page }) => {
+  await stub(page, async (route, url) => {
+    if (!url.pathname.endsWith('/export')) return false;
+    await route.fulfill({ json: auditExportFixture() }); return true;
+  });
+  await prepareAudit(page); let downloads = 0; page.on('download', () => { downloads++; });
+  await navigate(page, 'Overview');
+  const button = page.getByRole('button', { name: 'Download capture audit request', exact: true, includeHidden: true });
+  await expect(button).toBeDisabled(); await button.evaluate(el => (el as HTMLButtonElement).click());
+  expect(downloads).toBe(0);
 });
