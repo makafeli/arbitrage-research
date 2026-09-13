@@ -152,7 +152,8 @@ fn code_matches(
         code.as_str()
             .ok_or(AdapterError("invalid runtime code result"))?,
     )?;
-    if bytes.is_empty() || format!("sha256:{:x}", Sha256::digest(&bytes)) != expected.to_lowercase()
+    if bytes.is_empty()
+        || format!("sha256:{}", hex::encode(Sha256::digest(&bytes))) != expected.to_lowercase()
     {
         return Err(AdapterError("runtime code identity mismatch"));
     }

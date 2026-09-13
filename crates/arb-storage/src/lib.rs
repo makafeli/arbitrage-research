@@ -348,7 +348,7 @@ fn parse_revision(v: &str) -> Result<u64, StoreError> {
 }
 fn payload_digest<T: serde::Serialize>(v: &T) -> Result<String, StoreError> {
     let bytes = serde_json::to_vec(v).map_err(|_| StoreError::CorruptState)?;
-    Ok(format!("{:x}", Sha256::digest(bytes)))
+    Ok(hex::encode(Sha256::digest(bytes)))
 }
 fn control_error(error: arb_domain::ControlError) -> StoreError {
     match error {
@@ -450,4 +450,49 @@ fn command_record(row: &PgRow) -> Result<CommandReceipt, StoreError> {
         fence_effective: row.try_get("fence_effective")?,
         signer_revocation_status: "NOT_APPLICABLE".to_owned(),
     })
+}
+
+#[cfg(test)]
+mod digest_compatibility_tests {
+    use super::*;
+
+    #[test]
+    fn payload_digest_retains_unprefixed_serialized_json_golden_values() {
+        // Fixed Python hashlib values for the exact JSON bytes, not raw strings.
+        for (value, expected) in [
+            (
+                serde_json::Value::Null,
+                "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+            ),
+            (
+                serde_json::json!([]),
+                "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            ),
+            (
+                serde_json::json!("abc"),
+                "6cc43f858fbb763301637b5af970e2a46b46f461f27e5a0f41e009c59b827b25",
+            ),
+        ] {
+            let actual = payload_digest(&value).unwrap();
+            assert_eq!(actual, expected);
+            assert_eq!(actual.len(), 64);
+            assert!(!actual.starts_with("sha256:"));
+        }
+    }
+
+    #[test]
+    fn payload_digest_keeps_negative_unknown_and_full_width_amounts() {
+        let unknown = serde_json::json!({"unknown": null, "net_minor": "-123"});
+        assert_eq!(
+            payload_digest(&unknown).unwrap(),
+            "1b4bcfcf84b6bf1fa4f9930289c18efd488184b33e95eadef78d0ee75d974d9c"
+        );
+        let large = serde_json::json!({
+            "network": "solana-mainnet", "amount": "340282366920938463463374607431768211455"
+        });
+        assert_eq!(
+            payload_digest(&large).unwrap(),
+            "b95a481822d51ba54b48c1dcbff732c69bc9f16989588c29bb191ba4a673fbf6"
+        );
+    }
 }

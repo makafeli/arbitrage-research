@@ -396,7 +396,7 @@ async fn validate_collection_links(
     Ok(())
 }
 fn opaque_identifier(value: &str) -> String {
-    format!("sha256:{:x}", Sha256::digest(value.as_bytes()))
+    format!("sha256:{}", hex::encode(Sha256::digest(value.as_bytes())))
 }
 fn project_journal_event(source: StoredPaperEvent) -> Result<ExportPaperEvent, StoreError> {
     // Freeform reasons and operator idempotency keys are not public research data.
@@ -488,6 +488,18 @@ mod tests {
     use super::*;
     use arb_domain::NetworkId;
     use arb_paper::{AccountingAsset, InitialBalance};
+
+    #[test]
+    fn opaque_identifier_keeps_original_prefix_and_leading_zero_bytes() {
+        assert_eq!(
+            opaque_identifier("286"),
+            "sha256:00328ce57bbc14b33bd6695bc8eb32cdf2fb5f3a7d89ec14a42825e15d39df60"
+        );
+        assert_eq!(
+            opaque_identifier("abc"),
+            "sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+    }
 
     #[test]
     fn committed_export_contract_fixture_matches_canonical_digest() {
