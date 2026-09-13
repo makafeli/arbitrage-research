@@ -68,4 +68,23 @@ Three support catalog tests initially omitted the positive trade size required b
 
 The initial [PR #93 CI run](https://github.com/makafeli/arbitrage-research/actions/runs/34751690343) exposed a browser-fixture routing error. The client correctly percent-encodes observation IDs, but the new mock detail handler compared the encoded path against an unencoded `sha256:` ID. It returned a fixture 404, leaving the expected inspector content absent. Forty-eight browser scenarios passed and four chain-time scenarios failed; screenshot emission consequently reported missing chain-time images.
 
-The fixture now decodes the path parameter, matching actual API routing. Each inspector helper also checks HTTP 200 and the exact returned observation identity. Production readers and canonical fixture hashes are unchanged. The correction requires a new complete passing CI run before acceptance.
+The fixture now decodes the path parameter, matching actual API routing. Each inspector helper also checks HTTP 200 and the exact returned observation identity. Production readers and canonical fixture hashes are unchanged. The corrected run passed all four jobs at the accepted runtime checkpoint above.
+
+## Retained visual review
+
+The focused screenshot and evidence commit `78beecb71e3123bf5e23c5734ada118f30649691` also passed [all four CI jobs](https://github.com/makafeli/arbitrage-research/actions/runs/34752205913), again with 294 Rust tests, 61 PostgreSQL tests, 52 Chromium scenarios, 39 Node tests, actual client/API/database smoke, specifications and three containers. It changes screenshot positioning and records the accepted runtime; production behavior remains that of the runtime checkpoint above.
+
+All six retained PNGs were recovered from the successful CI logs with complete chunk order, byte length, PNG dimensions and SHA-256 verified before visual inspection. Adapter images come from runtime run 34751924393; focused chain-age images come from run 34752205913. Both sets use synthetic browser responses and are not live-provider evidence.
+
+The first chain-age images only revealed the heading near the bottom of the modal. The revised tests scroll each source heading into the viewport, then align the historical report at the top and assert that the heading, declared policy and first capture heading are in view. The retained 1100-pixel-high images show the policy, independent processing time and complete first source at all three widths; the desktop image shows both sources. On narrow screens, the second source requires scrolling and is exercised by the test. The adapter cards retain readable labels and wrapped identities, separating local structural authorization from unqualified quote and unavailable execution capabilities.
+
+| View | Width | Retained original | Pixels | SHA-256 |
+|---|---:|---|---|---|
+| Adapter support | 320 | [PNG](review/adapter-support-320.png) | 320 × 4170 | `3893838c2fece46fd5046d3e07f16d28bef2e09733ea00aca26644ed2fd5f0ce` |
+| Adapter support | 390 | [PNG](review/adapter-support-390.png) | 390 × 3969 | `534b756c2251ee13f1cd3ef4cbbfeb826600962a7027ddc0c37d35e025c0ebe4` |
+| Adapter support | 1440 | [PNG](review/adapter-support-1440.png) | 1440 × 2117 | `95476c5f0a689ae7bba86055ee6e573cc981aa65fd81ac8ced3e3aa6c92c6376` |
+| Captured chain age | 320 | [PNG](review/chain-freshness-320.png) | 320 × 1100 | `23f645e1909d9e6c003bedf6f4db7bc1f45d883535a2fdcc6a64b3a52735a44c` |
+| Captured chain age | 390 | [PNG](review/chain-freshness-390.png) | 390 × 1100 | `4f3d109d7ca572591236161f6086c8df7d467621df67eebdb4739b80de79e0fe` |
+| Captured chain age | 1440 | [PNG](review/chain-freshness-1440.png) | 1440 × 1100 | `06978138ab43eb270e7caf96ffdac0bb00a10135042c992c3d44f3583783b0bb` |
+
+These visual checks establish readable presentation for the selected fixtures and viewport widths. They do not complete all keyboard, screen-reader, zoom, contrast or operational acceptance. The full original ticket gates remain authoritative.
