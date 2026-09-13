@@ -95,11 +95,29 @@ fn verify_loaded(bundle: &LoadedBundle) -> Result<Value, CaptureError> {
     // Enforce this for synthetic economic fixtures too: rehashing a stripped
     // transcript and changing the adapter label must not remove that lookup.
     let chain_time_v3 = bundle.manifest.adapter_version == "arb_solana-pool-set-v3";
-    let policy_config = arb_config::ValidatedConfig::from_effective_json(
+    let mut declares_chain_time = false;
+    for network_key in ["base", "solana"] {
+        if let Some(policy) = config_source["networks"][network_key].get("chain_freshness") {
+            // Frozen policy absence is represented by an omitted field. A
+            // present null must not be normalized to absence by Option decoding.
+            if policy.is_null() {
+                return Err(CaptureError("invalid frozen chain-time configuration"));
+            }
+            declares_chain_time = true;
+        }
+    }
+    let policy_config = match arb_config::ValidatedConfig::from_effective_json(
         std::str::from_utf8(objects["effective-config.json"])
             .map_err(|_| CaptureError("invalid effective configuration encoding"))?,
-    )
-    .ok();
+    ) {
+        Ok(config) => Some(config),
+        Err(_) if declares_chain_time || chain_time_v3 => {
+            return Err(CaptureError("invalid frozen chain-time configuration"));
+        }
+        // Legacy decoder-only fixtures have no effective research configuration.
+        // Preserve them only when neither policy fields nor v3 claim chain time.
+        Err(_) => None,
+    };
     let chain_time_required = network == arb_domain::NetworkId::SolanaMainnet
         && policy_config
             .as_ref()
