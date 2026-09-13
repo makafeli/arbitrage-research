@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Offline adversarial tests; database commands are mocked, not claimed as integration."""
 import copy
+import io
 import json
 import os
 from pathlib import Path
@@ -232,6 +233,86 @@ class RecoveryTests(unittest.TestCase):
         self.assertFalse(report['production_accepted'])
         self.assertEqual(r.inventory(dest, r.Limits()), r.inventory(self.captures, r.Limits()))
 
+    def test_restore_consumes_verified_descriptor_and_closes_it(self):
+        """Restore passes the checked binary stream, never a pathname to reopen."""
+        sha = self.make_backup()
+        original = (self.bundle / 'database.dump').read_bytes()
+        streams = []
+
+        def consume(args, *_args, **kwargs):
+            self.assertEqual(args[0], 'pg_restore')
+            self.assertNotIn(str(self.bundle / 'database.dump'), args)
+            stream = kwargs['input_file']
+            self.assertIsInstance(stream, io.BufferedReader)
+            self.assertEqual(stream.tell(), 0)
+            self.assertEqual(stream.read(), original)
+            streams.append(stream)
+
+        with patch('recovery.sql', side_effect=[b'170011', b'0']), patch('recovery.command', side_effect=consume), patch('recovery.db_evidence', return_value=EVIDENCE):
+            report = r.restore(self.bundle, sha, 'arb_restore_test', 'arb_restore_test', self.root / 'restored', True)
+        self.assertEqual(report['status'], 'ISOLATED_RESTORE_VERIFIED')
+        self.assertEqual(len(streams), 1)
+        self.assertTrue(streams[0].closed)
+
+    def test_replacement_after_final_verification_is_rejected_before_restore_command(self):
+        """A newly opened descriptor must still match the trusted manifest digest."""
+        sha = self.make_backup()
+        verify = r.verify
+        calls = 0
+
+        def replace_after_check(*args, **kwargs):
+            nonlocal calls
+            result = verify(*args, **kwargs)
+            calls += 1
+            if calls == 2:
+                replacement = self.root / 'replacement.dump'
+                replacement.write_bytes(b'PGDMP-unverified-replacement')
+                os.replace(replacement, self.bundle / 'database.dump')
+            return result
+
+        with patch('recovery.verify', side_effect=replace_after_check), patch('recovery.sql', side_effect=[b'170011', b'0']), patch('recovery.command') as command:
+            with self.assertRaisesRegex(r.RecoveryError, 'Verified dump'):
+                r.restore(self.bundle, sha, 'arb_restore_test', 'arb_restore_test', self.root / 'restored', True)
+            command.assert_not_called()
+        self.assertEqual(calls, 2)
+
+    def test_replacement_at_dispatch_cannot_change_the_consumed_dump(self):
+        """Path replacement cannot redirect pg_restore; the changed root is quarantined."""
+        sha = self.make_backup()
+        original = (self.bundle / 'database.dump').read_bytes()
+        streams = []
+
+        def replace_then_consume(args, *_args, **kwargs):
+            replacement = self.root / 'replacement.dump'
+            replacement.write_bytes(b'PGDMP-unverified-replacement')
+            os.replace(replacement, self.bundle / 'database.dump')
+            self.assertNotIn(str(self.bundle / 'database.dump'), args)
+            stream = kwargs['input_file']
+            self.assertEqual(stream.read(), original)
+            streams.append(stream)
+
+        with patch('recovery.sql', side_effect=[b'170011', b'0']), patch('recovery.command', side_effect=replace_then_consume), patch('recovery.db_evidence') as evidence:
+            with self.assertRaisesRegex(r.RecoveryError, 'File changed during read'):
+                r.restore(self.bundle, sha, 'arb_restore_test', 'arb_restore_test', self.root / 'restored', True)
+            evidence.assert_not_called()
+        self.assertEqual(len(streams), 1)
+        self.assertTrue(streams[0].closed)
+
+    def test_restore_closes_verified_descriptor_when_command_fails(self):
+        """A child-process failure must not leak the open archive handle."""
+        sha = self.make_backup()
+        streams = []
+
+        def fail(_args, *_other, **kwargs):
+            streams.append(kwargs['input_file'])
+            raise r.RecoveryError('synthetic restore failure')
+
+        with patch('recovery.sql', side_effect=[b'170011', b'0']), patch('recovery.command', side_effect=fail):
+            with self.assertRaisesRegex(r.RecoveryError, 'synthetic restore failure'):
+                r.restore(self.bundle, sha, 'arb_restore_test', 'arb_restore_test', self.root / 'restored', True)
+        self.assertEqual(len(streams), 1)
+        self.assertTrue(streams[0].closed)
+
     def test_restore_mismatch_never_reports_success(self):
         sha = self.make_backup()
         with patch('recovery.sql', side_effect=[b'170011', b'0']), patch('recovery.command'), patch('recovery.db_evidence', return_value={'relations': []}), self.assertRaisesRegex(r.RecoveryError, 'differs'):
@@ -264,6 +345,43 @@ class DiagnosticTests(unittest.TestCase):
 
     def metadata(self, number=1):
         return json.loads((self.store.root / f'command-{number:04d}.json').read_bytes())
+
+    def test_controlled_stdin_uses_the_open_descriptor_and_default_is_eof(self):
+        """Real subprocesses consume exact binary input without reopening its path."""
+        original = bytes(range(256)) * 1024
+        path = self.root / 'input.dump'
+        path.write_bytes(original)
+        with path.open('rb') as source:
+            replacement = self.root / 'replacement.dump'
+            replacement.write_bytes(b'unverified replacement')
+            os.replace(replacement, path)
+            output = self.run_child('import sys; sys.stdout.buffer.write(sys.stdin.buffer.read())', capture=True, input_file=source)
+            self.assertEqual(output, original)
+            self.assertFalse(source.closed)
+        self.assertEqual(self.run_child('import sys; print(len(sys.stdin.buffer.read()))', capture=True), b'0\n')
+
+    def test_controlled_stdin_rejects_non_file_writable_and_offset_inputs(self):
+        """Internal stdin support accepts only bounded read-only binary files at offset zero."""
+        path = self.root / 'input.dump'
+        path.write_bytes(b'abcdef')
+        with path.open('r') as text, path.open('r+b') as writable, path.open('rb') as offset:
+            offset.read(1)
+            for source in [0, True, str(path), io.BytesIO(b'abc'), text, writable, offset]:
+                with self.subTest(source=type(source).__name__), patch('recovery.subprocess.Popen') as spawn:
+                    with self.assertRaises(r.RecoveryError):
+                        self.run_child('pass', input_file=source)
+                    spawn.assert_not_called()
+        self.assertFalse(self.store.created)
+
+    def test_controlled_stdin_rejects_oversized_input_before_spawning(self):
+        """Archive input cannot exceed the configured command byte limit."""
+        path = self.root / 'input.dump'
+        path.write_bytes(b'a' * 32)
+        with path.open('rb') as source, patch('recovery.subprocess.Popen') as spawn:
+            with self.assertRaises(r.RecoveryError):
+                r.command([sys.executable, '-c', 'pass'], r.Limits(bytes=16), diagnostics=self.store, input_file=source)
+            spawn.assert_not_called()
+        self.assertFalse(self.store.created)
 
     def test_stderr_is_private_and_separate_on_success_and_failure(self):
         value = self.run_child('import sys; print("public-result"); sys.stderr.write("fixture-private-diagnostic")', capture=True)

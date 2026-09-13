@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 import tempfile
 import uuid
+from unittest.mock import patch
 
 import recovery as r
 
@@ -103,6 +104,62 @@ INSERT INTO recovery_text_fixture(note,exact_amount) VALUES (E'quote " slash \\\
         refusal(lambda: r.restore(bundle, sha, target, target, root / 'second', True, LIMITS))
         refusal(lambda: r.restore(bundle, sha, 'production', 'production', root / 'unsafe', True, LIMITS))
         r.require(not (root / 'second').exists() and not (root / 'unsafe').exists(), 'Rejected restore created output')
+        # Replace the pathname at dispatch, after its open descriptor was checked.
+        # The REAL pg_restore must consume the original dump from stdin, not the
+        # invalid replacement. Path mutation still fails the overall operation,
+        # leaving its disposable target quarantined rather than declaring success.
+        swapped_target = target + '_swap'
+        execute('postgres', 'CREATE DATABASE ' + swapped_target + ' TEMPLATE template0')
+        dump_path = bundle / 'database.dump'
+        saved_dump = dump_path.read_bytes()
+        real_command = r.command
+        dispatched = []
+
+        def replace_at_dispatch(args, *positional, **kwargs):
+            if args[0] == 'pg_restore':
+                r.require('input_file' in kwargs and str(dump_path) not in args, 'Restore reopened a pathname')
+                replacement = root / 'replacement.dump'
+                replacement.write_bytes(b'PGDMP-unverified-replacement')
+                os.replace(replacement, dump_path)
+                dispatched.append(True)
+            return real_command(args, *positional, **kwargs)
+
+        try:
+            with patch('recovery.command', side_effect=replace_at_dispatch):
+                r.restore(bundle, sha, swapped_target, swapped_target, root / 'swapped-captures', True, LIMITS)
+        except r.RecoveryError as error:
+            r.require(str(error) == 'File changed during read', 'Unexpected replacement failure')
+        else:
+            raise AssertionError('Changed bundle was incorrectly accepted')
+        r.require(dispatched == [True], 'Real descriptor restore was not exercised')
+        r.require(r.db_evidence(swapped_target, LIMITS) == initial, 'Real restore did not consume the checked dump')
+        dump_path.write_bytes(saved_dump)
+        r.verify(bundle, sha, LIMITS)
+        # A replacement immediately after the final verification must instead
+        # fail the descriptor hash check BEFORE invoking the real pg_restore.
+        refused_target = target + '_refused'
+        execute('postgres', 'CREATE DATABASE ' + refused_target + ' TEMPLATE template0')
+        real_verify = r.verify
+        verified = []
+
+        def replace_after_verification(*args, **kwargs):
+            result = real_verify(*args, **kwargs)
+            verified.append(True)
+            if len(verified) == 2:
+                dump_path.write_bytes(b'PGDMP-altered-after-verification')
+            return result
+
+        try:
+            with patch('recovery.verify', side_effect=replace_after_verification):
+                r.restore(bundle, sha, refused_target, refused_target, root / 'refused-captures', True, LIMITS)
+        except r.RecoveryError as error:
+            r.require(str(error) == 'Verified dump no longer matches the trusted manifest', 'Unexpected hash failure')
+        else:
+            raise AssertionError('Post-verification replacement was incorrectly accepted')
+        r.require(len(verified) == 2 and r.db_evidence(refused_target, LIMITS) == {'relations': []},
+                  'Refused replacement changed the isolated database')
+        dump_path.write_bytes(saved_dump)
+        r.verify(bundle, sha, LIMITS)
         # Real psql, pg_dump and pg_restore failures retain stderr privately.
         # None of these failure probes writes to a database or capture directory.
         logs = r.Diagnostics('command', root / 'failure-private')
@@ -124,7 +181,9 @@ INSERT INTO recovery_text_fixture(note,exact_amount) VALUES (E'quote " slash \\\
         r.require(cli['status'] == 'BUNDLE_BYTES_VERIFIED', 'CLI verification failed')
         print(json.dumps({**result, 'migration_files': len(migrations), 'pending_command': 'PRESERVED',
                           'exact_ledger_amount': 'PRESERVED', 'audit_and_uniqueness': 'ENFORCED',
-                          'source_unchanged': True, 'capture_expiry_unchanged': True, 'evidence_origin': 'SYNTHETIC_STORAGE_FIXTURE'}))
+                          'source_unchanged': True, 'capture_expiry_unchanged': True,
+                          'verified_descriptor_restore': 'PASSED', 'post_verification_replacement': 'REFUSED',
+                          'evidence_origin': 'SYNTHETIC_STORAGE_FIXTURE'}))
     return 0
 
 

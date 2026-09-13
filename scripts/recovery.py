@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -219,8 +220,15 @@ class Diagnostics:
         return self.root / ('command-' + str(self.sequence).zfill(4))
 
 
-def command(args, limits, *, capture=False, readonly=False, diagnostics=None):
-    """Stream bounded stdout and private stderr without echoing SQL, arguments or secrets."""
+def command(args, limits, *, capture=False, readonly=False, diagnostics=None, input_file=None):
+    """Stream bounded output; optional stdin is an already-verified read-only file, never a path."""
+    if input_file is not None:
+        require(isinstance(input_file, io.BufferedReader) and not input_file.closed,
+                'Controlled input must be an open read-only binary file')
+        info = os.fstat(input_file.fileno())
+        require(stat.S_ISREG(info.st_mode) and input_file.seekable()
+                and not input_file.writable() and input_file.tell() == 0
+                and info.st_size <= limits.bytes, 'Invalid or oversized controlled input')
     store = diagnostics if diagnostics is not None else Diagnostics('command')
     stem = store.begin()
     env = dict(os.environ)
@@ -239,7 +247,8 @@ def command(args, limits, *, capture=False, readonly=False, diagnostics=None):
     with os.fdopen(os.open(stderr_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600), 'wb') as error_output:
         try:
             with subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                  stdin=subprocess.DEVNULL, env=env, start_new_session=True) as process:
+                                  stdin=input_file if input_file is not None else subprocess.DEVNULL,
+                                  env=env, start_new_session=True) as process:
                 selector = selectors.DefaultSelector()
                 try:
                     selector.register(process.stdout, selectors.EVENT_READ, 'stdout')
@@ -402,6 +411,23 @@ def verify(bundle, expected, limits=Limits()):
     return manifest, evidence
 
 
+@contextmanager
+def verified_dump(bundle, manifest, limits):
+    """Hash and retain the exact descriptor consumed by pg_restore, with bounded memory."""
+    expected = next(record for record in manifest['files'] if record['path'] == 'database.dump')
+    with source_file(root_path(bundle), 'database.dump') as source:
+        h = hashlib.sha256()
+        size = 0
+        while chunk := source.read(1024 * 1024):
+            size += len(chunk)
+            require(size <= limits.bytes, 'Verified dump exceeds byte bound')
+            h.update(chunk)
+        require(size == expected['bytes'] and h.hexdigest() == expected['sha256'],
+                'Verified dump no longer matches the trusted manifest')
+        source.seek(0)
+        yield source
+
+
 def restore(bundle, expected, database, confirm_target, destination, trusted_source, limits=Limits(), *, diagnostics=None):
     database_name(database)
     require(re.fullmatch(r'arb_restore_[a-z0-9_]+', database) and database == confirm_target, 'Explicit isolated arb_restore_* target confirmation required')
@@ -420,9 +446,11 @@ def restore(bundle, expected, database, confirm_target, destination, trusted_sou
     destination = new_directory(destination)
     capture_records = [{**r, 'path': r['path'][9:]} for r in manifest['files'] if r['path'].startswith('captures/')]
     copy_records(root_path(Path(bundle) / 'captures'), destination, capture_records, limits)
-    # Reverify before executing the archive; callers must keep the bundle private and immutable.
+    # Retain the checked descriptor: pg_restore must never reopen the dump pathname.
     verify(bundle, expected, limits)
-    command(['pg_restore', '-w', '--exit-on-error', '--single-transaction', '--no-owner', '--no-acl', '--dbname', database, str(Path(bundle) / 'database.dump')], limits, diagnostics=diagnostics)
+    with verified_dump(bundle, manifest, limits) as dump:
+        command(['pg_restore', '-w', '--exit-on-error', '--single-transaction', '--no-owner', '--no-acl', '--dbname', database],
+                limits, diagnostics=diagnostics, input_file=dump)
     require(db_evidence(database, limits, diagnostics=diagnostics) == evidence, 'Restored database evidence differs; target remains quarantined')
     require(inventory(destination, limits) == capture_records, 'Restored captures differ; target remains quarantined')
     return {'status': 'ISOLATED_RESTORE_VERIFIED', 'manifest_sha256': expected, 'relations': len(evidence['relations']),
