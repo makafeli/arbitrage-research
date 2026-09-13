@@ -1,0 +1,7 @@
+# Five spawned workers plus the primary orchestrator.
+# Capacity is not evidence that any worker has started.
+# Model, authentication, providers and permission defaults remain machine-local.
+[agents]
+enabled = true
+max_concurrent_threads_per_session = 5
+interrupt_message = true
