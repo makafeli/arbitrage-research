@@ -432,7 +432,7 @@ fn decode_pool_accounts(
     let program_data = account_data(accounts[6], UPGRADEABLE_LOADER, false)?;
     if program_data.len() < 45
         || program_data[..4] != [3, 0, 0, 0]
-        || format!("sha256:{:x}", Sha256::digest(&program_data))
+        || format!("sha256:{}", hex::encode(Sha256::digest(&program_data)))
             != registry.program_data_sha256.to_lowercase()
     {
         return Err(AdapterError("Whirlpool program data hash mismatch"));

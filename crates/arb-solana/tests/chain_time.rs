@@ -193,7 +193,7 @@ fn legacy_single_pool_json_and_digest_are_unchanged() {
     let bytes = serde_json::to_vec(&snapshot).unwrap();
     assert_eq!(bytes, expected.as_bytes());
     assert_eq!(
-        format!("{:x}", Sha256::digest(&bytes)),
+        hex::encode(Sha256::digest(&bytes)),
         "7b8c11fd8e547e0a2ca302d7324b6b9559af7b2bca6bcb42b6a77d41067295a8"
     );
     let restored: PoolSnapshot = serde_json::from_str(expected).unwrap();

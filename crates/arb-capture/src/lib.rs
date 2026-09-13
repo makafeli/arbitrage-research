@@ -23,7 +23,7 @@ impl fmt::Display for CaptureError {
 impl std::error::Error for CaptureError {}
 pub type Result<T> = std::result::Result<T, CaptureError>;
 pub fn digest(bytes: &[u8]) -> String {
-    format!("sha256:{:x}", Sha256::digest(bytes))
+    format!("sha256:{}", hex::encode(Sha256::digest(bytes)))
 }
 fn valid_digest(value: &str) -> bool {
     value.strip_prefix("sha256:").is_some_and(|s| {
@@ -331,7 +331,7 @@ pub fn file_digest(path: &Path) -> Result<String> {
         }
         hasher.update(&bytes[..n]);
     }
-    Ok(format!("sha256:{:x}", hasher.finalize()))
+    Ok(format!("sha256:{}", hex::encode(hasher.finalize())))
 }
 
 #[cfg(test)]
@@ -433,5 +433,76 @@ mod tests {
             .is_err()
         );
         fs::remove_dir_all(p).unwrap();
+    }
+
+    #[test]
+    fn digest_golden_vectors_preserve_prefix_lowercase_and_leading_zeros() {
+        // Independent Python hashlib SHA-256 constants; never rewrite on upgrades.
+        for (input, expected) in [
+            (
+                b"".as_slice(),
+                "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            ),
+            (
+                b"abc".as_slice(),
+                "sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+            ),
+            (
+                b"286".as_slice(),
+                "sha256:00328ce57bbc14b33bd6695bc8eb32cdf2fb5f3a7d89ec14a42825e15d39df60",
+            ),
+            (
+                b"\x00\x0f\x10\xff".as_slice(),
+                "sha256:609a4c6f3ec6d8bdf3cf2589ce60b9b89049f7a5a519a0f2755dc43db323b161",
+            ),
+        ] {
+            assert_eq!(digest(input), expected);
+            assert!(valid_digest(expected));
+        }
+    }
+    #[test]
+    fn file_digest_preserves_independent_vectors_at_buffer_boundaries() {
+        // Exercise empty input, the 64 KiB read boundary and multiple buffers.
+        for (length, expected) in [
+            (
+                0_usize,
+                "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            ),
+            (
+                65_535_usize,
+                "sha256:09ab7495d3e61a76f0deb12cb0306f0696cbb17ffc12131368c7a939f12f56d3",
+            ),
+            (
+                65_536_usize,
+                "sha256:1f8745f0d2d1387ec1af2211a3cf417b2e9e885e853472649c1d979d0e9370e3",
+            ),
+            (
+                65_537_usize,
+                "sha256:1abe08ebecf1c18cab71f6fe28aaddf20268f85bad78bb9a72f88ca47c874662",
+            ),
+            (
+                131_073_usize,
+                "sha256:0c5c5c759aa8164f9fb53c471ff060903c99edcb520fb7d9cb4bf7a45755f1c2",
+            ),
+        ] {
+            let p = path();
+            let mut file = OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&p)
+                .unwrap();
+            file.write_all(&vec![b'x'; length]).unwrap();
+            drop(file);
+            let actual = file_digest(&p);
+            fs::remove_file(p).unwrap();
+            assert_eq!(actual.unwrap(), expected);
+        }
+    }
+    #[test]
+    fn missing_file_digest_remains_an_error_not_an_empty_hash() {
+        assert_eq!(
+            file_digest(&path()),
+            Err(CaptureError("build identity cannot be read"))
+        );
     }
 }
