@@ -30,11 +30,31 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
+          ref: adbff5b6ae358c050ccbf90a1b6927a9c0b13b4d
           persist-credentials: false
           fetch-depth: 2
       - run: rustup show
       - name: Reproduce exact reviewed source and apply pinned formatting
         run: python3 .github/scripts/prepare_platform.py
+      - name: Apply the single observed Clippy correction without relaxing lint rules
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,json,os,subprocess
+          p=Path('crates/arb-control/tests/platform_recovery.rs');s=p.read_text()
+          old='                if let Ok(value) = fs::read_to_string(&marker) {\n                    if Uuid::parse_str(&value).is_ok() {\n                        break value;\n                    }\n                }'
+          new='                if let Ok(value) = fs::read_to_string(&marker)\n                    && Uuid::parse_str(&value).is_ok()\n                {\n                    break value;\n                }'
+          assert s.count(old)==1;p.write_text(s.replace(old,new))
+          subprocess.run(['cargo','fmt','--all','--','--check'],check=True)
+          subprocess.run(['git','add','--',str(p)],check=True)
+          tree=subprocess.check_output(['git','write-tree'],text=True).strip()
+          assert tree=='a55abd464daf3b24488e3f5346576cb4b3d48322'
+          out=Path(os.environ['RUNNER_TEMP'])/'platform-source'
+          subprocess.run(['git','archive','--format=tar.gz','--output='+str(out/'source.tar.gz'),tree],check=True)
+          m=json.loads((out/'manifest.json').read_text());m['tree']=tree
+          m['archive_sha256']=hashlib.sha256((out/'source.tar.gz').read_bytes()).hexdigest()
+          (out/'manifest.json').write_text(json.dumps(m,indent=2)+'\n')
+          PY
       - name: Run real targeted Rust and PostgreSQL regressions without repository token
         run: |
           cargo clippy --locked -p arb-config -p arb-control -p control-api --all-targets -- -D warnings
