@@ -1,5 +1,6 @@
 """Synthetic fixtures test the observer's contracts, not mainnet qualification."""
 import base64
+from email.message import Message
 from contextlib import redirect_stdout
 import hashlib
 import io
@@ -11,6 +12,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 import urllib.error
+import urllib.response
 
 import inspect_pool_candidates as p
 
@@ -160,6 +162,26 @@ class ObservationTests(unittest.TestCase):
             self.assertEqual(opener.return_value.open.call_count,1)
             with self.assertRaises(p.ObservationError): rpc.call('eth_chainId',[])
         self.assertNotIn('private',json.dumps(r))
+
+    def test_real_redirect_handler_refuses_disallowed_location(self):
+        requests = []
+        class StubHttps(p.urllib.request.HTTPSHandler):
+            def https_open(self, request):
+                requests.append(request.full_url)
+                headers = Message()
+                headers['Location'] = 'https://disallowed.invalid/private-target'
+                response = urllib.response.addinfourl(io.BytesIO(b'private-body'), headers,
+                                                      request.full_url, 302)
+                response.msg = 'Found'
+                return response
+        opener = p.urllib.request.build_opener(p.NoRedirects(), StubHttps())
+        with patch.object(p.urllib.request, 'build_opener', return_value=opener), patch.object(p.time, 'sleep'):
+            report = p.observe('base-mainnet')
+        self.assertEqual(requests, [p.BASE_URL])
+        self.assertEqual(report['reason'], 'HTTP_REFUSED')
+        self.assertEqual(report['requests'][0]['http_status'], 302)
+        self.assertNotIn('private', json.dumps(report))
+        self.assertNotIn('disallowed', json.dumps(report))
 
     def test_rpc_envelope_id_boolean_and_byte_budget(self):
         for raw in (b'{"jsonrpc":"2.0","id":false,"result":"0x2105"}',b'{}',b'x'*9):

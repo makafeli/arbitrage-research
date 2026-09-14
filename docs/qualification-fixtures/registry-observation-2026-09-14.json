@@ -1,0 +1,136 @@
+{
+  "schema_version": 1,
+  "kind": "REDACTED_REGISTRY_OBSERVATION_SUMMARY",
+  "observed_on": "2026-09-14",
+  "issue": 16,
+  "original_ticket_accepted": false,
+  "runtime_registry_generated": false,
+  "execution_authorized": false,
+  "initial_attempt": {
+    "head_sha": "a83ccfbebbaa961796fcc4fe9afb97083ae03b07",
+    "run_id": 34838825128,
+    "artifact_id": 10345685399,
+    "zip_sha256": "c38cb2d212353a1424c9e7c1216f36ca152fc284a5caff97e830cb4cf124bbfc",
+    "base": {
+      "status": "BLOCKED",
+      "reason": "HTTP_REFUSED",
+      "http_status": 403,
+      "request_count": 1,
+      "verified_pool_count": 0
+    },
+    "solana": {
+      "status": "BLOCKED",
+      "reason": "RESPONSE_BYTE_LIMIT",
+      "request_count": 4,
+      "discovered_pool_count": 31
+    }
+  },
+  "solana_followup": {
+    "head_sha": "5370a07a23959958966668acc31da2df7b037f75",
+    "run_id": 34839690433,
+    "artifact_id": 10345572213,
+    "zip_sha256": "09c8b955f569a11c3ddd0322cc1a6959f9d9aef28957179271a76e91732c8238",
+    "report_sha256": "537936bf3042090b820bdea0ea04865d36d84d3bcba8c308ca54e035251d0184",
+    "artifact_expires_at_utc": "2026-10-14T11:44:16Z",
+    "started_at_utc": "2026-09-14T11:44:10.007727+00:00",
+    "finished_at_utc": "2026-09-14T11:44:16.018827+00:00",
+    "request_count": 4,
+    "discovery_slot": "446968176",
+    "verified_account_slot": "446968178",
+    "discovered_pool_count": 31,
+    "status_counts": {
+      "CANDIDATE": 12,
+      "ADAPTIVE_FEE_UNSUPPORTED": 10,
+      "ZERO_ACTIVE_LIQUIDITY": 7,
+      "IDENTITY_AND_ACTIVE_LIQUIDITY_OBSERVED": 2
+    },
+    "program": {
+      "address": "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc",
+      "program_data": "CtXfPzz36dH5Ws4UYKZvrQ1Xqzn42ecDW6y8NKuiN8nD",
+      "program_data_sha256": "sha256:b5ee20ce8a99d4f111e408b4a6e610accb9637089a568db116de9e4658048fa0",
+      "elf_sha256": "sha256:610b1e394973bd1b86de8afc983524bd21dea177e87bfae75ec289d4c350f9ae",
+      "last_upgrade_slot": "440170207",
+      "upgrade_authority": "GwH3Hiv5mACLX3ufTw1pFsrhSPon5tdw252DBs4Rx4PV",
+      "source_build_equivalence_verified": false
+    },
+    "checked_candidates": [
+      {
+        "whirlpools_config": "2LecshUwdy9xi7meFgHtFJQNSKk4KdTrcpvaB56dP2NQ",
+        "tick_spacing": 4,
+        "fee_tier_index": 4,
+        "fee_rate_millionths": 400,
+        "protocol_fee_rate": 1300,
+        "liquidity": "875355325694056",
+        "sqrt_price_x64": "5877831895801330109",
+        "tick_current_index": -22876,
+        "mint_a": "So11111111111111111111111111111111111111112",
+        "mint_b": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "vault_a": "EUuUbDcafPrmVTD5M6qoJAoyyNbihBhugADAxRMn5he9",
+        "vault_b": "2WLWEuKDgkDUccTpbwYp1GToYktiSB1cXvreHUwiSUVP",
+        "account_sha256": "sha256:c4bf4a8a3cf106dc4b8c35c8a10414a25fbb03a94c13cbc6879d524b37c69d8d",
+        "static_fee_supported": true,
+        "address": "Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE",
+        "status": "IDENTITY_AND_ACTIVE_LIQUIDITY_OBSERVED",
+        "vault_a_state": {
+          "balance_minor": "124241703282747",
+          "account_sha256": "sha256:f3bedc5e704bfb39ee3112e3a18f58d23c6ebd32c5d43b63055f2b61e2e61851",
+          "delegate": null,
+          "close_authority": null,
+          "frozen": false
+        },
+        "vault_b_state": {
+          "balance_minor": "11642335091491",
+          "account_sha256": "sha256:1c612e184bcef2f761854969c2c43a0d26fe9fc151bdd88f37edc0c58cee0cfe",
+          "delegate": null,
+          "close_authority": null,
+          "frozen": false
+        },
+        "config_sha256": "sha256:8b147b1ce32260df4d1015a9bec231d0b767334925b0f5e53a8948afbbcfa665",
+        "amount_specific_quote_qualified": false,
+        "tick_arrays_qualified": false
+      },
+      {
+        "whirlpools_config": "2LecshUwdy9xi7meFgHtFJQNSKk4KdTrcpvaB56dP2NQ",
+        "tick_spacing": 2,
+        "fee_tier_index": 2,
+        "fee_rate_millionths": 200,
+        "protocol_fee_rate": 1300,
+        "liquidity": "842284465926",
+        "sqrt_price_x64": "5878212173687483384",
+        "tick_current_index": -22874,
+        "mint_a": "So11111111111111111111111111111111111111112",
+        "mint_b": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "vault_a": "6mQ8xEaHdTikyMvvMxUctYch6dUjnKgfoeib2msyMMi1",
+        "vault_b": "AQ36QRk3HAe6PHqBCtKTQnYKpt2kAagq9YoeTqUPMGHx",
+        "account_sha256": "sha256:424d30dabc3445cf897ce9c5346bcd08ef9d52acc3b3e16e464f312dbcaa38ec",
+        "static_fee_supported": true,
+        "address": "FpCMFDFGYotvufJ7HrFHsWEiiQCGbkLCtwHiDnh7o28Q",
+        "status": "IDENTITY_AND_ACTIVE_LIQUIDITY_OBSERVED",
+        "vault_a_state": {
+          "balance_minor": "452510492810",
+          "account_sha256": "sha256:c4429f1e93788479af5d6e5db0c64c120c74d4712dfebb3b16c850c1fa38c2f4",
+          "delegate": null,
+          "close_authority": null,
+          "frozen": false
+        },
+        "vault_b_state": {
+          "balance_minor": "87427618515",
+          "account_sha256": "sha256:758a8392b65b1ccc16bb1022aedcab423208134accc1856089f917cc096ce3b3",
+          "delegate": null,
+          "close_authority": null,
+          "frozen": false
+        },
+        "config_sha256": "sha256:8b147b1ce32260df4d1015a9bec231d0b767334925b0f5e53a8948afbbcfa665",
+        "amount_specific_quote_qualified": false,
+        "tick_arrays_qualified": false
+      }
+    ]
+  },
+  "remaining_gates": [
+    "BASE_READ_ONLY_STATE_ACCESS_AND_IDENTITY_REVIEW",
+    "AMOUNT_SPECIFIC_POOL_TICK_COVERAGE",
+    "DEPLOYED_PROGRAM_SOURCE_EQUIVALENCE_REVIEW",
+    "OPERATIONAL_PROVIDER_AND_CAMPAIGN_QUALIFICATION"
+  ],
+  "limitations": "Single-provider point-in-time observations, not consensus proof, complete transaction simulation, profitability or production activation. Raw response hashes cannot reconstruct expired artifacts."
+}

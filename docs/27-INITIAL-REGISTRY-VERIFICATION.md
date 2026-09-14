@@ -93,7 +93,64 @@ exact commit message `Collect bounded Solana registry evidence` opts into that
 one-shot follow-up. Normal synchronization commits run offline checks only.
 This is an explicit CI invocation, not an unattended collector or agent runner.
 
-## Acceptance record
+## Observed result and actual remaining acceptance
 
-Pending actual current-run observation inspection and source/criterion review.
-No original issue closure or candidate activation is claimed by this document.
+On 14 September 2026 the first diagnostic (run 34838825128, head `a83ccfbe`)
+made one Base request and four Solana requests. Base returned HTTP 403 before
+any state/pool lookup. Solana discovered 31 canonical-pair pools but its final
+program-data response exceeded the old 8-MiB wire cap. Neither initial result
+is reported as qualified. No Base retry was issued.
+
+The explicitly authorized Solana-only follow-up (run 34839690433, exact head
+`5370a07a23959958966668acc31da2df7b037f75`) made four successful requests from
+11:44:10 to 11:44:16 UTC. Its ProgramData account was exactly 10,485,760 decoded
+bytes; the final JSON response was 13,985,955 bytes. This explains the original
+size refusal without weakening the new 16-MiB wire and 10-MiB account bounds.
+
+Discovery slot was 446968176 and the final account-batch slot was 446968178.
+Of 31 discovered pools, ten have unsupported adaptive fees and seven had zero
+active liquidity. Two of the remaining 14 static-fee candidates were selected
+for the final identity/vault/config checks; the other 12 were not fully checked.
+
+| Final-batch candidate | Fee, millionths | Tick spacing | Status |
+|---|---:|---:|---|
+| `Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE` | 400 | 4 | Identity, active liquidity and vault ownership/state observed |
+| `FpCMFDFGYotvufJ7HrFHsWEiiQCGbkLCtwHiDnh7o28Q` | 200 | 2 | Identity, active liquidity and vault ownership/state observed |
+
+Both contain the exact canonical wSOL and USDC mints, use the legacy token
+program and have initialized, non-frozen vaults with no delegate or close
+authority. They share observed config `2LecshUwdy9xi7meFgHtFJQNSKk4KdTrcpvaB56dP2NQ`.
+The observed Whirlpool ProgramData hash is
+`sha256:b5ee20ce8a99d4f111e408b4a6e610accb9637089a568db116de9e4658048fa0`.
+Its upgrade slot/authority and code fingerprints are retained in the summary.
+These fingerprints are not proof of equivalence to a reproduced source build.
+
+The committed `qualification-fixtures/registry-observation-2026-09-14.json`
+retains the exact two candidates, point-in-time balances, contexts, source/run
+and artifact hashes. Raw transcript bytes remain in the CI artifacts, not in
+an enabled registry. Both ZIP hashes, all retained file checksums and every
+retained response hash were recomputed locally. An offline replay of the four
+actual Solana responses reproduces the complete derived result. Mutated context
+and vault-owner checks are rejected. The first ad-hoc negative check selected
+an uninspected vault and failed in its harness; correcting that selection to
+an actually inspected vault produced the expected owner refusal. No additional
+network access was used for these checks.
+
+Twenty committed synthetic regressions cover CLI refusal, exact decoding,
+identity/owner errors, contexts, byte budgets and HTTP behavior. The redirect
+regression uses the real urllib redirect/error-handler pipeline with a local
+stub transport, proving one request and HTTP_REFUSED for a disallowed 302
+Location. These tests are not independent mainnet observations.
+
+**#16 remains open:** Base still needs permitted, functioning read-only access
+and verified chain/contract/token/pool state. Full amount-specific tick data and
+deployed-source equivalence are not established by the Solana identity batch.
+No candidate is promoted to production or enabled for an experiment. #23 and
+#24 retain their original prerequisite gates; neither closes through this PR.
+The pre-existing #15/#22 acceptance remains valid; old issue notes referring
+to those as unaccepted are superseded by their actual completed native states.
+
+Source review and fresh exact-head CI must be checked on PR #112 before
+integration. A merged evidence collector is not acceptance of these three
+original tickets. This record is a concrete partial result with a read-only
+access blocker, not an automatic service or a promise of background work.
