@@ -2,6 +2,18 @@
 
 `capture_pool` checks the configured genesis identity and retrieves the approved Whirlpool, mints, vaults, fixed tick arrays, program and program-data account in **one** finalized `getMultipleAccounts` response. It validates owners, executable flags, the program-data address/hash and the configured asset/vault identities. Only legacy SPL Token mints of exactly 82 bytes and initialized, unfrozen vaults of exactly 165 bytes are supported. Token-2022/extensions are rejected. Tick arrays must have the fixed layout, correct parent pool, contiguous starts, consistent initialized flags and bounded signed liquidity.
 
+ProgramData metadata must also have a valid optional upgrade-authority tag, and
+its recorded deployment/upgrade slot cannot exceed the response context slot.
+The configured digest alone cannot validate those constraints. Authority tags
+`0` (revoked) and `1` (present) are both supported; unused authority bytes after
+revocation are not interpreted as another key. A modification in the context slot
+itself is accepted as captured account state. This ordering check detects an
+internally impossible response; it does not establish independent bank coherence
+or whether the program can execute a transaction in that slot. Synthetic
+single-pool and shared-batch transcript regressions in
+`tests/program_data_context.rs` cover malformed tags, future slots, matching
+program-data digests and exact integer slot boundaries.
+
 `capture_pools(rpc, registries, observed_at_ms)` accepts **1–8 distinct pools** with the same configured genesis. It validates every registry before I/O and builds a union of required accounts in first-appearance order. Shared program, mint and other accounts are requested once. The union must contain at most **100 accounts**; larger batches fail before RPC, without chunking. One genesis check and one finalized `getMultipleAccounts` response serve the entire batch. Every pool is validated independently using references into that actual response; missing accounts or any pool error reject the entire batch. Output retains registry order. No synthetic per-pool RPC responses are constructed. The legacy `capture_pool` sequence and snapshot format remain unchanged.
 
 A common response prevents accidental mixing of separately polled slots. It does not qualify provider bank context, establish write provenance, or implement chain-lag/reorg-gap tracking. All existing quality flags and qualification reasons remain unchanged.
@@ -21,6 +33,11 @@ Primary source checks on 2026-09-12:
 - [Solana getMultipleAccounts](https://solana.com/docs/rpc/http/getmultipleaccounts) defines request ordering, account response and context slot. `minContextSlot` does not select an exact historical bank.
 - [Solana getBlockTime](https://solana.com/docs/rpc/http/getblocktime), checked on 2026-09-13, defines the slot parameter and estimated production time in Unix seconds. Validator vote timestamps provide the estimate; it is not an independent attestation of the returned account bank.
 - [Official SPL Token layout](https://github.com/solana-program/token/blob/main/interface/src/state.rs) defines mint/vault sizes and fields.
+
+The [official loader-v3 state layout](https://docs.rs/solana-loader-v3-interface/latest/src/solana_loader_v3_interface/state.rs.html),
+checked on 2026-09-14, defines the ProgramData modification slot, optional upgrade
+authority and 45-byte metadata region. [Solana program deployment](https://solana.com/docs/core/programs/program-deployment)
+documents that upgrades update that slot together with the program bytes.
 
 `tests/fixtures` contains **manually constructed**, non-market data, including fabricated identities and program bytes.
 
