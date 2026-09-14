@@ -16,6 +16,8 @@ import time
 import probe_public_rpc as transport
 
 SAMPLES = 3
+# Mainnet identity reviewed against https://docs.anza.xyz/clusters/available, 2026-09-14.
+SOLANA_GENESIS = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d"
 
 
 def distribution(calls: list[dict]) -> dict:
@@ -48,6 +50,9 @@ def sample(chain: str, call=transport.rpc) -> list[dict]:
     identity = get('eth_chainId' if chain == 'base' else 'getGenesisHash', [])
     if identity['outcome'] != 'success':
         return calls
+    if chain == 'solana' and identity.get('result') != SOLANA_GENESIS:
+        identity['outcome'] = 'unexpected-chain-identity'
+        return calls
     if chain == 'base':
         if identity['result'] != '0x2105':
             identity['outcome'] = 'unexpected-chain-identity'
@@ -68,7 +73,9 @@ def sample(chain: str, call=transport.rpc) -> list[dict]:
         for fee in (500, 3000):
             data = ('0x1698ee82' + transport.BASE_WETH[2:].rjust(64, '0')
                     + transport.BASE_USDC[2:].rjust(64, '0') + hex(fee)[2:].rjust(64, '0'))
-            get('eth_call', [{'to': transport.FACTORY, 'data': data}, context])
+            result = get('eth_call', [{'to': transport.FACTORY, 'data': data}, context])
+            if result['outcome'] != 'success':
+                break
     else:
         accounts = get('getMultipleAccounts', [[transport.WHIRLPOOL, transport.WSOL, transport.SOL_USDC],
                                               {'encoding': 'base64', 'commitment': 'finalized'}])

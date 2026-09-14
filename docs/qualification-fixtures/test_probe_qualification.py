@@ -40,15 +40,33 @@ class QualificationTests(unittest.TestCase):
         self.assertEqual([c[2] for c in calls], list(range(5)))
         self.assertTrue(all(c[1][-1] == {'blockHash':'0x'+'a'*64, 'requireCanonical':True} for c in calls[2:]))
 
+    def test_base_stops_immediately_after_first_pool_refusal(self):
+        calls = []
+        def call(chain, method, params, sequence):
+            calls.append(method)
+            if method == 'eth_call':
+                return {'outcome': 'http-rejected', 'http_status': 403}
+            value = '0x2105' if method == 'eth_chainId' else {'hash': '0x' + 'a'*64} if method == 'eth_getBlockByNumber' else '0x00'
+            return {'outcome': 'success', 'result': value}
+        q.sample('base', call)
+        self.assertEqual(calls.count('eth_call'), 1)
+
     def test_solana_is_bounded_contextual_and_read_only(self):
         calls = []
         def call(chain, method, params, sequence):
             calls.append((method, params))
-            return {'outcome': 'success', 'result': None}
+            return {'outcome': 'success', 'result': q.SOLANA_GENESIS if method == 'getGenesisHash' else None}
         self.assertEqual(len(q.sample('solana', call)), 3)
         self.assertEqual(calls[-1][0], 'getProgramAccounts')
         self.assertTrue(calls[-1][1][1]['withContext'])
         self.assertEqual(calls[-1][1][1]['dataSlice']['length'], 245)
+
+    def test_solana_missing_null_and_foreign_identity_stop_before_state(self):
+        for result in ({'outcome': 'success'}, {'outcome': 'success', 'result': None},
+                       {'outcome': 'success', 'result': 'other-cluster'}):
+            calls = q.sample('solana', lambda *_, result=result: result.copy())
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(calls[0]['outcome'], 'unexpected-chain-identity')
 
     def test_wrong_chain_identity_stops_state_calls(self):
         self.assertEqual(len(q.sample('base', lambda *_: {'outcome':'success','result':'0x1'})), 1)

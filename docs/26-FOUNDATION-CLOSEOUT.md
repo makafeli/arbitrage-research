@@ -77,13 +77,49 @@ use nearest-rank p50/p95/p99 **per method**, separating success from failures.
 Small-n failure timing is not useful RPC latency, throughput or an SLA. Socket
 timeouts are not a hard whole-process deadline; CI adds a job-level deadline.
 
-**Observed-result section:** The opened-PR diagnostic artifact must be read and
-its actual outcome attached before this assessment is accepted. Configuration,
-mock tests or a successful diagnostic process do not themselves prove provider
-availability. Even successful samples leave full tick coverage, mainnet program
-qualification, archival/reconnect behavior and sustained service unqualified.
-The valid assessment outcome may be **blocking gaps documented** as expressly
-permitted by the original criterion; it cannot be reported as a qualified provider.
+### Observed diagnostic, 14 September 2026
+
+[Run 34818306339](https://github.com/makafeli/arbitrage-research/actions/runs/34818306339)
+collected ten actual public requests at 07:32:15-07:32:21 UTC. The code was PR
+source `0d2d110411ae037a5fb1f3a38f68ac89c5188785`, checked out as GitHub's synthetic
+merge `3ab321db89e3cc9fcefb95c9b8df3fadb1e2ba4e`, not a deployment to Railway.
+The runner was Linux x86_64, four logical CPUs and Python 3.12.3. It is distinct
+from the eight-CPU proposed benchmark target below.
+
+| Endpoint/method | Successful n | Failed n | Success p50 / p95 / p99 ms | Finding |
+|---|---:|---:|---|---|
+| Base / eth_chainId | 0 | 1 | unavailable | HTTP 403 after 194.930 ms; stopped immediately. No state response or useful RPC-latency measurement. |
+| Solana / getGenesisHash | 3 | 0 | 248.344 / 252.434 / 252.434 | Consistent returned genesis identity. |
+| Solana / getMultipleAccounts | 3 | 0 | 246.737 / 251.674 / 251.674 | Three accounts per response with finalized slot context. |
+| Solana / getProgramAccounts | 3 | 0 | 320.233 / 350.099 / 350.099 | 31 filtered 245-byte account slices per response with context. Not full tick/quote input. |
+
+The small sample establishes only these requests from this runner. It does not
+measure sustained capacity, reconnect behavior, full historical retention,
+actual transactions or an SLA. Base's refusal is an endpoint/access gap; its
+cause is not attributed to chain inactivity. Solana's account and discovery
+contexts are from different request instants; they cannot be represented as
+one atomic coherent market capture. Neither provider is production-qualified.
+The assessment decision is **blocking gaps documented**, explicitly permitted
+by ARB-002's first original criterion. Downstream pool, campaign and deployment
+qualification remains blocked; nothing in runtime configuration is enabled.
+
+`qualification-fixtures/feasibility-2026-09-14.json` retains exact request
+provenance, timestamps, HTTP outcomes, per-response hashes, context/count
+projections and measured durations. It is a labelled diagnostic, not a
+synthetic fixture or a qualified market capture. All nine retained response
+hashes were recomputed against the downloaded raw responses. Artifact
+`10337482571` SHA-256 is
+`dc2d97c5da5bd7ad4e518888e8013240c9c484ddc0a9755bf53368abe8437cea`;
+its raw report SHA-256 is
+`a4b85ea449e90cecea60c6d9ecd91fdbdbd0d8ec41301e0384be8d887e2d2fca`.
+The raw artifact expires on 14 October 2026. The committed redacted projection
+preserves findings but cannot reconstruct missing raw bytes after expiry.
+No provider error body, credentials or unrestricted data-redistribution right
+is asserted by publishing that projection.
+
+The later source correction stops Base after a first failed pool call as well
+as after identity/code failure, with a regression test. It does not change or
+repeat the recorded observations; this sample's only Base call was identity.
 
 ## ARB-004: reproducible assumptions and transparent 24-hour budget
 

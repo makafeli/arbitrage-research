@@ -4,9 +4,14 @@ on:
     paths:
       - 'docs/qualification-fixtures/probe_qualification.py'
       - 'docs/qualification-fixtures/test_probe_qualification.py'
+      - 'docs/qualification-fixtures/probe_public_rpc.py'
+      - 'docs/qualification-fixtures/feasibility-2026-09-14.json'
       - 'docs/benchmark-environment.json'
       - 'docs/26-FOUNDATION-CLOSEOUT.md'
       - '.github/workflows/foundation-evidence.yml'
+concurrency:
+  group: foundation-evidence-${{ github.ref }}
+  cancel-in-progress: false
 permissions:
   contents: read
 jobs:
