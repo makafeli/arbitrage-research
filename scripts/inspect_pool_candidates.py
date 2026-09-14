@@ -227,15 +227,23 @@ def vault(account, mint_id, pool):
             'delegate': None, 'close_authority': None, 'frozen': False}
 
 
+def base_header(block):
+    require(isinstance(block, dict), 'MISSING_BLOCK_HEADER')
+    for field in ('hash', 'parentHash'):
+        hex_data(block.get(field), 32)
+    for field in ('number', 'timestamp'):
+        value = block.get(field)
+        require(isinstance(value, str)
+                and re.fullmatch(r'0x(?:0|[1-9a-f][0-9a-f]{0,15})', value) is not None,
+                'INVALID_BLOCK_NUMBER' if field == 'number' else 'INVALID_BLOCK_TIMESTAMP')
+    return {field: block[field] for field in ('hash', 'number', 'timestamp', 'parentHash')}
+
+
 def inspect_base(rpc, result):
     require(rpc.call('eth_chainId', []) == '0x2105', 'WRONG_BASE_CHAIN')
-    anchor = rpc.call('eth_getBlockByNumber', ['finalized', False])
-    require(isinstance(anchor, dict), 'MISSING_FINALIZED_BLOCK')
-    hex_data(anchor.get('hash'), 32)
-    require(isinstance(anchor.get('number'), str)
-            and re.fullmatch(r'0x(?:0|[1-9a-f][0-9a-f]*)', anchor['number']) is not None, 'INVALID_BLOCK_NUMBER')
+    anchor = base_header(rpc.call('eth_getBlockByNumber', ['finalized', False]))
     context = {'blockHash': anchor['hash'], 'requireCanonical': True}
-    result['context'] = {k: anchor.get(k) for k in ('hash', 'number', 'timestamp', 'parentHash')}
+    result['context'] = dict(anchor)
 
     def call(address, selector):
         return rpc.call('eth_call', [{'to': evm_key(address), 'data': selector}, context])
@@ -278,8 +286,8 @@ def inspect_base(rpc, result):
                    sqrt_price_x96=str(price), liquidity=str(liquidity), runtime_sha256=code(pool),
                    status='IDENTITY_AND_ACTIVE_LIQUIDITY_OBSERVED' if liquidity else 'ZERO_ACTIVE_LIQUIDITY',
                    amount_specific_quote_qualified=False)
-    canonical = rpc.call('eth_getBlockByNumber', [anchor['number'], False])
-    require(isinstance(canonical, dict) and canonical.get('hash') == anchor['hash'], 'CANONICAL_BLOCK_CHANGED')
+    canonical = base_header(rpc.call('eth_getBlockByNumber', [anchor['number'], False]))
+    require(canonical == anchor, 'CANONICAL_BLOCK_CHANGED')
     result['canonical_recheck_passed'] = True
 
 

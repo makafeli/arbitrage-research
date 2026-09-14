@@ -51,7 +51,7 @@ class FakeBase:
         if method == 'eth_chainId': return '0x2105'
         if method == 'eth_getBlockByNumber':
             return {'hash': '0x' + ('ab' if params[0] == 'finalized' or self.canonical else 'cd')*32,
-                    'number': '0x123', 'timestamp': '0x456'}
+                    'number': '0x123', 'timestamp': '0x456', 'parentHash': '0x' + 'ef'*32}
         if method == 'eth_getCode': return '0x60006000'
         target = params[0]['to']; selector = params[0]['data'][:10]
         a = '0x' + '11'*20; b = '0x' + '22'*20
@@ -143,6 +143,59 @@ class ObservationTests(unittest.TestCase):
         r = p.observe('base-mainnet', FakeBase(False))
         self.assertEqual(r['status'],'BLOCKED'); self.assertEqual(r['reason'],'CANONICAL_BLOCK_CHANGED')
         self.assertFalse(r['production_qualified'])
+
+    def test_matching_hash_with_changed_header_blocks_report(self):
+        for field, changed in (('number', '0x124'), ('timestamp', '0x457'),
+                               ('parentHash', '0x' + 'cd'*32)):
+            with self.subTest(field=field):
+                rpc = FakeBase(); original = rpc.call
+                def call(method, params):
+                    response = original(method, params)
+                    if method == 'eth_getBlockByNumber' and params[0] != 'finalized':
+                        response[field] = changed
+                    return response
+                rpc.call = call
+                result = p.observe('base-mainnet', rpc)
+                self.assertEqual(result['status'], 'BLOCKED')
+                self.assertEqual(result['reason'], 'CANONICAL_BLOCK_CHANGED')
+                self.assertNotIn('canonical_recheck_passed', result)
+
+    def test_invalid_initial_or_final_header_never_passes_canonical_check(self):
+        invalid_fields = [('hash', None), ('parentHash', None), ('parentHash', '0x12'),
+                          ('number', None), ('number', '0x+123'), ('number', '0x0123'),
+                          ('number', '0x10000000000000000'), ('timestamp', None),
+                          ('timestamp', '0x+456'), ('timestamp', '0x0456'),
+                          ('timestamp', '0x10000000000000000')]
+        for phase in ('initial', 'final'):
+            for field, invalid in invalid_fields:
+                with self.subTest(phase=phase, field=field, invalid=invalid):
+                    rpc = FakeBase(); original = rpc.call
+                    def call(method, params):
+                        response = original(method, params)
+                        if method == 'eth_getBlockByNumber' and ((params[0] == 'finalized') == (phase == 'initial')):
+                            if invalid is None:
+                                response.pop(field)
+                            else:
+                                response[field] = invalid
+                        return response
+                    rpc.call = call
+                    result = p.observe('base-mainnet', rpc)
+                    self.assertEqual(result['status'], 'BLOCKED')
+                    self.assertNotIn('canonical_recheck_passed', result)
+                    if phase == 'initial':
+                        self.assertEqual(len(rpc.calls), 2)
+
+    def test_unrelated_header_fields_do_not_change_context_identity(self):
+        rpc = FakeBase(); original = rpc.call
+        def call(method, params):
+            response = original(method, params)
+            if method == 'eth_getBlockByNumber' and params[0] != 'finalized':
+                response['transactions'] = []
+            return response
+        rpc.call = call
+        result = p.observe('base-mainnet', rpc)
+        self.assertEqual(result['status'], 'OBSERVATIONS_COLLECTED')
+        self.assertTrue(result['canonical_recheck_passed'])
 
     def test_wrong_solana_identity_stops_before_accounts(self):
         rpc = FakeBase()

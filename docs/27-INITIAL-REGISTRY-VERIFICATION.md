@@ -35,7 +35,11 @@ capacity entitlement.
 ## What is verified
 
 Base sampling pins every code/state call to one finalized block hash with
-`requireCanonical: true`, then rechecks its canonical block number/hash. The
+`requireCanonical: true`, then rechecks its canonical block hash, number, parent
+hash and timestamp. Both headers require full 32-byte hashes and canonical
+unsigned 64-bit RPC quantities. A matching hash with contradictory or missing
+retained context is rejected; unrelated provider response fields do not change
+the comparison. The
 observer looks up two fee tiers (500 and 3000 millionths), checks the reverse
 factory link, exact USDC/WETH ordering, decimals, fee, spacing, unlocked price and
 active liquidity, and retains observed contract-code hashes and factory owner.
