@@ -42,6 +42,19 @@ for (const schema_version of ['1.0.0', '1.1.0']) {
     assert.equal(parseOpportunity({ ...captured, snapshot: { ...captured.snapshot, complete: false, consistent: false },
       eligibility_checks: { ...captured.eligibility_checks, state_fresh_and_coherent: false } }).evidence_label, 'CANDIDATE');
   });
+  test(`schema ${schema_version} a final balance guard is required for estimated execution, not simulation evidence`, () => {
+    const unguarded = { ...simulated, eligibility_checks: { ...simulated.eligibility_checks, final_balance_guard_present: false } };
+    assert.equal(parseOpportunity(unguarded).evidence_label, 'SIMULATED');
+    assert.equal(parseOpportunity(unguarded).eligibility_checks.final_balance_guard_present, false);
+    assert.throws(() => parseOpportunity({ ...unguarded, execution_plan_digest: null }), ApiError);
+    assert.throws(() => parseOpportunity({ ...unguarded, eligibility_checks: { ...unguarded.eligibility_checks, simulation_matches_exact_plan: false } }), ApiError);
+    assert.throws(() => parseOpportunity({ ...unguarded, snapshot: { ...unguarded.snapshot, complete: false } }), ApiError);
+    const estimated = { ...unguarded, evidence_label: 'ESTIMATED_EXECUTABLE', inclusion_scenario_id: 'retained-scenario',
+      net_after_explicit_costs_minor: fixture.net_after_explicit_costs_minor,
+      eligibility_checks: { ...unguarded.eligibility_checks, costs_complete: true, principal_and_fee_reservations_valid: true } };
+    assert.throws(() => parseOpportunity(estimated), ApiError);
+    assert.equal(parseOpportunity({ ...estimated, eligibility_checks: { ...estimated.eligibility_checks, final_balance_guard_present: true } }).evidence_label, 'ESTIMATED_EXECUTABLE');
+  });
   test(`schema ${schema_version} quote assumptions cannot contradict the displayed fee inclusion`, () => {
     assert.equal(parseOpportunity(captured).quoted_output_minor, fixture.quoted_output_minor);
     for (const quoted_output_includes_pool_fees_and_price_impact of [false, null, undefined, 'true']) {

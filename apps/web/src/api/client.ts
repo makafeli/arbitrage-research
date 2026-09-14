@@ -117,7 +117,7 @@ export function parseOpportunity(value: unknown): Opportunity {
     assert(string(native.asset_id) && uint(native.amount_minor) && count(native.decimals) && (native.decimals as number) <= 255);
   }
   assert(v.evidence_label !== 'REALIZED' || (v.mode === 'LIVE' && string(v.transaction_id) && v.finality_status !== 'NOT_APPLICABLE'));
-  assert(!['SIMULATED', 'ESTIMATED_EXECUTABLE'].includes(v.evidence_label as string) || (v.simulation_status === 'PASSED' && checks.simulation_matches_exact_plan && checks.atomic_route_supported && checks.final_balance_guard_present && string(v.execution_plan_digest) && snap.consistent && snap.complete), 'Simulation evidence requires a matching atomic plan and a complete, consistent snapshot.');
+  assert(!['SIMULATED', 'ESTIMATED_EXECUTABLE'].includes(v.evidence_label as string) || (v.simulation_status === 'PASSED' && checks.simulation_matches_exact_plan && checks.atomic_route_supported && string(v.execution_plan_digest) && snap.consistent && snap.complete), 'Simulation evidence requires a matching atomic plan and a complete, consistent snapshot.');
   assert(v.evidence_label !== 'ESTIMATED_EXECUTABLE' || (v.net_after_explicit_costs_minor !== null && Object.values(checks).every(x => x === true) && snap.consistent && snap.complete && string(v.inclusion_scenario_id)));
   return v as unknown as Opportunity;
 }
