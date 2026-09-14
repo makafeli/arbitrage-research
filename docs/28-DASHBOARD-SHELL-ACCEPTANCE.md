@@ -54,3 +54,58 @@ The failure report artifact 10350665443 was verified by SHA-256 before inspectio
 The same source's Rust/PostgreSQL/client-HTTP, specifications and all container
 jobs passed. Corrected-source results and screenshots must be checked separately;
 this record does not transfer that earlier green evidence to new source.
+
+## Accepted original scope: 14 September 2026
+
+PR #113 is merged as `f3bf4c0dca575e8730763957da2aecef6b3fa8a8`.
+Its tree `425699ff47805dd357afe9a0ac231e3a5115866c` exactly matches CI's
+synthetic merge `cac25cb367beaaf757bfbe3048fc2817b28118d1`, combining PR head
+`1de55d5125615f5b4cbf5a1f445ed9f33ce60b87` with main `6dce9c99`.
+Full project run 34854979450, Delivery 34854979611, Recovery 34854979496
+and Prepare Rust 34854979347 passed. The actual browser report has 91 passed
+with no skipped, failed or flaky cases, including all sixteen shell scenarios.
+
+The implementing root visually inspected eight shell screenshots (four widths,
+both themes), eight connected/disconnected screenshots and both committed
+reference PNGs. Panel geometry, theme hierarchy, visible provenance/mode and
+contained controls satisfy the original shell criteria. Browser artifact
+10352362455 has verified SHA-256
+`dfb348c74d72c1f12c11c8764d05a651a0e6a07c362c200a99e11d58978b1eff`.
+The intermediate connected-label strict-locator ambiguity was corrected by
+selecting the header label, without removing visibility assertions.
+
+[Source review](https://github.com/makafeli/arbitrage-research/pull/113#pullrequestreview-5198899886)
+and [tested-tree addendum](https://github.com/makafeli/arbitrage-research/pull/113#pullrequestreview-5198937543)
+record the reviewer and limits. CodeRabbit acknowledged the visual evidence and
+resolved its own thread; no independent accessibility certification is claimed.
+Original predecessors #19/#22 were read back as completed. The original native
+checklist was checked with criterion-specific evidence, and the existing
+`delivery.py closeout` returned `EVIDENCE_PACKET_CONSISTENT` before #50 was
+explicitly closed as completed at 14:35:04 UTC on 14 September 2026.
+
+The registry synchronization changes only ARB-036, preserving all other 67 task
+records and the original scope/dependency graph. #27 and broader data, campaign,
+provider and production requirements remain open. No new issue or deployment.
+
+## Canonical scenario population and historical count
+
+The accepted ARB-036 test population is **sixteen shell scenarios**, all within
+(not additional to) the **91 total passing browser scenarios** in run 34854979450.
+The original ticket still has **four acceptance criteria**. Criteria describe
+requirements; scenario counts describe how those requirements were tested.
+
+| Scenario group in shell-acceptance.spec.ts | Initial d957f609 | Accepted 1de55d51 | Retained screenshot group |
+|---|---:|---:|---|
+| Demo panel geometry, theme, all-view provenance and view-only filtering | 8: four widths x dark/light | The same 8 | Eight shell-{width}-{theme} images |
+| Theme and mode labels across Demo/disconnected transitions | 1 | 4: one per width | Four disconnected-{width}-light images |
+| Connected mode labels and view-only filtering | 1 | 4: one per width | Four connected-{width}-dark images |
+| Total | 10 | 16 | 16 images, one named attachment per accepted scenario |
+
+The additional six cases extend the two initially single-width scenarios to all
+four widths (320, 390, 768, 1440). They do not duplicate the original eight demo
+cases. The eight connected/disconnected images are the two final groups combined,
+not eight more shell tests on top of sixteen. Each demo scenario traverses all
+six original routes; its route checks do not count as six separate scenarios.
+The historical progress note is explicitly labelled with its initial source and
+mapped to this final population. No test, original criterion or dependency was
+removed to reconcile the numbers.
