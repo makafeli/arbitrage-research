@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{collections::HashSet, fmt, net::IpAddr};
 
+const MAX_CONFIGURATION_BYTES: usize = 1024 * 1024;
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ConfigError {
     pub field: String,
@@ -229,7 +231,7 @@ pub struct ValidatedConfig {
 impl ValidatedConfig {
     pub fn from_toml(input: &str) -> Result<Self, ConfigError> {
         require(
-            input.len() <= 1024 * 1024,
+            input.len() <= MAX_CONFIGURATION_BYTES,
             "configuration",
             "configuration exceeds 1 MiB input limit",
         )?;
@@ -246,7 +248,7 @@ impl ValidatedConfig {
     /// bind it to a capture; JSON shape alone never qualifies a configuration.
     pub fn from_effective_json(input: &str) -> Result<Self, ConfigError> {
         require(
-            input.len() <= 1024 * 1024,
+            input.len() <= MAX_CONFIGURATION_BYTES,
             "configuration",
             "configuration exceeds 1 MiB input limit",
         )?;
@@ -285,6 +287,13 @@ impl ValidatedConfig {
         // Struct fields have a fixed serialization order and no unordered maps.
         let effective_json = serde_json::to_string(&inner)
             .map_err(|_| error("configuration", "canonical serialization failed"))?;
+        // Escaping and effective defaults can grow a bounded input. A validated
+        // snapshot must also fit the read limit or it cannot be replayed/reloaded.
+        require(
+            effective_json.len() <= MAX_CONFIGURATION_BYTES,
+            "configuration",
+            "effective configuration exceeds 1 MiB snapshot limit",
+        )?;
         let digest = format!(
             "sha256:{}",
             Sha256::digest(effective_json.as_bytes())
@@ -1066,6 +1075,63 @@ mod tests {
         assert!(!error.to_string().contains("SECRET_TOKEN"));
         assert!(ValidatedConfig::from_effective_json(r#"{"mode":"offline-fixture"}"#).is_err());
         assert!(ValidatedConfig::from_effective_json(&" ".repeat(1024 * 1024 + 1)).is_err());
+    }
+
+    #[test]
+    fn canonical_snapshot_limit_rejects_toml_escape_expansion() {
+        // Literal tabs are one input byte but two bytes in the JSON snapshot.
+        // Previously this was accepted, then rejected when replay read the snapshot.
+        let path = format!("./{}captures", "\t".repeat(512 * 1024));
+        let input = EXAMPLE.replace(
+            "capture_directory = \"./data/captures\"",
+            &format!("capture_directory = '{path}'"),
+        );
+        assert!(input.len() < 1024 * 1024);
+        let error = ValidatedConfig::from_toml(&input)
+            .map(|_| ())
+            .expect_err("an unreloadable expanded snapshot must be rejected before registration");
+        assert_eq!(error.field, "configuration");
+        assert_eq!(
+            error.reason,
+            "effective configuration exceeds 1 MiB snapshot limit"
+        );
+        assert!(!error.to_string().contains(&path));
+    }
+
+    #[test]
+    fn canonical_snapshot_limit_rejects_effective_default_expansion() {
+        let original = ValidatedConfig::from_toml(EXAMPLE).unwrap();
+        let mut json: serde_json::Value = serde_json::from_str(original.effective_json()).unwrap();
+        json.as_object_mut().unwrap().remove("simulation");
+        json["storage"]["capture_directory"] = serde_json::json!("");
+        let overhead = json.to_string().len();
+        json["storage"]["capture_directory"] =
+            serde_json::json!("x".repeat(1024 * 1024 - overhead));
+        let input = json.to_string();
+        assert_eq!(input.len(), 1024 * 1024);
+        let error = ValidatedConfig::from_effective_json(&input)
+            .map(|_| ())
+            .expect_err("default expansion must not produce an unreloadable snapshot");
+        assert_eq!(error.field, "configuration");
+        assert_eq!(
+            error.reason,
+            "effective configuration exceeds 1 MiB snapshot limit"
+        );
+    }
+
+    #[test]
+    fn maximum_sized_canonical_snapshot_remains_reloadable() {
+        let original = ValidatedConfig::from_toml(EXAMPLE).unwrap();
+        let mut json: serde_json::Value = serde_json::from_str(original.effective_json()).unwrap();
+        json["storage"]["capture_directory"] = serde_json::json!("");
+        let overhead = json.to_string().len();
+        json["storage"]["capture_directory"] =
+            serde_json::json!("x".repeat(1024 * 1024 - overhead));
+        let config = ValidatedConfig::from_effective_json(&json.to_string()).unwrap();
+        assert_eq!(config.effective_json().len(), 1024 * 1024);
+        let reloaded = ValidatedConfig::from_effective_json(config.effective_json()).unwrap();
+        assert_eq!(reloaded.digest(), config.digest());
+        assert_eq!(reloaded.effective_json(), config.effective_json());
     }
 
     #[test]
