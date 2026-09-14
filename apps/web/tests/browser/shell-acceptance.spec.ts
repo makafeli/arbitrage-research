@@ -55,7 +55,7 @@ for (const width of [320, 390, 768, 1440]) {
   await page.getByRole('button', { name: 'Switch to light theme' }).click();
   await page.getByRole('button', { name: 'Connect API', exact: true }).click();
   await expect(page.locator('body')).toHaveClass(/light/);
-  await expect(page.getByText('CONNECTED MODE', { exact: true })).toBeVisible();
+  await expect(page.getByRole('banner').getByText('CONNECTED MODE', { exact: true })).toBeVisible();
   await testInfo.attach(`disconnected-${width}-light`, { body: await page.screenshot({ fullPage: true }), contentType: 'image/png' });
   await expect(page.getByText('LOCAL SYNTHETIC DEMO', { exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: 'Open demo', exact: true }).click();
@@ -63,7 +63,7 @@ for (const width of [320, 390, 768, 1440]) {
   await expect(page.locator('body')).toHaveClass(/light/);
   await page.getByRole('button', { name: 'Connect API', exact: true }).click();
   await page.getByRole('button', { name: 'Switch to dark theme' }).click();
-  await expect(page.getByText('CONNECTED MODE', { exact: true })).toBeVisible();
+  await expect(page.getByRole('banner').getByText('CONNECTED MODE', { exact: true })).toBeVisible();
   await expect(page.locator('body')).not.toHaveClass(/light/);
   await page.getByRole('button', { name: 'Open demo', exact: true }).click();
   await expect(page.locator('body')).not.toHaveClass(/light/);
@@ -89,7 +89,7 @@ for (const width of [320, 390, 768, 1440]) {
   await page.goto('/');
   await page.getByRole('button', { name: 'Connect API', exact: true }).click();
   await expect(page.getByText('API CONNECTED', { exact: true })).toBeVisible();
-  await expect(page.getByText('CONNECTED MODE', { exact: true })).toBeVisible();
+  await expect(page.getByRole('banner').getByText('CONNECTED MODE', { exact: true })).toBeVisible();
   await testInfo.attach(`connected-${width}-dark`, { body: await page.screenshot({ fullPage: true }), contentType: 'image/png' });
   await page.getByRole('combobox', { name: 'View chain' }).selectOption('base-mainnet');
   await expect(page.getByRole('region', { name: 'Session shell-base', exact: true })).toBeVisible();
