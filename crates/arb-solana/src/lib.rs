@@ -91,6 +91,11 @@ fn pubkey(bytes: &[u8]) -> String {
 fn u16_at(data: &[u8], offset: usize) -> u16 {
     u16::from_le_bytes([data[offset], data[offset + 1]])
 }
+fn u64_at(data: &[u8], offset: usize) -> u64 {
+    let mut b = [0; 8];
+    b.copy_from_slice(&data[offset..offset + 8]);
+    u64::from_le_bytes(b)
+}
 fn u128_at(data: &[u8], offset: usize) -> u128 {
     let mut b = [0; 16];
     b.copy_from_slice(&data[offset..offset + 16]);
@@ -432,8 +437,20 @@ fn decode_pool_accounts(
     let program_data = account_data(accounts[6], UPGRADEABLE_LOADER, false)?;
     if program_data.len() < 45
         || program_data[..4] != [3, 0, 0, 0]
-        || format!("sha256:{}", hex::encode(Sha256::digest(&program_data)))
-            != registry.program_data_sha256.to_lowercase()
+        || !matches!(program_data[12], 0 | 1)
+    {
+        return Err(AdapterError("unsupported Whirlpool program data layout"));
+    }
+    // The loader records the latest deployment/upgrade slot at bytes 4..12.
+    // A matching full-account digest cannot make later state valid in an older
+    // response context. This is an internal bound, not provider qualification.
+    if u64_at(&program_data, 4) > slot {
+        return Err(AdapterError(
+            "Whirlpool program data slot exceeds account context",
+        ));
+    }
+    if format!("sha256:{}", hex::encode(Sha256::digest(&program_data)))
+        != registry.program_data_sha256.to_lowercase()
     {
         return Err(AdapterError("Whirlpool program data hash mismatch"));
     }

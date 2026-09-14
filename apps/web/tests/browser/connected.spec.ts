@@ -117,6 +117,43 @@ test('captured rejected record exposes provenance and unknown costs, modal focus
   await page.keyboard.press('Escape'); await expect(inspect).toBeFocused();
 });
 
+test('incomplete simulated evidence fails the initial snapshot without a success badge', async ({ page }) => {
+  await stub(page, async (route, path) => {
+    if (path !== '/v1/opportunities') return false;
+    await route.fulfill({ json: { items: [{ ...opportunity, schema_version: '1.1.0', dataset_origin: 'RECORDED_LIVE',
+      net_after_explicit_costs_minor: null, evidence_label: 'SIMULATED', simulation_status: 'PASSED', execution_plan_digest: 'sha256:browser-plan',
+      snapshot: { ...opportunity.snapshot, complete: false }, eligibility_checks: { ...opportunity.eligibility_checks,
+        atomic_route_supported: true, final_balance_guard_present: true, simulation_matches_exact_plan: true } }], next_cursor: null } });
+    return true;
+  });
+  await expect(page.getByText('Service unavailable or request rejected.', { exact: true })).toBeVisible();
+  await expect(page.getByText('No service snapshot available', { exact: true })).toBeVisible();
+  await expect(page.getByText('Simulation evidence requires a matching atomic plan and a complete, consistent snapshot.', { exact: true })).toBeVisible();
+  await expect(page.getByText('SIMULATED', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('API CONNECTED', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Inspect browser-record-1', exact: true })).toHaveCount(0);
+});
+
+test('contradictory quote assumptions freeze the last valid snapshot until valid evidence returns', async ({ page }) => {
+  let record = opportunity;
+  await stub(page, async (route, path) => {
+    if (path !== '/v1/opportunities') return false;
+    await route.fulfill({ json: { items: [record], next_cursor: null } }); return true;
+  });
+  await expect(page.getByRole('button', { name: 'Inspect browser-record-1', exact: true })).toBeVisible();
+  record = { ...opportunity, opportunity_id: 'contradictory-record', quoted_output_includes_pool_fees_and_price_impact: false };
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await expect(page.getByText('STALE / LAST KNOWN', { exact: true })).toBeVisible();
+  await expect(page.getByText('Quoted output must include pool fees and price impact under the retained opportunity contract.', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Inspect browser-record-1', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Inspect contradictory-record', exact: true })).toHaveCount(0);
+  record = { ...opportunity, opportunity_id: 'recovered-valid-record' };
+  await page.getByRole('button', { name: 'Retry connection', exact: true }).click();
+  await expect(page.getByText('API CONNECTED', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Inspect recovered-valid-record', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Inspect browser-record-1', exact: true })).toHaveCount(0);
+});
+
 test('experiment creation is validated reference only and remains RECOVERING until worker evidence', async ({ page }) => {
   let request: unknown;
   await stub(page, async (route, path) => {
