@@ -3,7 +3,10 @@
 `ValidatedConfig::from_toml` loads the versioned research configuration with unknown
 fields rejected at every level. `from_effective_json` applies the same validation and
 canonicalization to a recorded snapshot without resolving credentials or contacting
-a provider. Both parsers reject input larger than 1 MiB. The shipped `config/research.example.toml` remains
+a provider. Both parsers reject input larger than 1 MiB and reject a canonical
+snapshot larger than 1 MiB after expanding defaults and JSON escapes. This keeps
+every accepted snapshot within the same limit when reloaded for replay. A snapshot
+of exactly 1 MiB remains accepted. The shipped `config/research.example.toml` remains
 valid and inert: both networks are disabled, allowlists are empty, live budgets are
 zero and signing/broadcast capabilities are unavailable.
 
