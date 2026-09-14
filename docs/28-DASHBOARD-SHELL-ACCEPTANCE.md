@@ -86,3 +86,26 @@ explicitly closed as completed at 14:35:04 UTC on 14 September 2026.
 The registry synchronization changes only ARB-036, preserving all other 67 task
 records and the original scope/dependency graph. #27 and broader data, campaign,
 provider and production requirements remain open. No new issue or deployment.
+
+## Canonical scenario population and historical count
+
+The accepted ARB-036 test population is **sixteen shell scenarios**, all within
+(not additional to) the **91 total passing browser scenarios** in run 34854979450.
+The original ticket still has **four acceptance criteria**. Criteria describe
+requirements; scenario counts describe how those requirements were tested.
+
+| Scenario group in shell-acceptance.spec.ts | Initial d957f609 | Accepted 1de55d51 | Retained screenshot group |
+|---|---:|---:|---|
+| Demo panel geometry, theme, all-view provenance and view-only filtering | 8: four widths x dark/light | The same 8 | Eight shell-{width}-{theme} images |
+| Theme and mode labels across Demo/disconnected transitions | 1 | 4: one per width | Four disconnected-{width}-light images |
+| Connected mode labels and view-only filtering | 1 | 4: one per width | Four connected-{width}-dark images |
+| Total | 10 | 16 | 16 images, one named attachment per accepted scenario |
+
+The additional six cases extend the two initially single-width scenarios to all
+four widths (320, 390, 768, 1440). They do not duplicate the original eight demo
+cases. The eight connected/disconnected images are the two final groups combined,
+not eight more shell tests on top of sixteen. Each demo scenario traverses all
+six original routes; its route checks do not count as six separate scenarios.
+The historical progress note is explicitly labelled with its initial source and
+mapped to this final population. No test, original criterion or dependency was
+removed to reconcile the numbers.
