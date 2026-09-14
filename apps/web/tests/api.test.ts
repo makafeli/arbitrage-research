@@ -27,6 +27,51 @@ test('connected data parser refuses synthetic records and impossible success evi
   assert.throws(() => parseOpportunity({ ...captured, evidence_label: 'REALIZED' }), ApiError);
   assert.throws(() => parseOpportunity({ ...captured, costs: [{ ...captured.costs[0], in_start_asset_minor: 0 }] }), ApiError);
 });
+for (const schema_version of ['1.0.0', '1.1.0']) {
+  const captured = { ...fixture, schema_version, source_kind: 'CAPTURED_MARKET_DATA', dataset_origin: 'RECORDED_LIVE',
+    net_after_explicit_costs_minor: schema_version === '1.1.0' ? null : fixture.net_after_explicit_costs_minor };
+  const simulated = { ...captured, evidence_label: 'SIMULATED', simulation_status: 'PASSED', execution_plan_digest: 'sha256:retained-plan',
+    eligibility_checks: { ...captured.eligibility_checks, simulation_matches_exact_plan: true, atomic_route_supported: true, final_balance_guard_present: true } };
+  test(`schema ${schema_version} simulated evidence requires a complete consistent snapshot`, () => {
+    assert.equal(parseOpportunity(simulated).evidence_label, 'SIMULATED');
+    for (const complete of [true, false]) for (const consistent of [true, false]) {
+      if (complete && consistent) continue;
+      assert.throws(() => parseOpportunity({ ...simulated, snapshot: { ...simulated.snapshot, complete, consistent } }), ApiError);
+    }
+    // Incomplete candidate observations remain useful rejection/data-quality evidence.
+    assert.equal(parseOpportunity({ ...captured, snapshot: { ...captured.snapshot, complete: false, consistent: false },
+      eligibility_checks: { ...captured.eligibility_checks, state_fresh_and_coherent: false } }).evidence_label, 'CANDIDATE');
+  });
+  test(`schema ${schema_version} a final balance guard is required for estimated execution, not simulation evidence`, () => {
+    const unguarded = { ...simulated, eligibility_checks: { ...simulated.eligibility_checks, final_balance_guard_present: false } };
+    assert.equal(parseOpportunity(unguarded).evidence_label, 'SIMULATED');
+    assert.equal(parseOpportunity(unguarded).eligibility_checks.final_balance_guard_present, false);
+    assert.throws(() => parseOpportunity({ ...unguarded, execution_plan_digest: null }), ApiError);
+    assert.throws(() => parseOpportunity({ ...unguarded, eligibility_checks: { ...unguarded.eligibility_checks, simulation_matches_exact_plan: false } }), ApiError);
+    assert.throws(() => parseOpportunity({ ...unguarded, snapshot: { ...unguarded.snapshot, complete: false } }), ApiError);
+    const estimated = { ...unguarded, evidence_label: 'ESTIMATED_EXECUTABLE', inclusion_scenario_id: 'retained-scenario',
+      net_after_explicit_costs_minor: fixture.net_after_explicit_costs_minor,
+      eligibility_checks: { ...unguarded.eligibility_checks, costs_complete: true, principal_and_fee_reservations_valid: true } };
+    assert.throws(() => parseOpportunity(estimated), ApiError);
+    assert.equal(parseOpportunity({ ...estimated, eligibility_checks: { ...estimated.eligibility_checks, final_balance_guard_present: true } }).evidence_label, 'ESTIMATED_EXECUTABLE');
+  });
+  test(`schema ${schema_version} quote assumptions cannot contradict the displayed fee inclusion`, () => {
+    assert.equal(parseOpportunity(captured).quoted_output_minor, fixture.quoted_output_minor);
+    for (const quoted_output_includes_pool_fees_and_price_impact of [false, null, undefined, 'true']) {
+      assert.throws(() => parseOpportunity({ ...captured, quoted_output_includes_pool_fees_and_price_impact }), ApiError);
+    }
+  });
+  test(`schema ${schema_version} research records cannot claim transaction finality`, () => {
+    for (const mode of ['OBSERVE', 'PAPER', 'REPLAY']) {
+      assert.equal(parseOpportunity({ ...captured, mode }).finality_status, 'NOT_APPLICABLE');
+      assert.throws(() => parseOpportunity({ ...captured, mode, transaction_id: 'claimed-transaction' }), ApiError);
+      for (const finality_status of ['PROVISIONAL', 'FINALIZED']) {
+        assert.throws(() => parseOpportunity({ ...captured, mode, finality_status }), ApiError);
+      }
+    }
+    assert.equal(parseOpportunity({ ...captured, mode: 'LIVE', evidence_label: 'REALIZED', transaction_id: 'retained-transaction', finality_status: 'FINALIZED' }).evidence_label, 'REALIZED');
+  });
+}
 test('authentication is same-origin, CSRF is attached to commands, retries preserve caller key and payload', async () => {
   const seen: { url: string; options: RequestInit }[] = [];
   const api = new ControlApi(async (url, options) => {
