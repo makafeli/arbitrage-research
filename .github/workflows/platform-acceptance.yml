@@ -20,7 +20,7 @@ jobs:
     timeout-minutes: 20
     services:
       postgres:
-        image: postgres:17.11
+        image: postgres:17.11@sha256:67f41722b7a8cbdb868a44a4995c846eddfdc2973bccb291ce937dce88ad5675
         env:
           POSTGRES_USER: arb_test
           POSTGRES_PASSWORD: isolated-test-only
@@ -63,9 +63,24 @@ jobs:
         run: |
           set -euo pipefail
           cargo test --locked -p control-api --lib 2>&1 | tee platform-evidence/api.log
-          cd platform-evidence
-          sha256sum SOURCE_COMMIT toolchain.txt host.json contracts.log api.log > SHA256SUMS
+      - name: Hash available evidence even when a preceding test fails
+        if: always()
+        run: |
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          import hashlib
+          root = Path('platform-evidence')
+          root.mkdir(exist_ok=True)
+          names = ['SOURCE_COMMIT', 'toolchain.txt', 'host.json', 'contracts.log', 'api.log']
+          entries = []
+          for name in names:
+              file = root / name
+              if file.is_file() and not file.is_symlink():
+                  entries.append(hashlib.sha256(file.read_bytes()).hexdigest() + '  ' + name + '\n')
+          (root / 'SHA256SUMS').write_text(''.join(entries))
+          PYCODE
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
         with:
           name: platform-contract-evidence
           path: platform-evidence/
