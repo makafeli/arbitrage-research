@@ -15,10 +15,9 @@ interface Snapshot { sessions: ApiPage<Session>; opportunities: ApiPage<Opportun
 interface PendingCommand { key: string; body: CommandRequest; receipt?: CommandReceipt; error?: string; sending: boolean; uncertain: boolean }
 const actions: Record<CommandAction, string> = { START: 'Start', PAUSE: 'Pause', RESUME: 'Resume', STOP: 'Stop' };
 
-export function ConnectedApp({ onDemo }: { onDemo: () => void }) {
+export function ConnectedApp({ onDemo, light, onToggleTheme }: { onDemo: () => void; light: boolean; onToggleTheme: () => void }) {
   const api = useRef(new ControlApi()).current;
   const [page, setPage] = useState<Page>('Overview');
-  const [light, setLight] = useState(document.body.classList.contains('light'));
   const [filter, setFilter] = useState<Network | 'all'>('all');
   const [authenticated, setAuthenticated] = useState(false);
   const [costAssessmentPending, setCostAssessmentPending] = useState(false);
@@ -42,7 +41,6 @@ export function ConnectedApp({ onDemo }: { onDemo: () => void }) {
   const title = useRef<HTMLHeadingElement>(null);
   const refreshTrigger = useRef<() => Promise<void>>(async () => {});
   const [tick, setTick] = useState(Date.now());
-  useEffect(() => { document.body.classList.toggle('light', light); }, [light]);
   useEffect(() => {
     mounted.current = true;
     const controller = new AbortController();
@@ -150,7 +148,7 @@ export function ConnectedApp({ onDemo }: { onDemo: () => void }) {
   const stoppable = allSessions.filter(s => availableActions(s).includes('STOP') && !commands[s.session_id]?.uncertain && !commands[s.session_id]?.sending && !(commands[s.session_id]?.receipt?.status === 'PENDING' && commands[s.session_id]?.body.action === 'STOP'));
   return <><a className="skip" href="#main">Skip to content</a><div className="shell">
     <aside className="sidebar"><div className="brand"><span className="brandmark" aria-hidden="true">↗</span>Arbitrage</div><div className="subbrand">RESEARCH WORKSPACE</div><p className="navlabel">Workspace</p><nav className="nav" aria-label="Primary navigation">{pages.map((name, i) => <button key={name} aria-current={page === name ? 'page' : undefined} onClick={() => navigate(name)}><span className="navindex" aria-hidden="true">0{i + 1}</span>{name}</button>)}</nav><div className="sidefoot"><strong>Research first</strong>Persisted service evidence.<br />Dataset origins stay explicit.</div></aside>
-    <div className="main"><header className="topbar"><div><strong>Private workspace</strong><small>Same-origin research control API</small></div><div className="topactions"><span className="pill blue">CONNECTED MODE</span><button onClick={onDemo} disabled={unresolvedRequest} aria-describedby={unresolvedRequest ? 'unresolved-mode-note' : undefined}>Open demo</button><button onClick={() => setLight(v => !v)} aria-label={`Switch to ${light ? 'dark' : 'light'} theme`}>{light ? 'Dark' : 'Light'} theme</button>{authenticated && <button onClick={() => { void logout(); }}>Sign out</button>}</div></header>
+    <div className="main"><header className="topbar"><div><strong>Private workspace</strong><small>Same-origin research control API</small></div><div className="topactions"><span className="pill blue">CONNECTED MODE</span><button onClick={onDemo} disabled={unresolvedRequest} aria-describedby={unresolvedRequest ? 'unresolved-mode-note' : undefined}>Open demo</button><button onClick={onToggleTheme} aria-label={`Switch to ${light ? 'dark' : 'light'} theme`}>{light ? 'Dark' : 'Light'} theme</button>{authenticated && <button onClick={() => { void logout(); }}>Sign out</button>}</div></header>
       <main id="main" className="workspace"><div className="demo connected-banner"><strong>CONNECTED MODE</strong><span>Records and acknowledgements come from the API. Returning to the demo or closing this page does not stop workers.</span></div>
         {unresolvedRequest && <p id="unresolved-mode-note" className="notice">An unresolved request is retained in this Connected workspace. Mode switching is disabled until its outcome is reconciled. Reloading or closing the page discards the local retry key; inspect authoritative records before creating equivalent work.</p>}<div className="pagehead"><div><p className="eyebrow">Research / {page}</p><h1 ref={title} tabIndex={-1}>{page === 'Overview' ? 'Connected research overview' : page}</h1><p className="subtitle">Inspect evidence and control each immutable research session.</p></div><div className="filter"><label htmlFor="connected-chain">View chain</label><select id="connected-chain" value={filter} onChange={event => setFilter(event.target.value as Network | 'all')} aria-describedby="connected-filter-note"><option value="all">All chains</option><option value="solana-mainnet">Solana</option><option value="base-mainnet">Base</option></select><p className="scope-note" id="connected-filter-note">View filter only. Stop controls retain their explicitly named session scope.</p></div></div>
         {error && <div className="notice error-notice" role="alert"><strong>{snapshot ? 'Connection degraded. Last known snapshot retained.' : 'Service unavailable or request rejected.'}</strong><p>{error}</p><p>No synthetic records have been substituted.</p>{authenticated && <button className="space-top" disabled={refreshing} onClick={() => { void refreshTrigger.current(); }}>Retry connection</button>}</div>}

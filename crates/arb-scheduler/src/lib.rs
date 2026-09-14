@@ -4,12 +4,14 @@
 //! `dispatch`; Tokio ingestion uses capacity-nonblocking `try_enqueue` admission.
 //! The durable control worker must still validate its generation token before
 //! accepting a result. Cancellation here is cooperative, never thread abortion.
+pub mod telemetry;
+
 use arb_domain::NetworkId;
 use std::{
     collections::{HashMap, VecDeque},
     fmt,
     sync::{
-        Arc, Mutex,
+        Arc, Mutex, TryLockError,
         atomic::{AtomicBool, Ordering},
     },
     time::{Duration, Instant},
@@ -416,40 +418,21 @@ impl<T, G: Copy + Eq> Scheduler<T, G> {
         Ok(selected)
     }
 
-    /// Fixed cardinality: always exactly two networks × six stages. Correlation
-    /// IDs stay with individual work/results, never become time-series labels.
+    /// Fixed cardinality: always exactly two networks × six stages. The
+    /// bounded pass never copies payloads or exports correlation IDs as labels.
     pub fn snapshot(&self, now: Instant) -> Result<Vec<StageSnapshot>, SchedulerError> {
         let state = self.state.lock().map_err(|_| SchedulerError::Poisoned)?;
-        Ok(NETWORKS
-            .into_iter()
-            .enumerate()
-            .flat_map(|(index, network)| {
-                Stage::ALL
-                    .into_iter()
-                    .map(move |stage| (index, network, stage))
-            })
-            .map(|(index, network, stage)| {
-                let queued = state.queues[index]
-                    .iter()
-                    .filter(|queued| queued.item.stage == stage)
-                    .collect::<Vec<_>>();
-                StageSnapshot {
-                    network,
-                    stage,
-                    queued: queued.len(),
-                    in_flight: state
-                        .running
-                        .values()
-                        .filter(|running| running.network == index && running.stage == stage)
-                        .count(),
-                    oldest_queue_age: queued
-                        .iter()
-                        .map(|queued| now.saturating_duration_since(queued.enqueued_at))
-                        .max(),
-                    counters: state.counters[index][stage.index()],
-                }
-            })
-            .collect())
+        Ok(snapshot_state(&state, now))
+    }
+
+    /// Operational telemetry must not wait for a scheduling/control lock.
+    /// None means the sample was missed through contention, not an empty queue.
+    pub fn try_snapshot(&self, now: Instant) -> Result<Option<Vec<StageSnapshot>>, SchedulerError> {
+        match self.state.try_lock() {
+            Ok(state) => Ok(Some(snapshot_state(&state, now))),
+            Err(TryLockError::WouldBlock) => Ok(None),
+            Err(TryLockError::Poisoned(_)) => Err(SchedulerError::Poisoned),
+        }
     }
 
     fn complete(
@@ -481,6 +464,66 @@ impl<T, G: Copy + Eq> Scheduler<T, G> {
                 Ok(Ok(()))
             }
         }
+    }
+}
+
+// Exactly twelve fixed-size stage records and one pass over each bounded
+// queue/running set. No per-item Vec allocation occurs while holding the lock.
+fn snapshot_state<T, G>(state: &State<T, G>, now: Instant) -> Vec<StageSnapshot> {
+    let mut rows: Vec<_> = NETWORKS
+        .into_iter()
+        .enumerate()
+        .flat_map(|(index, network)| {
+            Stage::ALL.into_iter().map(move |stage| StageSnapshot {
+                network,
+                stage,
+                queued: 0,
+                in_flight: 0,
+                oldest_queue_age: None,
+                counters: state.counters[index][stage.index()],
+            })
+        })
+        .collect();
+    for (index, queue) in state.queues.iter().enumerate() {
+        for queued in queue {
+            let row = &mut rows[index * Stage::ALL.len() + queued.item.stage.index()];
+            row.queued += 1;
+            let age = now.saturating_duration_since(queued.enqueued_at);
+            row.oldest_queue_age = Some(row.oldest_queue_age.map_or(age, |old| old.max(age)));
+        }
+    }
+    for running in state.running.values() {
+        rows[running.network * Stage::ALL.len() + running.stage.index()].in_flight += 1;
+    }
+    rows
+}
+
+#[cfg(test)]
+mod telemetry_contention_tests {
+    use super::*;
+
+    #[test]
+    fn exporter_skips_an_occupied_scheduler_lock_without_waiting() {
+        let scheduler = Scheduler::<u64, u64>::new(Limits {
+            queue_per_network: 2,
+            in_flight_per_network: 1,
+            global_in_flight: 2,
+            stage_deadlines: [Duration::from_secs(1); 6],
+        })
+        .unwrap();
+        let (mut publisher, receiver) = telemetry::channel(1).unwrap();
+        let guard = scheduler.state.lock().unwrap();
+        assert_eq!(
+            publisher.try_publish(&scheduler, Instant::now()).unwrap(),
+            telemetry::PublishOutcome::SchedulerBusy
+        );
+        assert!(receiver.try_recv().is_err());
+        drop(guard);
+        assert_eq!(
+            publisher.try_publish(&scheduler, Instant::now()).unwrap(),
+            telemetry::PublishOutcome::Published
+        );
+        assert_eq!(receiver.try_recv().unwrap().missed_samples, 1);
     }
 }
 
