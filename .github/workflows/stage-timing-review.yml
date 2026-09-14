@@ -34,6 +34,7 @@ jobs:
       - name: Run scheduler regressions and explicit synthetic timing profile
         run: |
           cargo test --locked -p arb-scheduler
+          cargo test --locked -p research-worker --bin research-worker stage_metrics
           cargo run --locked -p arb-scheduler --example timing_profile > timing-evidence/profile.json
           cd timing-evidence
           sha256sum profile.json host.json SOURCE_COMMIT rust-toolchain.txt > SHA256SUMS
