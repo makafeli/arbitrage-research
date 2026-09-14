@@ -1,0 +1,331 @@
+{
+  "schema_version": 1,
+  "kind": "ARB003_IDENTITY_INVENTORY_NOT_RUNTIME_REGISTRY",
+  "review_date": "2026-09-14",
+  "scope": "INITIAL_NETWORK_ASSET_POOL_IDENTITIES_ONLY",
+  "runtime_activation": false,
+  "execution_authorized": false,
+  "production_qualified": false,
+  "same_venue_routes_permitted_in_scope": true,
+  "unsupported_scope": [
+    "Sushi",
+    "Raydium",
+    "Token-2022/extensions",
+    "adaptive fees",
+    "fee-on-transfer/rebasing tokens",
+    "additional networks/assets"
+  ],
+  "risk_notes": [
+    "USDC issuer mint/freeze/blacklist and proxy upgrade controls are not disabled by identity acceptance.",
+    "Whirlpool is upgradeable; observed code fingerprints are not reproducible-build attestations.",
+    "Pool state/liquidity and authorities are historical observations, not perpetual eligibility.",
+    "Wrapping/unwrapping, complete tick coverage, costs and atomic simulation require later gates."
+  ],
+  "primary_references_reviewed": [
+    "https://developers.uniswap.org/docs/protocols/v3/deployments/v3-base-deployments",
+    "https://developers.circle.com/stablecoins/usdc-contract-addresses",
+    "https://github.com/orca-so/whirlpools",
+    "https://solana.com/docs/tokens/basics/sync-native",
+    "https://docs.anza.xyz/clusters/available",
+    "https://github.com/circlefin/stablecoin-evm"
+  ],
+  "chains": [
+    {
+      "network_id": "base-mainnet",
+      "chain_identity": {
+        "chain_id": 8453
+      },
+      "observed_from_utc": "2026-09-14T20:22:53.939935+00:00",
+      "observed_until_utc": "2026-09-14T20:23:07.793750+00:00",
+      "context": {
+        "hash": "0x122aa3fb2222e4e392a20e3e663afc2bbc5dd4cf65c061d6bacfeb8d185d58d3",
+        "number": "0x30ef874",
+        "timestamp": "0x6aa84dcb",
+        "parentHash": "0x288e3c404c14473beb5a9db33508b03c8eeb444001d3323954647974b8cfa563"
+      },
+      "venue": {
+        "protocol": "uniswap-v3",
+        "identity": {
+          "network_id": "base-mainnet",
+          "address": "0x33128a8fc17869897dce68ed026d694621f6fdfd"
+        },
+        "observed_runtime_sha256": "sha256:8545609892cc8d7d608dd4420ee110ab98448730570824fb029228e33846d28c",
+        "observed_factory_owner": {
+          "network_id": "base-mainnet",
+          "address": "0xabea76658b205696d49b5f91b2a03536cb8a3be1"
+        }
+      },
+      "assets": [
+        {
+          "identity": {
+            "network_id": "base-mainnet",
+            "address": "0x4200000000000000000000000000000000000006"
+          },
+          "decimals": 18,
+          "observed_runtime_sha256": "sha256:667c900c2c6da80d452501a9c6332e046384a0c438c3334ce6f71c86dd7b8735",
+          "transfer_behavior_qualified": false
+        },
+        {
+          "identity": {
+            "network_id": "base-mainnet",
+            "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"
+          },
+          "decimals": 6,
+          "observed_runtime_sha256": "sha256:98d785fcb1bf847f287adc2310759fd94cc13e754b974bc72131382e8266f607",
+          "transfer_behavior_qualified": false
+        }
+      ],
+      "pools": [
+        {
+          "identity": {
+            "network_id": "base-mainnet",
+            "address": "0xd0b53d9277642d899df5c87a3966a349a798f224"
+          },
+          "assets": [
+            {
+              "network_id": "base-mainnet",
+              "address": "0x4200000000000000000000000000000000000006"
+            },
+            {
+              "network_id": "base-mainnet",
+              "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"
+            }
+          ],
+          "fee_millionths": 500,
+          "tick_spacing": 10,
+          "active_liquidity_at_observation": "1040660228053491834",
+          "liquidity_suitability": "NONZERO_AT_OBSERVATION_NOT_SIZE_SPECIFIC",
+          "amount_specific_quote_qualified": false,
+          "observed_runtime_sha256": "sha256:0d14cff6e9be9c1cf4ff7a4856a44e5d17b8a92db7e1f41f2fb5e73ad8b5419a"
+        },
+        {
+          "identity": {
+            "network_id": "base-mainnet",
+            "address": "0x6c561b446416e1a00e8e93e221854d6ea4171372"
+          },
+          "assets": [
+            {
+              "network_id": "base-mainnet",
+              "address": "0x4200000000000000000000000000000000000006"
+            },
+            {
+              "network_id": "base-mainnet",
+              "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"
+            }
+          ],
+          "fee_millionths": 3000,
+          "tick_spacing": 60,
+          "active_liquidity_at_observation": "30803223731147198624",
+          "liquidity_suitability": "NONZERO_AT_OBSERVATION_NOT_SIZE_SPECIFIC",
+          "amount_specific_quote_qualified": false,
+          "observed_runtime_sha256": "sha256:12f908ada2e959c8cef9850b3013126585b5656628a4c8880b0a7897bc64a4ee"
+        }
+      ],
+      "two_distinct_identity_candidates_observed": true,
+      "two_pool_experiments_authorized": false,
+      "source_evidence": "docs/qualification-fixtures/base-identity-2026-09-14.json",
+      "source_provenance": {
+        "workflow_run": 34892533716,
+        "artifact_id": 10368035396,
+        "source_sha": "bc9b8777b24b6882bfc948be6e07fa3220642b27",
+        "archive_sha256": "ae0a20af0cd6dadead1277c817814c75cc9cc9c667f2b85e9403edbdc32a3528",
+        "original_report_sha256": "29a70af5262cfc204f1e89c6110f859ea46afc2888f8a1421d0aef5ac5c2d0f9",
+        "raw_responses_retained": false,
+        "request_count": 27,
+        "pinned_state_reads": 24,
+        "artifact_expires_at_utc": "2026-10-14T20:23:08Z"
+      }
+    },
+    {
+      "network_id": "solana-mainnet",
+      "chain_identity": {
+        "genesis_hash": "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d"
+      },
+      "observed_from_utc": "2026-09-14T11:44:10.007727+00:00",
+      "observed_until_utc": "2026-09-14T11:44:16.018827+00:00",
+      "context": {
+        "discovery_slot": "446968176",
+        "account_batch_slot": "446968178"
+      },
+      "venue": {
+        "protocol": "orca-whirlpool-static-fee",
+        "identity": {
+          "network_id": "solana-mainnet",
+          "address": "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc"
+        },
+        "program_data": {
+          "network_id": "solana-mainnet",
+          "address": "CtXfPzz36dH5Ws4UYKZvrQ1Xqzn42ecDW6y8NKuiN8nD"
+        },
+        "observed_program_data_sha256": "sha256:b5ee20ce8a99d4f111e408b4a6e610accb9637089a568db116de9e4658048fa0",
+        "observed_elf_sha256": "sha256:610b1e394973bd1b86de8afc983524bd21dea177e87bfae75ec289d4c350f9ae",
+        "last_upgrade_slot": "440170207",
+        "upgrade_authority": {
+          "network_id": "solana-mainnet",
+          "address": "GwH3Hiv5mACLX3ufTw1pFsrhSPon5tdw252DBs4Rx4PV"
+        }
+      },
+      "assets": [
+        {
+          "identity": {
+            "network_id": "solana-mainnet",
+            "address": "So11111111111111111111111111111111111111112"
+          },
+          "decimals": 9,
+          "token_program": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "observed_account_sha256": "sha256:b0f919425a529f4971ef8dabd535aec34947d5c8c4885df80dae91635b98c5f3",
+          "mint_authority": null,
+          "freeze_authority": null
+        },
+        {
+          "identity": {
+            "network_id": "solana-mainnet",
+            "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+          },
+          "decimals": 6,
+          "token_program": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "observed_account_sha256": "sha256:12cb118137128a3613d76bf16668e121c8e485d125fdb53df0d542d25d2f252a",
+          "mint_authority": "BJE5MMbqXjVwjAF7oxwPYXnTXDyspzZyt4vwenNw5ruG",
+          "freeze_authority": "7dGbd2QZcCKcTndnHcTL8q7SMVXAkp688NTQYwrRCrar"
+        }
+      ],
+      "pools": [
+        {
+          "identity": {
+            "network_id": "solana-mainnet",
+            "address": "Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE"
+          },
+          "assets": [
+            {
+              "network_id": "solana-mainnet",
+              "address": "So11111111111111111111111111111111111111112"
+            },
+            {
+              "network_id": "solana-mainnet",
+              "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+            }
+          ],
+          "fee_millionths": 400,
+          "tick_spacing": 4,
+          "active_liquidity_at_observation": "875355325694056",
+          "liquidity_suitability": "NONZERO_AT_OBSERVATION_NOT_SIZE_SPECIFIC",
+          "amount_specific_quote_qualified": false,
+          "whirlpools_config": {
+            "network_id": "solana-mainnet",
+            "address": "2LecshUwdy9xi7meFgHtFJQNSKk4KdTrcpvaB56dP2NQ"
+          },
+          "observed_account_sha256": "sha256:c4bf4a8a3cf106dc4b8c35c8a10414a25fbb03a94c13cbc6879d524b37c69d8d",
+          "observed_config_sha256": "sha256:8b147b1ce32260df4d1015a9bec231d0b767334925b0f5e53a8948afbbcfa665",
+          "vaults": [
+            {
+              "identity": {
+                "network_id": "solana-mainnet",
+                "address": "EUuUbDcafPrmVTD5M6qoJAoyyNbihBhugADAxRMn5he9"
+              },
+              "mint": {
+                "network_id": "solana-mainnet",
+                "address": "So11111111111111111111111111111111111111112"
+              },
+              "owner": {
+                "network_id": "solana-mainnet",
+                "address": "Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE"
+              },
+              "balance_minor_at_observation": "124241703282747",
+              "observed_account_sha256": "sha256:f3bedc5e704bfb39ee3112e3a18f58d23c6ebd32c5d43b63055f2b61e2e61851"
+            },
+            {
+              "identity": {
+                "network_id": "solana-mainnet",
+                "address": "2WLWEuKDgkDUccTpbwYp1GToYktiSB1cXvreHUwiSUVP"
+              },
+              "mint": {
+                "network_id": "solana-mainnet",
+                "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+              },
+              "owner": {
+                "network_id": "solana-mainnet",
+                "address": "Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE"
+              },
+              "balance_minor_at_observation": "11642335091491",
+              "observed_account_sha256": "sha256:1c612e184bcef2f761854969c2c43a0d26fe9fc151bdd88f37edc0c58cee0cfe"
+            }
+          ]
+        },
+        {
+          "identity": {
+            "network_id": "solana-mainnet",
+            "address": "FpCMFDFGYotvufJ7HrFHsWEiiQCGbkLCtwHiDnh7o28Q"
+          },
+          "assets": [
+            {
+              "network_id": "solana-mainnet",
+              "address": "So11111111111111111111111111111111111111112"
+            },
+            {
+              "network_id": "solana-mainnet",
+              "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+            }
+          ],
+          "fee_millionths": 200,
+          "tick_spacing": 2,
+          "active_liquidity_at_observation": "842284465926",
+          "liquidity_suitability": "NONZERO_AT_OBSERVATION_NOT_SIZE_SPECIFIC",
+          "amount_specific_quote_qualified": false,
+          "whirlpools_config": {
+            "network_id": "solana-mainnet",
+            "address": "2LecshUwdy9xi7meFgHtFJQNSKk4KdTrcpvaB56dP2NQ"
+          },
+          "observed_account_sha256": "sha256:424d30dabc3445cf897ce9c5346bcd08ef9d52acc3b3e16e464f312dbcaa38ec",
+          "observed_config_sha256": "sha256:8b147b1ce32260df4d1015a9bec231d0b767334925b0f5e53a8948afbbcfa665",
+          "vaults": [
+            {
+              "identity": {
+                "network_id": "solana-mainnet",
+                "address": "6mQ8xEaHdTikyMvvMxUctYch6dUjnKgfoeib2msyMMi1"
+              },
+              "mint": {
+                "network_id": "solana-mainnet",
+                "address": "So11111111111111111111111111111111111111112"
+              },
+              "owner": {
+                "network_id": "solana-mainnet",
+                "address": "FpCMFDFGYotvufJ7HrFHsWEiiQCGbkLCtwHiDnh7o28Q"
+              },
+              "balance_minor_at_observation": "452510492810",
+              "observed_account_sha256": "sha256:c4429f1e93788479af5d6e5db0c64c120c74d4712dfebb3b16c850c1fa38c2f4"
+            },
+            {
+              "identity": {
+                "network_id": "solana-mainnet",
+                "address": "AQ36QRk3HAe6PHqBCtKTQnYKpt2kAagq9YoeTqUPMGHx"
+              },
+              "mint": {
+                "network_id": "solana-mainnet",
+                "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+              },
+              "owner": {
+                "network_id": "solana-mainnet",
+                "address": "FpCMFDFGYotvufJ7HrFHsWEiiQCGbkLCtwHiDnh7o28Q"
+              },
+              "balance_minor_at_observation": "87427618515",
+              "observed_account_sha256": "sha256:758a8392b65b1ccc16bb1022aedcab423208134accc1856089f917cc096ce3b3"
+            }
+          ]
+        }
+      ],
+      "two_distinct_identity_candidates_observed": true,
+      "two_pool_experiments_authorized": false,
+      "source_evidence": "docs/qualification-fixtures/solana-identity-2026-09-14.json",
+      "source_provenance": {
+        "workflow_run": 34839690433,
+        "artifact_id": 10345572213,
+        "source_sha": "5370a07a23959958966668acc31da2df7b037f75",
+        "archive_sha256": "09c8b955f569a11c3ddd0322cc1a6959f9d9aef28957179271a76e91732c8238",
+        "original_report_sha256": "537936bf3042090b820bdea0ea04865d36d84d3bcba8c308ca54e035251d0184",
+        "raw_responses_retained": true,
+        "request_count": 4,
+        "artifact_expires_at_utc": "2026-10-14T11:44:16Z"
+      }
+    }
+  ]
+}

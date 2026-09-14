@@ -1,0 +1,37 @@
+name: Initial identity inventory review
+on:
+  pull_request:
+    paths:
+      - 'docs/registries/**'
+      - 'docs/qualification-fixtures/*-identity-2026-09-14.json'
+      - 'scripts/build_identity_inventory.py'
+      - 'scripts/test_identity_inventory.py'
+      - 'scripts/inspect_pool_candidates.py'
+      - 'crates/arb-registry/**'
+      - 'docs/EPIC-01-HANDOFF.md'
+      - '.github/workflows/identity-inventory-review.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'docs/registries/**'
+      - 'docs/qualification-fixtures/*-identity-2026-09-14.json'
+      - 'scripts/build_identity_inventory.py'
+      - 'scripts/test_identity_inventory.py'
+      - 'scripts/inspect_pool_candidates.py'
+      - 'crates/arb-registry/**'
+      - 'docs/EPIC-01-HANDOFF.md'
+      - '.github/workflows/identity-inventory-review.yml'
+permissions:
+  contents: read
+jobs:
+  inventory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Reproduce the reviewed inventory without provider access
+        run: |
+          python3 scripts/build_identity_inventory.py --check
+          python3 scripts/test_identity_inventory.py -v

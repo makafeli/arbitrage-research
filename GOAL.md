@@ -29,6 +29,18 @@ Root integration owns shared manifests, lockfiles, CI, publication and final acc
 
 ## Current delivery checkpoint
 
+### Initial identity closeout evidence
+
+The owner-supplied Base run34892533716 succeeded with27 read-only requests on
+14 September 2026. The former access blocker is resolved for this sample.
+The [reviewed identity inventory](docs/registries/initial-identities.json) combines
+two Base and two Solana candidates with exact source/context provenance.
+[EPIC-01 acceptance](docs/EPIC-01-HANDOFF.md) maps the original criteria and
+remaining downstream limits; native #16/#2 state records actual closure.
+This is an identity catalogue, not an enabled runtime registry or campaign.
+
+### Historical implementation checkpoint
+
 The 14 September continuation reconciled main at
 `b24ed4c4a9d76aadbdef1522f2c6dc1858e2191a` before dispatch. That baseline includes
 the capture audit/export work (#105/#109), descriptive comparisons (#106),
@@ -81,7 +93,7 @@ The [chain-time and support cohort](docs/20-CHAIN-TIME-AND-SUPPORT-VERIFICATION.
 
 ## External prerequisites
 
-Provider accounts, spending limits, actual pool qualification and RPC spending limits have not been supplied. Railway is the selected deployment platform, confirmed by the user on 12 September 2026. The existing production project/environment is identified in docs/21-RAILWAY-DEPLOYMENT-VERIFICATION.md; do not ask to provision it again. This continuation has no authenticated Railway administrative connection and does not infer a new deployment from green GitHub CI. Development proceeds locally and in CI without purchasing services. Credentials belong in the deployment secret mechanism, never tickets, browser storage or committed configuration.
+The owner supplied an existing Base endpoint through ARB_BASE_RPC_URL; workflow34892533716 verified read-only access. The reviewed identity inventory addresses the original ARB-003 identity scope. Sustained provider quotas, additional paid spending approval, size-specific quote qualification and actual campaign readiness remain separate requirements. Railway is the selected deployment platform, confirmed by the user on 12 September 2026. The existing production project/environment is identified in docs/21-RAILWAY-DEPLOYMENT-VERIFICATION.md; do not ask to provision it again. This continuation has no authenticated Railway administrative connection and does not infer a new deployment from green GitHub CI. Development proceeds locally and in CI without purchasing services. Credentials belong in the deployment secret mechanism, never tickets, browser storage or committed configuration.
 
 Actual observation campaigns require elapsed market data; comparative profitability claims require those results and complete costs. Independent review, release approval, funded live pilots and account operations retain their specified gates. No signing or broadcasting capability is included in the research build. Describing later live tickets does not approve a deployment or trade.
 
