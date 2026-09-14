@@ -28,7 +28,7 @@ is introduced. ARB-006/#19 and ARB-008/#22 are the original dependency gates.
 ## Verification and limits
 
 `npm run build`, `npm test`, and `npm run test:browser` run in the existing Node24
-CI environment. Ten added browser scenarios cover both themes at four widths,
+CI environment. Sixteen added browser scenarios cover both themes at four widths,
 mode-switch theme continuity and connected view-only filtering. The existing
 suite supplies further lifecycle, service-error, command-acknowledgment, desktop
 and narrow-layout coverage. Screenshots and typed/service-backed checks must be
@@ -39,3 +39,18 @@ The implementing assistant is the named root reviewer, not an independent UI
 engineer or automated accessibility auditor. This ticket does not certify WCAG,
 all screen readers, real provider evidence or full acceptance of every dashboard
 feature. Final source/review/CI and native closure evidence are attached to #50.
+
+## Resume correction: compact mode labels
+
+The initial PR source `d957f609` ran 83 browser scenarios: 79 passed and four
+failed at 320/390 pixels in both themes. The original compact stylesheet hid
+every `.topactions .pill`, including PAPER MODE DEMO and CONNECTED MODE. The
+visibility assertions correctly caught a real shell defect; they are retained.
+The hiding rule is removed, while existing flex wrapping handles narrow widths.
+Transition and authenticated view-only filter tests now run at all four widths,
+so both modes retain labels without changing session or authorization state.
+
+The failure report artifact 10350665443 was verified by SHA-256 before inspection.
+The same source's Rust/PostgreSQL/client-HTTP, specifications and all container
+jobs passed. Corrected-source results and screenshots must be checked separately;
+this record does not transfer that earlier green evidence to new source.

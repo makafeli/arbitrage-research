@@ -151,7 +151,7 @@ h1{font-size:27px}
 .workspace{padding:17px}
 .topbar{padding:14px 17px;gap:8px}
 .topactions{gap:7px}
-.topactions .pill{display:none}
+/* Research mode and source labels remain visible at every viewport width. */
 .pagehead{flex-direction:column;gap:16px}
 .filter{display:flex;align-items:center;gap:12px;width:100%}
 .filter label{margin:0}
