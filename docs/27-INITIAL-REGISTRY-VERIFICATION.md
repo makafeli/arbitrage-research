@@ -35,7 +35,11 @@ capacity entitlement.
 ## What is verified
 
 Base sampling pins every code/state call to one finalized block hash with
-`requireCanonical: true`, then rechecks its canonical block number/hash. The
+`requireCanonical: true`, then rechecks its canonical block hash, number, parent
+hash and timestamp. Both headers require full 32-byte hashes and canonical
+unsigned 64-bit RPC quantities. A matching hash with contradictory or missing
+retained context is rejected; unrelated provider response fields do not change
+the comparison. The
 observer looks up two fee tiers (500 and 3000 millionths), checks the reverse
 factory link, exact USDC/WETH ordering, decimals, fee, spacing, unlocked price and
 active liquidity, and retains observed contract-code hashes and factory owner.
@@ -88,10 +92,25 @@ per account, still within a 24-MiB network budget. Source:
 https://solana.com/docs/core/accounts
 
 `--network solana-mainnet` isolates the follow-up and never retries the refused
-Base endpoint. Only a user-authored push on this scoped feature branch with the
-exact commit message `Collect bounded Solana registry evidence` opts into that
-one-shot follow-up. Normal synchronization commits run offline checks only.
+Base endpoint. Only a user-authored push on the original scoped feature branch
+with the exact commit message `Collect bounded Solana registry evidence` or an
+explicit manual `Initial registry evidence` workflow dispatch opts into an
+observation. Manual dispatch selects `solana-mainnet`, `base-mainnet` or `both`;
+it defaults to Solana and must remain within the operator's authorized provider
+scope. Opening or synchronizing an ordinary PR runs offline checks only.
 This is an explicit CI invocation, not an unattended collector or agent runner.
+
+The previous workflow also collected both networks whenever an eligible PR was
+opened. Opening correction PR #118 therefore triggered one additional bounded
+observation in run 34851153114 at 13:45 UTC on 14 September 2026, despite the
+correction's intended offline scope. The job reported Base `BLOCKED` and Solana
+`OBSERVATIONS_COLLECTED`; neither is qualification. Its artifact is
+`10351476310`, SHA-256
+`34111cb607902f5fb65e93ec60a8287836b206d5a067993eaaf356f3b0180811`, and its
+synthetic merge source is `2e34352c47f773c95501a8d3f18ad85e2f8d74f1`.
+This result is distinct from the earlier reviewed observations below. The
+correction removes the PR-open collection trigger so routine code reviews do
+not repeat provider requests; no new collection is needed to verify that fix.
 
 ## Observed result and actual remaining acceptance
 
