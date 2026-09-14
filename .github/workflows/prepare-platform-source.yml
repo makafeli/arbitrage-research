@@ -1,0 +1,54 @@
+name: One-shot EPIC-02 platform source validation
+on:
+  push:
+    branches: [integrator/epic02-platform-source]
+permissions:
+  contents: read
+jobs:
+  prepare:
+    if: github.repository == 'makafeli/arbitrage-research' && github.actor == 'makafeli'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    services:
+      postgres:
+        image: postgres:17.11
+        env:
+          POSTGRES_USER: arb_test
+          POSTGRES_PASSWORD: isolated-test-only
+          POSTGRES_DB: arb_platform
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U arb_test -d arb_platform"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://arb_test:isolated-test-only@127.0.0.1:5432/arb_platform
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - run: rustup show
+      - name: Reproduce exact reviewed source and apply pinned formatting
+        run: python3 .github/scripts/prepare_platform.py
+      - name: Run real targeted Rust and PostgreSQL regressions without repository token
+        run: |
+          cargo clippy --locked -p arb-config -p arb-control -p control-api --all-targets -- -D warnings
+          cargo test --locked -p arb-config --test platform_contract
+          cargo test --locked -p arb-control --test platform_recovery
+          cargo test --locked -p control-api --lib
+      - name: Publish immutable source objects only
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/prepare_platform.py publish
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: epic02-platform-source
+          path: ${{ runner.temp }}/platform-source/
+          retention-days: 7
+          if-no-files-found: warn
