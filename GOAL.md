@@ -29,13 +29,21 @@ Root integration owns shared manifests, lockfiles, CI, publication and final acc
 
 ## Current delivery checkpoint
 
-The maintenance baseline now includes merged PR #106 (descriptive comparison and
-structural holdout checks), #108 (five-worker Codex startup configuration), #86
-(Base64 compatibility) and #87 (SHA-256 compatibility). Main was verified at
-`22aa50c4b9714578d6fd3708c31bae85485dfc55` for the #105 capture-audit integration.
-Those merges do not establish original-ticket acceptance, a running AI team or
-complete transaction simulation. The last verified agent-start attempt remains
-blocked by the unavailable runtime/environment; #107 retains that separate gate.
+The 14 September continuation reconciled main at
+`b24ed4c4a9d76aadbdef1522f2c6dc1858e2191a` before dispatch. That baseline includes
+the capture audit/export work (#105/#109), descriptive comparisons (#106),
+foundation evidence and four original closeouts (#110/#111), and initial
+registry observations (#112). Seven of the original 68 tickets are accepted;
+merged implementation slices do not automatically accept the other 61.
+
+Five actual ChatGPT collaboration children ran concurrently with distinct
+acknowledged branches/worktrees/private indices and then performed cross-reviews.
+Their configuration, Base, Solana, financial and dashboard results are recorded
+in [parallel boundary verification](docs/30-PARALLEL-BOUNDARY-VERIFICATION.md),
+including precise PR/head/base/CI evidence and remaining requirements. Planner
+capacity is separate from this observed execution. The native custom-role Codex
+launcher/cloud-environment acceptance in #107 remains a different, unproven gate;
+do not treat its historical zero-worker setup status as this session's result.
 
 Recovery baseline: PR [#104](https://github.com/makafeli/arbitrage-research/pull/104),
 `94d045cebcd0c4087302c2faefdf13913300c698` (13 September 2026). The quiesced backup,
@@ -52,13 +60,14 @@ The Railway web/API/PostgreSQL foundation was already deployed through PR #95;
 PRs #94, #99 and #102 subsequently delivered evidence and authentication/export fixes.
 No fresh Railway rollout/health probe is claimed for this source checkpoint.
 
-Current bounded continuation: [ARB-014 / #28](https://github.com/makafeli/arbitrage-research/issues/28)
-adds the [local capture dependency audit](docs/23-CAPTURE-DEPENDENCY-AUDIT.md).
-It separates byte integrity, expiry and declared completeness without rewriting
-historical results or asserting replay/market eligibility. Exact-head CI/review
-and merge evidence must be read from its current PR before acceptance. The work
-is one implementing integrator; zero external AI agents are launched. The static
-orchestrator/worker planner is not an agent runtime.
+The merged [local capture dependency audit](docs/23-CAPTURE-DEPENDENCY-AUDIT.md)
+and [frozen-export binding](docs/25-EXPORT-CAPTURE-AUDIT.md) separate byte
+integrity, expiry and declared completeness without rewriting historical results
+or asserting replay/market eligibility. Original ARB-014/#28 and export/recovery
+release gates remain open. Initial registry evidence includes two observed
+Solana pool identities, but Base returned HTTP403 before state verification;
+[the registry record](docs/27-INITIAL-REGISTRY-VERIFICATION.md) keeps observations,
+code corrections and actual qualification distinct.
 
 ### Historical chain-time checkpoint
 
