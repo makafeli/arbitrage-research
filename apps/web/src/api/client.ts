@@ -36,6 +36,7 @@ export interface Opportunity {
   schema_version: string; source_kind: 'CAPTURED_MARKET_DATA'; dataset_origin?: 'RECORDED_LIVE'; opportunity_id: string; session_id: string;
   experiment_id: string; network_id: Network; mode: ResearchMode | 'LIVE'; evidence_label: 'CANDIDATE' | 'SIMULATED' | 'ESTIMATED_EXECUTABLE' | 'REALIZED';
   observed_at: string; snapshot: { snapshot_id: string; state_reference: string; source: string; consistent: boolean; complete: boolean; finality_label: string; age_ms: number };
+  quoted_output_includes_pool_fees_and_price_impact: true;
   start_asset_id: string; amount_in_minor: string; quoted_output_minor: string; net_after_explicit_costs_minor: string | null;
   route: { pool_id: string; venue_family: string; asset_in: string; asset_out: string }[];
   costs: { kind: string; native_amount: { asset_id: string; amount_minor: string; decimals: number }; in_start_asset_minor: string; valuation_reference: string }[];
@@ -92,6 +93,7 @@ export function parseOpportunity(value: unknown): Opportunity {
   assert(oneOf(v.network_id, networks) && oneOf(v.mode, modes) && date(v.observed_at));
   assert(oneOf(v.evidence_label, ['CANDIDATE', 'SIMULATED', 'ESTIMATED_EXECUTABLE', 'REALIZED']));
   assert(uint(v.amount_in_minor) && uint(v.quoted_output_minor));
+  assert(v.quoted_output_includes_pool_fees_and_price_impact === true, 'Quoted output must include pool fees and price impact under the retained opportunity contract.');
   assert(v.net_after_explicit_costs_minor === null ? v.schema_version === '1.1.0' : typeof v.net_after_explicit_costs_minor === 'string' && /^-?(0|[1-9][0-9]*)$/.test(v.net_after_explicit_costs_minor));
   assert(v.schema_version !== '1.1.0' || v.dataset_origin === 'RECORDED_LIVE');
   assert(v.dataset_origin === undefined || v.dataset_origin === 'RECORDED_LIVE', 'Captured opportunity origin and source provenance disagree.');
@@ -99,6 +101,7 @@ export function parseOpportunity(value: unknown): Opportunity {
   assert(oneOf(v.simulation_status, ['NOT_RUN', 'PASSED', 'FAILED', 'UNSUPPORTED']));
   assert(oneOf(v.finality_status, ['NOT_APPLICABLE', 'PROVISIONAL', 'FINALIZED']));
   assert([v.transaction_id, v.execution_plan_digest, v.inclusion_scenario_id].every(x => x === null || string(x)));
+  assert(v.mode === 'LIVE' || (v.transaction_id === null && v.finality_status === 'NOT_APPLICABLE'), 'Research opportunity records cannot claim a transaction or execution finality.');
   const snap = object(v.snapshot);
   assert(['snapshot_id', 'state_reference', 'source', 'finality_label'].every(k => string(snap[k])) && count(snap.age_ms));
   assert(typeof snap.consistent === 'boolean' && typeof snap.complete === 'boolean');
@@ -114,7 +117,7 @@ export function parseOpportunity(value: unknown): Opportunity {
     assert(string(native.asset_id) && uint(native.amount_minor) && count(native.decimals) && (native.decimals as number) <= 255);
   }
   assert(v.evidence_label !== 'REALIZED' || (v.mode === 'LIVE' && string(v.transaction_id) && v.finality_status !== 'NOT_APPLICABLE'));
-  assert(!['SIMULATED', 'ESTIMATED_EXECUTABLE'].includes(v.evidence_label as string) || (v.simulation_status === 'PASSED' && checks.simulation_matches_exact_plan && checks.atomic_route_supported && checks.final_balance_guard_present && string(v.execution_plan_digest)));
+  assert(!['SIMULATED', 'ESTIMATED_EXECUTABLE'].includes(v.evidence_label as string) || (v.simulation_status === 'PASSED' && checks.simulation_matches_exact_plan && checks.atomic_route_supported && checks.final_balance_guard_present && string(v.execution_plan_digest) && snap.consistent && snap.complete), 'Simulation evidence requires a matching atomic plan and a complete, consistent snapshot.');
   assert(v.evidence_label !== 'ESTIMATED_EXECUTABLE' || (v.net_after_explicit_costs_minor !== null && Object.values(checks).every(x => x === true) && snap.consistent && snap.complete && string(v.inclusion_scenario_id)));
   return v as unknown as Opportunity;
 }
