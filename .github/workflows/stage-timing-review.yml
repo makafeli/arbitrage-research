@@ -1,0 +1,45 @@
+name: Scheduler timing review
+on:
+  pull_request:
+    paths:
+      - 'crates/arb-scheduler/**'
+      - 'apps/research-worker/src/stage_metrics.rs'
+      - 'docs/29-SCHEDULER-TELEMETRY.md'
+      - '.github/workflows/stage-timing-review.yml'
+permissions:
+  contents: read
+concurrency:
+  group: scheduler-timing-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  profile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Record actual named runner and toolchain, not a deployment hypothesis
+        run: |
+          rustup show
+          mkdir timing-evidence
+          rustc -Vv > timing-evidence/rust-toolchain.txt
+          git rev-parse HEAD > timing-evidence/SOURCE_COMMIT
+          python3 - <<'PY'
+          import json, os, platform
+          from pathlib import Path
+          profile={'runner_name':os.environ.get('RUNNER_NAME'),'runner_os':os.environ.get('RUNNER_OS'),'architecture':platform.machine(),'logical_cpus':os.cpu_count(),'build_profile':'debug','workload':'synthetic scheduler placeholder','production_or_market_performance_verified':False}
+          Path('timing-evidence/host.json').write_text(json.dumps(profile,indent=2)+'\n')
+          PY
+      - name: Run scheduler regressions and explicit synthetic timing profile
+        run: |
+          cargo test --locked -p arb-scheduler
+          cargo run --locked -p arb-scheduler --example timing_profile > timing-evidence/profile.json
+          cd timing-evidence
+          sha256sum profile.json host.json SOURCE_COMMIT rust-toolchain.txt > SHA256SUMS
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: scheduler-timing-evidence
+          path: timing-evidence/
+          retention-days: 30
+          if-no-files-found: error

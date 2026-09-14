@@ -5,6 +5,7 @@
 //! The durable control worker must still validate its generation token before
 //! accepting a result. Cancellation here is cooperative, never thread abortion.
 pub mod telemetry;
+pub mod timing;
 
 use arb_domain::NetworkId;
 use std::{
@@ -194,6 +195,7 @@ pub struct StageSnapshot {
     pub in_flight: usize,
     pub oldest_queue_age: Option<Duration>,
     pub counters: Counters,
+    pub timing: timing::StageTimingSnapshot,
 }
 
 struct Queued<T, G> {
@@ -201,6 +203,7 @@ struct Queued<T, G> {
     enqueued_at: Instant,
 }
 struct Running {
+    dispatched_at: Instant,
     network: usize,
     stage: Stage,
     cancelled: Arc<AtomicBool>,
@@ -211,6 +214,7 @@ struct State<T, G> {
     running: HashMap<u64, Running>,
     counts: [usize; 2],
     counters: [[Counters; 6]; 2],
+    timings: [[timing::StageTiming; 6]; 2],
     next_network: usize,
     next_permit: u64,
 }
@@ -246,6 +250,9 @@ impl<T, G: Copy + Eq> Scheduler<T, G> {
                 running: HashMap::with_capacity(limits.global_in_flight),
                 counts: [0, 0],
                 counters: [[Counters::default(); 6]; 2],
+                timings: std::array::from_fn(|_| {
+                    std::array::from_fn(|_| timing::StageTiming::default())
+                }),
                 next_network: 0,
                 next_permit: 0,
             })),
@@ -357,7 +364,9 @@ impl<T, G: Copy + Eq> Scheduler<T, G> {
                         Some(generation) if generation != item.generation => {
                             Some(DropReason::GenerationChanged)
                         }
-                        _ if item.observed_at > now => Some(DropReason::FutureTimestamp),
+                        _ if item.observed_at > now || queued.enqueued_at > now => {
+                            Some(DropReason::FutureTimestamp)
+                        }
                         _ if now.duration_since(item.observed_at)
                             >= self.limits.stage_deadlines[item.stage.index()] =>
                         {
@@ -376,6 +385,7 @@ impl<T, G: Copy + Eq> Scheduler<T, G> {
                     state.running.insert(
                         id,
                         Running {
+                            dispatched_at: now,
                             network: index,
                             stage: item.stage,
                             cancelled: Arc::clone(&cancelled),
@@ -386,6 +396,9 @@ impl<T, G: Copy + Eq> Scheduler<T, G> {
                         [item.stage.index()]
                     .dispatched
                     .saturating_add(1);
+                    state.timings[index][item.stage.index()]
+                        .queue_wait
+                        .record(now.duration_since(queued.enqueued_at));
                     state.next_network = (index + 1) % 2;
                     selected = Some(WorkPermit {
                         scheduler: self.clone(),
@@ -449,10 +462,21 @@ impl<T, G: Copy + Eq> Scheduler<T, G> {
             .expect("owned permit is completed exactly once");
         state.counts[running.network] -= 1;
         let rejected = match state.gates[running.network] {
+            _ if now < running.dispatched_at => Some(DropReason::FutureTimestamp),
             None => Some(DropReason::GateClosed),
             Some(current) if current != generation => Some(DropReason::GenerationChanged),
             _ => cancellation.check(now).err(),
         };
+        let timing = &mut state.timings[running.network][running.stage.index()];
+        if let Some(duration) = now.checked_duration_since(running.dispatched_at) {
+            if rejected.is_some() {
+                timing.rejected_execution.record(duration);
+            } else {
+                timing.successful_execution.record(duration);
+            }
+        } else {
+            timing.unmeasurable_completions = timing.unmeasurable_completions.saturating_add(1);
+        }
         let counters = &mut state.counters[running.network][running.stage.index()];
         match rejected {
             Some(reason) => {
@@ -481,6 +505,7 @@ fn snapshot_state<T, G>(state: &State<T, G>, now: Instant) -> Vec<StageSnapshot>
                 in_flight: 0,
                 oldest_queue_age: None,
                 counters: state.counters[index][stage.index()],
+                timing: state.timings[index][stage.index()].snapshot(),
             })
         })
         .collect();

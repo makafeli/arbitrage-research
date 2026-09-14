@@ -64,3 +64,49 @@ slow analytics/database isolation evidence, resource calibration and original
 ARB-011/#25 acceptance remain outstanding. No original scope or dependency is
 removed. This independently implementable slice advances #27 while #16's Base
 qualification work is blocked; it cannot close #27 or enable a campaign.
+
+## Measured permit durations and bounded percentile estimates
+
+The continuation adds three independent cumulative populations per network and
+scheduler stage: queue residence for dispatched work, execution duration for
+successfully finished permits, and execution duration for explicitly rejected
+finishes. Execution is measured from dispatch until the supplied monotonic finish
+clock. This is scheduler acceptance, not a successful trade or transaction.
+Queue items rejected before dispatch do not enter a queue-wait population.
+Abandoned permits retain the original abandonment counter but have no invented
+completion time. A finish clock before dispatch rejects the result and increments
+`unmeasurable_completions`, without recording zero-duration success or failure.
+A dispatch clock before queue admission similarly rejects future-timestamp work.
+
+Each population has 96 fixed counters indexed by the bit length of duration in
+nanoseconds. Zero has its own bucket. Percentiles use nearest-rank selection and
+are reported as conservative **upper bounds**, limited by the exact observed
+maximum. For example, 100 measurements from 1 to 100 nanoseconds produce a p50
+upper bound of 63 nanoseconds, not a claim that the exact median was 63. Minimum
+and maximum are exact. The counter array covers Duration::MAX without converting
+to floating point or narrowing its full nanosecond value. At sample-count
+exhaustion the entire population freezes and sets `saturated=true`; it never
+wraps or changes the denominator independently of the bins. No raw samples,
+per-trace metric labels or unbounded allocation are retained.
+
+The existing asynchronous output includes the method name, string-valued counts
+and nanosecond bounds. Empty populations have zero samples and null timing values,
+not zero latency. This adds bounded process-lifetime telemetry state even when
+the optional output is disabled. It is not a rolling window or a persisted
+cross-restart aggregate. The dedicated capacity-one output and lock-contention
+behavior remain unchanged.
+
+`cargo run --locked -p arb-scheduler --example timing_profile` explicitly produces
+a synthetic microprofile for both networks and six stage labels, 200 completed
+permits per stage/network. The workload is the same deterministic CPU placeholder
+for every label; it measures scheduler boundaries, **not actual RPC, pricing,
+simulation, storage or API performance**. The path-scoped timing workflow records
+the actual GitHub runner identity, CPU count, architecture, toolchain, build mode
+and checked-out source beside the output. Debug-build CI results are not Railway
+capacity calibration or a production SLA. Applicable full workspace/PostgreSQL
+and browser checks still run separately before integration.
+
+This removes the missing permit-duration/percentile telemetry implementation but
+not the remaining original ticket gates: #25 acceptance, real application-wide
+stage instrumentation, deployed resource calibration and slow shared-database/
+analytics isolation. No runtime configuration or deployed worker is changed.

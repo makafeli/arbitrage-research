@@ -52,6 +52,18 @@ fn stage_name(stage: Stage) -> &'static str {
     }
 }
 
+/// Convert bounded operational timing to explicit string-valued nanoseconds.
+fn latency_json(summary: &arb_scheduler::timing::LatencySummary) -> serde_json::Value {
+    json!({
+        "samples": summary.samples.to_string(), "saturated": summary.saturated,
+        "min_ns": summary.min_ns.map(|v| v.to_string()),
+        "max_ns": summary.max_ns.map(|v| v.to_string()),
+        "p50_upper_ns": summary.p50_upper_ns.map(|v| v.to_string()),
+        "p95_upper_ns": summary.p95_upper_ns.map(|v| v.to_string()),
+        "p99_upper_ns": summary.p99_upper_ns.map(|v| v.to_string())
+    })
+}
+
 fn write_frames(receiver: Receiver<Frame>, mut writer: impl Write) -> io::Result<()> {
     for frame in receiver {
         // Frame ownership contains no scheduler/control lock. Encoding and
@@ -72,7 +84,14 @@ fn write_frames(receiver: Receiver<Frame>, mut writer: impl Write) -> io::Result
                     "oldest_queue_age_ms":row.oldest_queue_age.map(|v|v.as_millis().to_string()),
                     "accepted":row.counters.accepted.to_string(),
                     "dispatched":row.counters.dispatched.to_string(),
-                    "completed":row.counters.completed.to_string(), "dropped":dropped
+                    "completed":row.counters.completed.to_string(), "dropped":dropped,
+                    "timing": {
+                        "method": "cumulative-log2-nanoseconds-upper-bounds",
+                        "queue_wait_dispatched": latency_json(&row.timing.queue_wait),
+                        "successful_execution": latency_json(&row.timing.successful_execution),
+                        "rejected_execution": latency_json(&row.timing.rejected_execution),
+                        "unmeasurable_completions": row.timing.unmeasurable_completions.to_string()
+                    }
                 })
             })
             .collect();
@@ -126,6 +145,28 @@ mod tests {
         assert!(value["stages"][0]["oldest_queue_age_ms"].is_null());
         assert_eq!(value["stages"][0]["accepted"], "0");
         assert_eq!(value["stages"][0]["dropped"].as_array().unwrap().len(), 7);
+        let timing = &value["stages"][0]["timing"];
+        assert_eq!(timing["queue_wait_dispatched"]["samples"], "0");
+        assert!(timing["successful_execution"]["p50_upper_ns"].is_null());
+        assert_eq!(timing["unmeasurable_completions"], "0");
+    }
+
+    #[test]
+    fn nanosecond_summaries_preserve_values_beyond_javascript_integer_precision() {
+        let summary = arb_scheduler::timing::LatencySummary {
+            samples: u64::MAX,
+            saturated: true,
+            min_ns: Some(0),
+            max_ns: Some(u128::from(u64::MAX)),
+            p50_upper_ns: Some(9_007_199_254_740_993),
+            p95_upper_ns: Some(u128::from(u64::MAX)),
+            p99_upper_ns: Some(u128::from(u64::MAX)),
+        };
+        let value = latency_json(&summary);
+        assert_eq!(value["samples"], u64::MAX.to_string());
+        assert_eq!(value["p50_upper_ns"], "9007199254740993");
+        assert_eq!(value["max_ns"], u64::MAX.to_string());
+        assert_eq!(value["saturated"], true);
     }
 
     #[test]
