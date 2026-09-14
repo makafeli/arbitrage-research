@@ -8,7 +8,7 @@ Updated 14 September 2026. The [goal](../GOAL.md) records the continuing deliver
 | PostgreSQL/control | Immutable sessions/configurations, scoped idempotency, revision conflicts, append-only audit, actual attempt IDs, worker leases/generations, cancellation-safe local gates, recovery validation | Database/process integration passed in the linked verification record; no deployed backup/restore proof, signing lease or live transport |
 | API | Authenticated sessions/commands, persisted decisions/opportunities/groups/coverage, immutable virtual-run creation and ledger reads; Origin/CSRF and bounded requests | Single operator; browser-auth state is not durable across process restart; no settlement or signing endpoint |
 | Dashboard | Approved demo plus Connected sessions, decision inspection, paper-ledger views, validated opportunity evidence and source-bound local capture-audit import with exact integer amounts | A local imported audit is a caller-supplied filesystem observation, not proof of market/replay eligibility; original shell/accessibility and qualified capture-to-browser acceptance remain separate |
-| Capture | Base hash-pinned state/tick reads with complete final-header comparison; Orca account/tick decoding with ProgramData metadata/context checks; immutable manifests, hashes and provenance | Synthetic tests and observed Solana identity candidates do not qualify production providers/pools; Base access, streaming, rollback invalidation and full range qualification remain incomplete |
+| Capture | Base hash-pinned state/tick reads with complete final-header comparison; Orca account/tick decoding with ProgramData metadata/context checks; immutable manifests, hashes and provenance | Synthetic tests and observed Solana identity candidates do not qualify production providers/pools; Base access is demonstrated by the operator sample; streaming, rollback invalidation and full range qualification remain incomplete |
 | Research worker | OBSERVE/PAPER recovery, independent control polling, common-anchor batches of up to eight pools, generation-fenced capture and decision admission, bounded scheduler integration | Sequential per-network research collection; no paper settlement, full transaction simulation or host-wide resource guarantee |
 | Scheduler | Bounded per-chain queues/permits, shared cap, fair dispatch, stale/stop rejection and telemetry counters | Not yet the complete measured CPU worker pool and metrics backend |
 | Protocol mathematics | Base V3 exact integer traversal with MIT SDK reference comparison; pinned Apache-licensed historical Orca static-fee math | Current deployed-protocol equivalence, real provider/range qualification and unsupported token/fee models remain gated |
@@ -18,6 +18,15 @@ Updated 14 September 2026. The [goal](../GOAL.md) records the continuing deliver
 | Replay | Legacy and full-batch-v2 capture re-decoding and bounded same-engine research evaluation with explicit historical age and frozen configuration | No paper-outcome replay, seeded inclusion simulation or comparable market profitability report |
 | Recovery | Quiesced database/capture backup, verified isolated restore, descriptor binding, 41 offline regressions and a real PostgreSQL storage drill | Production scheduling, encrypted offsite retention, application-aware paper/replay reconstruction and actual worker restart/STOP proof remain open |
 | Railway | Existing web/private API/PostgreSQL foundation deployed and documented in [deployment verification](21-RAILWAY-DEPLOYMENT-VERIFICATION.md); containers, same-origin proxy and CI gate | No fresh deployment/health verification for the latest source; qualified workers, provider credentials, measured capacity and full operational recovery acceptance remain open |
+
+## Initial identities and access
+
+The owner-triggered Base workflow34892533716 succeeded. The historical HTTP403
+observations below remain provenance, not a current claim that Base is inaccessible.
+The [reviewed inventory](registries/initial-identities.json) identifies two actual
+pools on each original chain and is deliberately rejected as runtime configuration.
+See [EPIC-01 criterion review](EPIC-01-HANDOFF.md) for the identity acceptance scope,
+raw-evidence limitations, authority risks and unchanged downstream execution gates.
 
 ## Operator controls
 
