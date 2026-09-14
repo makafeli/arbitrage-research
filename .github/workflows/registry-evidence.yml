@@ -1,5 +1,16 @@
 name: Initial registry evidence
 on:
+  workflow_dispatch:
+    inputs:
+      network:
+        description: 'Explicit bounded public observation target; provider refusals stop immediately'
+        type: choice
+        required: true
+        default: solana-mainnet
+        options:
+          - solana-mainnet
+          - base-mainnet
+          - both
   push:
     branches: [feat/ARB-003-mainnet-registry-evidence]
   pull_request:
@@ -27,8 +38,7 @@ jobs:
     needs: offline
     if: >-
       github.actor == 'makafeli' && github.repository == 'makafeli/arbitrage-research' &&
-      ((github.event_name == 'pull_request' && github.event.action == 'opened' &&
-      github.event.pull_request.head.repo.full_name == github.repository) ||
+      (github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'push' && github.event.head_commit.message == 'Collect bounded Solana registry evidence'))
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -38,7 +48,7 @@ jobs:
           persist-credentials: false
       - name: Collect bounded public read-only observations without retries or secrets
         env:
-          OBSERVATION_NETWORK: ${{ github.event_name == 'push' && 'solana-mainnet' || 'both' }}
+          OBSERVATION_NETWORK: ${{ github.event_name == 'workflow_dispatch' && inputs.network || 'solana-mainnet' }}
         run: |
           python3 scripts/inspect_pool_candidates.py --collect --network "$OBSERVATION_NETWORK" --output "$RUNNER_TEMP/registry-observation"
           git rev-parse HEAD > "$RUNNER_TEMP/registry-observation/SOURCE_COMMIT"
