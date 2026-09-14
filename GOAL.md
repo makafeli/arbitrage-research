@@ -29,7 +29,15 @@ Root integration owns shared manifests, lockfiles, CI, publication and final acc
 
 ## Current delivery checkpoint
 
-### Initial identity closeout evidence
+### EPIC-01 completed
+
+EPIC-01 / #2 and ARB-003 / #16 are closed with verified original criteria,
+merged source and dependency-aware closeout evidence. All six foundation
+children are accepted. [The completion record](docs/EPIC-01-HANDOFF.md) links the
+actual source, tests and native states. The next delivery unit is the existing
+platform/control epic; no campaign or live capability is enabled by this closure.
+
+### Initial identity evidence
 
 The owner-supplied Base run34892533716 succeeded with27 read-only requests on
 14 September 2026. The former access blocker is resolved for this sample.

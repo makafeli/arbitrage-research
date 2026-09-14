@@ -57,7 +57,7 @@
     {
       "id": "ARB-003",
       "issue_url": "https://github.com/makafeli/arbitrage-research/issues/16",
-      "state": "implemented_pending_acceptance",
+      "state": "completed",
       "owner_role": "Chain engineers",
       "dependencies": [
         "ARB-001",
@@ -77,7 +77,12 @@
         "scripts/test_identity_inventory.py",
         "crates/arb-registry/tests/identity_boundaries.rs",
         "docs/EPIC-01-HANDOFF.md",
-        "https://github.com/makafeli/arbitrage-research/actions/runs/34892533716"
+        "https://github.com/makafeli/arbitrage-research/actions/runs/34892533716",
+        "https://github.com/makafeli/arbitrage-research/issues/16",
+        "https://github.com/makafeli/arbitrage-research/issues/2",
+        "https://github.com/makafeli/arbitrage-research/pull/123",
+        "https://github.com/makafeli/arbitrage-research/pull/123#pullrequestreview-5202820322",
+        "https://github.com/makafeli/arbitrage-research/actions/runs/34895541170"
       ],
       "remaining_acceptance": "",
       "external_prerequisite": "",
@@ -89,7 +94,7 @@
           "reason": "Actual owner-supplied Base workflow34892533716 now succeeds. Original ARB-003 identity scope is reviewed with retained Solana evidence; quote/tick/source-reproduction remain downstream. Native closure follows verified merge and preflight."
         }
       ],
-      "acceptance_review": "Original identity scope reviewed in docs/EPIC-01-HANDOFF.md by the integrating Technical Lead assistant under CONTRIBUTING.md, not independent security approval. Final exact-source CI/review, verified merge and native closeout are required before completed state."
+      "acceptance_review": "Original ARB-003 identity scope accepted on 2026-09-14 after merged PR #123 (86222319f126c70509c8a5c1331975b5816cae7f), exact tested head aaf4e9a9f3f4b5171f0ce11a549b92a890becf07, source review 5202820322, full project run 34895541170, successful existing post-native-closure consistency check and confirmed native #16 closure. Whole EPIC-01/#2 is also closed with all six original children completed. This does not accept size-specific quotes, full simulation, operational campaigns or live execution. Earlier blocked assessments remain in acceptance_reconciliation_history."
     },
     {
       "id": "ARB-004",
