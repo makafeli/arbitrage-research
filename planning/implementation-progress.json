@@ -25,7 +25,7 @@
     {
       "id": "ARB-002",
       "issue_url": "https://github.com/makafeli/arbitrage-research/issues/15",
-      "state": "implemented_pending_acceptance",
+      "state": "completed",
       "owner_role": "Operations engineer",
       "dependencies": [
         "ARB-001"
@@ -37,7 +37,10 @@
         "docs/26-FOUNDATION-CLOSEOUT.md",
         "docs/qualification-fixtures/feasibility-2026-09-14.json",
         "docs/benchmark-environment.json",
-        "https://github.com/makafeli/arbitrage-research/pull/110"
+        "https://github.com/makafeli/arbitrage-research/pull/110",
+        "https://github.com/makafeli/arbitrage-research/issues/15",
+        "https://github.com/makafeli/arbitrage-research/pull/110#pullrequestreview-5195168555",
+        "https://github.com/makafeli/arbitrage-research/actions/runs/34819404326"
       ],
       "remaining_acceptance": "",
       "external_prerequisite": "",
@@ -49,7 +52,7 @@
           "reason": "Original criteria assessed in PR #110, not production qualification; dependency order and native closure remain required."
         }
       ],
-      "acceptance_review": "Criterion-level integrating-maintainer review in docs/26-FOUNDATION-CLOSEOUT.md and PR #110. Proposed closure against original scope only, subject to current final CI, source review and accepted dependencies. Provider/pool/campaign/live qualification remains on existing downstream tickets; no new paid approval inferred."
+      "acceptance_review": "Original-scope acceptance on 2026-09-14 after actual native issue closure and sequential closeout preflight. Merged PR #110 e1ac1625efeae8964f47fde506f2f128da0cf29f equals tested head 6e46aeb03c62d0265f1c433f770ae3f1b06c1b37. Final-source review 5195168555 and all five workflows passed, including full project run 34819404326. No production provider/pool/campaign/live qualification or paid approval is inferred. Previous notes remain in acceptance_reconciliation_history."
     },
     {
       "id": "ARB-003",
@@ -76,7 +79,7 @@
     {
       "id": "ARB-004",
       "issue_url": "https://github.com/makafeli/arbitrage-research/issues/17",
-      "state": "implemented_pending_acceptance",
+      "state": "completed",
       "owner_role": "Technical Lead / Operations",
       "dependencies": [
         "ARB-001",
@@ -90,7 +93,10 @@
         "docs/26-FOUNDATION-CLOSEOUT.md",
         "docs/qualification-fixtures/feasibility-2026-09-14.json",
         "docs/benchmark-environment.json",
-        "https://github.com/makafeli/arbitrage-research/pull/110"
+        "https://github.com/makafeli/arbitrage-research/pull/110",
+        "https://github.com/makafeli/arbitrage-research/issues/17",
+        "https://github.com/makafeli/arbitrage-research/pull/110#pullrequestreview-5195168555",
+        "https://github.com/makafeli/arbitrage-research/actions/runs/34819404326"
       ],
       "remaining_acceptance": "",
       "external_prerequisite": "",
@@ -102,7 +108,7 @@
           "reason": "Original criteria assessed in PR #110, not production qualification; dependency order and native closure remain required."
         }
       ],
-      "acceptance_review": "Criterion-level integrating-maintainer review in docs/26-FOUNDATION-CLOSEOUT.md and PR #110. Proposed closure against original scope only, subject to current final CI, source review and accepted dependencies. Provider/pool/campaign/live qualification remains on existing downstream tickets; no new paid approval inferred."
+      "acceptance_review": "Original-scope acceptance on 2026-09-14 after actual native issue closure and sequential closeout preflight. Merged PR #110 e1ac1625efeae8964f47fde506f2f128da0cf29f equals tested head 6e46aeb03c62d0265f1c433f770ae3f1b06c1b37. Final-source review 5195168555 and all five workflows passed, including full project run 34819404326. No production provider/pool/campaign/live qualification or paid approval is inferred. Previous notes remain in acceptance_reconciliation_history."
     },
     {
       "id": "ARB-005",
@@ -148,7 +154,7 @@
     {
       "id": "ARB-007",
       "issue_url": "https://github.com/makafeli/arbitrage-research/issues/20",
-      "state": "implemented_pending_acceptance",
+      "state": "completed",
       "owner_role": "integration",
       "dependencies": [
         "ARB-004",
@@ -174,7 +180,10 @@
         "docs/26-FOUNDATION-CLOSEOUT.md",
         "docs/qualification-fixtures/feasibility-2026-09-14.json",
         "docs/benchmark-environment.json",
-        "https://github.com/makafeli/arbitrage-research/pull/110"
+        "https://github.com/makafeli/arbitrage-research/pull/110",
+        "https://github.com/makafeli/arbitrage-research/issues/20",
+        "https://github.com/makafeli/arbitrage-research/pull/110#pullrequestreview-5195168555",
+        "https://github.com/makafeli/arbitrage-research/actions/runs/34819404326"
       ],
       "remaining_acceptance": "",
       "acceptance_reconciliation_history": [
@@ -186,12 +195,12 @@
         }
       ],
       "external_prerequisite": "",
-      "acceptance_review": "Criterion-level integrating-maintainer review in docs/26-FOUNDATION-CLOSEOUT.md and PR #110. Proposed closure against original scope only, subject to current final CI, source review and accepted dependencies. Provider/pool/campaign/live qualification remains on existing downstream tickets; no new paid approval inferred."
+      "acceptance_review": "Original-scope acceptance on 2026-09-14 after actual native issue closure and sequential closeout preflight. Merged PR #110 e1ac1625efeae8964f47fde506f2f128da0cf29f equals tested head 6e46aeb03c62d0265f1c433f770ae3f1b06c1b37. Final-source review 5195168555 and all five workflows passed, including full project run 34819404326. No production provider/pool/campaign/live qualification or paid approval is inferred. Previous notes remain in acceptance_reconciliation_history."
     },
     {
       "id": "ARB-008",
       "issue_url": "https://github.com/makafeli/arbitrage-research/issues/22",
-      "state": "implemented_pending_acceptance",
+      "state": "completed",
       "owner_role": "domain-config",
       "dependencies": [
         "ARB-007"
@@ -210,7 +219,10 @@
         "docs/26-FOUNDATION-CLOSEOUT.md",
         "docs/qualification-fixtures/feasibility-2026-09-14.json",
         "docs/benchmark-environment.json",
-        "https://github.com/makafeli/arbitrage-research/pull/110"
+        "https://github.com/makafeli/arbitrage-research/pull/110",
+        "https://github.com/makafeli/arbitrage-research/issues/22",
+        "https://github.com/makafeli/arbitrage-research/pull/110#pullrequestreview-5195168555",
+        "https://github.com/makafeli/arbitrage-research/actions/runs/34819404326"
       ],
       "remaining_acceptance": "",
       "acceptance_reconciliation_history": [
@@ -222,7 +234,7 @@
         }
       ],
       "external_prerequisite": "",
-      "acceptance_review": "Criterion-level integrating-maintainer review in docs/26-FOUNDATION-CLOSEOUT.md and PR #110. Proposed closure against original scope only, subject to current final CI, source review and accepted dependencies. Provider/pool/campaign/live qualification remains on existing downstream tickets; no new paid approval inferred."
+      "acceptance_review": "Original-scope acceptance on 2026-09-14 after actual native issue closure and sequential closeout preflight. Merged PR #110 e1ac1625efeae8964f47fde506f2f128da0cf29f equals tested head 6e46aeb03c62d0265f1c433f770ae3f1b06c1b37. Final-source review 5195168555 and all five workflows passed, including full project run 34819404326. No production provider/pool/campaign/live qualification or paid approval is inferred. Previous notes remain in acceptance_reconciliation_history."
     },
     {
       "id": "ARB-009",
