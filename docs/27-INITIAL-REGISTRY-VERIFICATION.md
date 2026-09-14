@@ -2,7 +2,7 @@
 
 ## Scope and trust
 
-This completes evidence gathering within existing #16, not a new feature ticket.
+This collects evidence within existing #16, not a new feature ticket.
 The observer produces diagnostic records, never enabled runtime registries. A
 response from a single public RPC is not a consensus proof, verified source
 build, amount-specific executable quote, market census or profitability result.
@@ -51,7 +51,8 @@ fees, and selects at most two active static-fee candidates for a finalized batch
 That batch rechecks pool identities, vault mint/owner/delegate/frozen state,
 program/ProgramData ownership, ELF marker, observed full program-data fingerprint,
 upgrade slot/authority, mint/freeze authorities and config identity. The report
-keeps discovery and final batch contexts separate. Selection by active liquidity
+keeps discovery and final batch contexts separate, requires a minimum context
+slot on the final read, and rejects a regressing finalized response. Selection by active liquidity
 is an inspection budget choice, not economic ranking.
 
 Full amount-specific tick coverage, arbitrary token extensions, adaptive-fee
@@ -65,7 +66,7 @@ assets are outside this scope.
 `python3 scripts/inspect_pool_candidates.py` performs no network I/O.
 `--collect --output NEW_DIRECTORY` explicitly samples both fixed endpoints.
 It requires a new output directory and never overwrites evidence. Each network
-has at most 48 sequential requests, 8 MiB per response, 24 MiB aggregate input,
+has at most 48 sequential requests, 16 MiB per response, 10 MiB decoded per account, 24 MiB aggregate input,
 a ten-second socket timeout and a 240-second admission deadline. The CI job adds
 a ten-minute outer deadline. These are bounds, not hard atomic filesystem or
 whole-read deadlines. There are no redirects, credentials, retries, transaction
@@ -77,6 +78,20 @@ and statuses. A retained hash cannot reconstruct an expired raw artifact. The
 artifact's SOURCE_COMMIT identifies the synthetic PR merge checkout. Full
 current-head code CI and actual observation results must be inspected separately.
 Synthetic decoder/transport tests are not real provider evidence.
+
+## Explicit bounded Solana follow-up
+
+The initial observation hit the earlier 8-MiB response limit on the final
+ProgramData batch. Solana permits a 10-MiB account; its base64 representation
+requires a larger wire cap. The observer now allows 16 MiB wire/10 MiB decoded
+per account, still within a 24-MiB network budget. Source:
+https://solana.com/docs/core/accounts
+
+`--network solana-mainnet` isolates the follow-up and never retries the refused
+Base endpoint. Only a user-authored push on this scoped feature branch with the
+exact commit message `Collect bounded Solana registry evidence` opts into that
+one-shot follow-up. Normal synchronization commits run offline checks only.
+This is an explicit CI invocation, not an unattended collector or agent runner.
 
 ## Acceptance record
 

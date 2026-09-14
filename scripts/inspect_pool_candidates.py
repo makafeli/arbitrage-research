@@ -25,7 +25,8 @@ GENESIS = '5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d'
 WSOL = 'So11111111111111111111111111111111111111112'
 SOL_USDC = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'
 B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
-MAX_RESPONSE = 8 * 1024 * 1024
+MAX_RESPONSE = 16 * 1024 * 1024
+MAX_ACCOUNT = 10 * 1024 * 1024
 MAX_TOTAL = 24 * 1024 * 1024
 MAX_REQUESTS = 48
 METHODS = {'eth_chainId', 'eth_getBlockByNumber', 'eth_getCode', 'eth_call',
@@ -180,6 +181,7 @@ def account_bytes(account, owner, executable=False, length=None):
         data = base64.b64decode(value[0], validate=True)
     except ValueError:
         raise ObservationError('INVALID_ACCOUNT_ENCODING') from None
+    require(len(data) <= MAX_ACCOUNT, 'ACCOUNT_BYTE_LIMIT')
     require(base64.b64encode(data).decode() == value[0], 'NONCANONICAL_BASE64')
     require(length is None or len(data) == length, 'UNSUPPORTED_ACCOUNT_LAYOUT')
     return data
@@ -326,7 +328,8 @@ def inspect_solana(rpc, result):
         addresses.extend([pool['address'], pool['vault_a'], pool['vault_b'], pool['whirlpools_config']])
     addresses = list(dict.fromkeys(addresses))
     final_slot, values = contextual(rpc.call('getMultipleAccounts', [addresses,
-                                       {'encoding': 'base64', 'commitment': 'finalized'}]))
+        {'encoding': 'base64', 'commitment': 'finalized', 'minContextSlot': slot}]))
+    require(final_slot >= slot, 'REGRESSING_FINALIZED_CONTEXT')
     require(len(values) == len(addresses), 'ACCOUNT_BATCH_LENGTH_MISMATCH')
     accounts = dict(zip(addresses, values))
     require(account_bytes(accounts[WHIRLPOOL], LOADER, True, 36) == program, 'PROGRAM_LINK_CHANGED')
@@ -379,6 +382,7 @@ def observe(network, client=None):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--collect', action='store_true')
+    parser.add_argument('--network', choices=('both', 'base-mainnet', 'solana-mainnet'), default='both')
     parser.add_argument('--output', type=Path)
     args = parser.parse_args(argv)
     if not args.collect:
@@ -388,7 +392,8 @@ def main(argv=None):
         parser.error('--output must identify a new directory')
     args.output.mkdir(mode=0o700, parents=False, exist_ok=False)
     report = {'schema_version': 1, 'kind': 'PUBLIC_REGISTRY_OBSERVATIONS_NOT_ACTIVATION', 'networks': []}
-    for network in ('base-mainnet', 'solana-mainnet'):
+    networks = ('base-mainnet', 'solana-mainnet') if args.network == 'both' else (args.network,)
+    for network in networks:
         client = PublicRpc(network)
         report['networks'].append(observe(network, client))
         with (args.output / (network + '-transcript.json')).open('x') as f:

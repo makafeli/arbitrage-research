@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 import unittest
 from unittest.mock import patch
 import urllib.error
@@ -169,6 +170,22 @@ class ObservationTests(unittest.TestCase):
                 response.status = 200; response.read.return_value = raw
                 with self.assertRaises(p.ObservationError): rpc.call('eth_chainId',[])
             self.assertTrue(rpc.stopped)
+
+    def test_large_program_account_is_bounded_after_base64_decoding(self):
+        raw = bytes(9 * 1024 * 1024)
+        self.assertEqual(len(p.account_bytes(account(raw,p.LOADER),p.LOADER)),len(raw))
+        with patch.object(p,'MAX_ACCOUNT',8):
+            with self.assertRaisesRegex(p.ObservationError,'ACCOUNT_BYTE_LIMIT'):
+                p.account_bytes(account(b'123456789',p.LOADER),p.LOADER)
+
+    def test_solana_only_collection_does_not_retry_base(self):
+        with tempfile.TemporaryDirectory() as root, patch.object(p,'PublicRpc') as client:
+            client.return_value.calls = []
+            with patch.object(p,'observe',return_value={'network':'solana-mainnet','status':'BLOCKED'}), redirect_stdout(io.StringIO()):
+                p.main(['--collect','--network','solana-mainnet','--output',str(Path(root)/'new')])
+            client.assert_called_once_with('solana-mainnet')
+            self.assertFalse((Path(root)/'new/base-mainnet-transcript.json').exists())
+            self.assertTrue((Path(root)/'new/solana-mainnet-transcript.json').exists())
 
     def test_forbidden_method_and_call_budget_precede_network(self):
         rpc = p.PublicRpc('base-mainnet')

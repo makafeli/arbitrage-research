@@ -1,5 +1,7 @@
 name: Initial registry evidence
 on:
+  push:
+    branches: [feat/ARB-003-mainnet-registry-evidence]
   pull_request:
     paths:
       - 'scripts/inspect_pool_candidates.py'
@@ -23,7 +25,11 @@ jobs:
       - run: python3 scripts/test_inspect_pool_candidates.py -v
   observations:
     needs: offline
-    if: github.event.action == 'opened' && github.actor == 'makafeli' && github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      github.actor == 'makafeli' && github.repository == 'makafeli/arbitrage-research' &&
+      ((github.event_name == 'pull_request' && github.event.action == 'opened' &&
+      github.event.pull_request.head.repo.full_name == github.repository) ||
+      (github.event_name == 'push' && github.event.head_commit.message == 'Collect bounded Solana registry evidence'))
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -31,8 +37,10 @@ jobs:
         with:
           persist-credentials: false
       - name: Collect bounded public read-only observations without retries or secrets
+        env:
+          OBSERVATION_NETWORK: ${{ github.event_name == 'push' && 'solana-mainnet' || 'both' }}
         run: |
-          python3 scripts/inspect_pool_candidates.py --collect --output "$RUNNER_TEMP/registry-observation"
+          python3 scripts/inspect_pool_candidates.py --collect --network "$OBSERVATION_NETWORK" --output "$RUNNER_TEMP/registry-observation"
           git rev-parse HEAD > "$RUNNER_TEMP/registry-observation/SOURCE_COMMIT"
           cd "$RUNNER_TEMP/registry-observation"
           sha256sum ./*.json > SHA256SUMS
