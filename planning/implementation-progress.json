@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "goal": "Implement a reproducible Rust research and paper platform on Base and Solana, using the approved dashboard, with evidence-backed ticket delivery.",
-  "updated_on": "2026-09-13",
+  "updated_on": "2026-09-14",
   "branch": "main",
   "autonomous_background_runner": false,
   "completion_rule": "A source implementation is not completion. Original ticket acceptance and dependency gates must have reviewable evidence before closing its GitHub issue.",
@@ -25,7 +25,7 @@
     {
       "id": "ARB-002",
       "issue_url": "https://github.com/makafeli/arbitrage-research/issues/15",
-      "state": "in_progress",
+      "state": "implemented_pending_acceptance",
       "owner_role": "Operations engineer",
       "dependencies": [
         "ARB-001"
@@ -33,10 +33,23 @@
       "evidence": [
         "docs/16-PROVIDER-QUALIFICATION.md records the dated official Base/Solana endpoint references, capability gaps and RPC-versus-Railway spending distinction.",
         "docs/qualification-fixtures/public-rpc-probe-2026-09-12.json and its probe source record two credential-free, bounded identity requests. Both ended in transport errors; no chain response, market capture or provider latency measurement was obtained.",
-        "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Passing runtime checkpoint and test scope are recorded in docs/14-IMPLEMENTATION-VERIFICATION.md; original ticket dependencies and unfulfilled acceptance gates remain authoritative."
+        "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Passing runtime checkpoint and test scope are recorded in docs/14-IMPLEMENTATION-VERIFICATION.md; original ticket dependencies and unfulfilled acceptance gates remain authoritative.",
+        "docs/26-FOUNDATION-CLOSEOUT.md",
+        "docs/qualification-fixtures/feasibility-2026-09-14.json",
+        "docs/benchmark-environment.json",
+        "https://github.com/makafeli/arbitrage-research/pull/110"
       ],
-      "remaining_acceptance": "Select provider accounts/services and a spending ceiling; obtain complete required state on both chains or record each blocking feature gap. Measure representative request latency/coverage, reconnect/backfill and quota behavior from the intended environment, preserving redacted provenance. The failed public probes cannot qualify or rank providers.",
-      "external_prerequisite": "Dedicated provider selection/access and spending envelope are unset. Both credential-free identity probes returned transport errors without a response; provider versus environment cause is unresolved."
+      "remaining_acceptance": "",
+      "external_prerequisite": "",
+      "acceptance_reconciliation_history": [
+        {
+          "date": "2026-09-14",
+          "previous_remaining_acceptance": "Select provider accounts/services and a spending ceiling; obtain complete required state on both chains or record each blocking feature gap. Measure representative request latency/coverage, reconnect/backfill and quota behavior from the intended environment, preserving redacted provenance. The failed public probes cannot qualify or rank providers.",
+          "previous_external_prerequisite": "Dedicated provider selection/access and spending envelope are unset. Both credential-free identity probes returned transport errors without a response; provider versus environment cause is unresolved.",
+          "reason": "Original criteria assessed in PR #110, not production qualification; dependency order and native closure remain required."
+        }
+      ],
+      "acceptance_review": "Criterion-level integrating-maintainer review in docs/26-FOUNDATION-CLOSEOUT.md and PR #110. Proposed closure against original scope only, subject to current final CI, source review and accepted dependencies. Provider/pool/campaign/live qualification remains on existing downstream tickets; no new paid approval inferred."
     },
     {
       "id": "ARB-003",
@@ -63,7 +76,7 @@
     {
       "id": "ARB-004",
       "issue_url": "https://github.com/makafeli/arbitrage-research/issues/17",
-      "state": "in_progress",
+      "state": "implemented_pending_acceptance",
       "owner_role": "Technical Lead / Operations",
       "dependencies": [
         "ARB-001",
@@ -73,10 +86,23 @@
         "The user selected Railway on 2026-09-12. deploy/RAILWAY.md and .railway/railway.ts define the private API/PostgreSQL and same-origin dashboard foundation, with independent qualified workers and dedicated capture volumes described separately.",
         "docs/15-FOUNDATION-REVIEW.md FQ-02/FQ-03/FQ-11 assigns budget, region/capacity and retention/backup decisions to the operator and Operations/Technical Lead; docs/12-IMPLEMENTATION-STATUS.md explicitly withholds deployment and performance claims.",
         "Capture manifests record raw expiry and reject expired bundles; worker documentation limits each capture volume to one controlled writer. No Redis/Kafka/Kubernetes service or universal latency guarantee is introduced.",
-        "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Passing runtime checkpoint and test scope are recorded in docs/14-IMPLEMENTATION-VERIFICATION.md; original ticket dependencies and unfulfilled acceptance gates remain authoritative."
+        "Implementation/review source: https://github.com/makafeli/arbitrage-research/pull/83. Passing runtime checkpoint and test scope are recorded in docs/14-IMPLEMENTATION-VERIFICATION.md; original ticket dependencies and unfulfilled acceptance gates remain authoritative.",
+        "docs/26-FOUNDATION-CLOSEOUT.md",
+        "docs/qualification-fixtures/feasibility-2026-09-14.json",
+        "docs/benchmark-environment.json",
+        "https://github.com/makafeli/arbitrage-research/pull/110"
       ],
-      "remaining_acceptance": "Select the actual Railway project/environment, region, budget and service resources. Publish the reproducible benchmark-host manifest and a transparent 24-hour storage estimate from measured/declared input rates; review retention consequences and recovery targets. Run an authenticated Railway plan and capacity/RTT measurements before deployment assumptions can be accepted.",
-      "external_prerequisite": "Railway is selected, but authenticated target project/environment, region, service budget, retention capacity and measured host/provider benchmark remain unqualified."
+      "remaining_acceptance": "",
+      "external_prerequisite": "",
+      "acceptance_reconciliation_history": [
+        {
+          "date": "2026-09-14",
+          "previous_remaining_acceptance": "Select the actual Railway project/environment, region, budget and service resources. Publish the reproducible benchmark-host manifest and a transparent 24-hour storage estimate from measured/declared input rates; review retention consequences and recovery targets. Run an authenticated Railway plan and capacity/RTT measurements before deployment assumptions can be accepted.",
+          "previous_external_prerequisite": "Railway is selected, but authenticated target project/environment, region, service budget, retention capacity and measured host/provider benchmark remain unqualified.",
+          "reason": "Original criteria assessed in PR #110, not production qualification; dependency order and native closure remain required."
+        }
+      ],
+      "acceptance_review": "Criterion-level integrating-maintainer review in docs/26-FOUNDATION-CLOSEOUT.md and PR #110. Proposed closure against original scope only, subject to current final CI, source review and accepted dependencies. Provider/pool/campaign/live qualification remains on existing downstream tickets; no new paid approval inferred."
     },
     {
       "id": "ARB-005",
@@ -144,9 +170,23 @@
         "The common-anchor/cost cohort extends reproducible adapter, whole-batch replay, process, database, actual HTTP, browser and exact cross-language fixture checks. Cargo reuses existing serde_json/sha2 packages; no dependency package versions change. Scope, review and verification boundaries: docs/19-ANCHORED-CAPTURE-AND-COST-VERIFICATION.md.",
         "Verified PR #92 runtime checkpoint 6c8e39628282b95b4531cd2b1006fd4c2455ef64 (https://github.com/makafeli/arbitrage-research/actions/runs/34728060968) passed all four CI jobs: 261 Rust tests including all 57 real PostgreSQL tests with zero ignored/filtered; 43 Chromium scenarios; 30 Node tests; actual TypeScript-client/Rust-API/PostgreSQL cost/export interoperability; independent Uniswap references; 23 importer regressions, 43 negative contract cases across 26 API operations, and all three Railway containers. docs/19-ANCHORED-CAPTURE-AND-COST-VERIFICATION.md records common-anchor/original-input review, exact manual-cost replay, the corrected fault-exit process assertion, three inspected cost screenshots and remaining acceptance.",
         "The validation cohort now includes versioned chain-time domain/config/engine cases, preserved legacy hashes, exact-slot Solana transport/replay cases, frozen-policy PostgreSQL cases and strict support/freshness client/browser cases. These checks are integrated with the existing workspace and service-backed verification; their presence does not claim an unrecorded passing run. Source, independent review corrections and verification boundaries: docs/20-CHAIN-TIME-AND-SUPPORT-VERIFICATION.md.",
-        "Verified PR #93 runtime checkpoint 1dd5ffbd75caf69e8de691d2e1a87a2027df2339 (https://github.com/makafeli/arbitrage-research/actions/runs/34751924393) passed all four CI jobs: 294 Rust tests including all 61 real PostgreSQL tests with zero ignored/filtered; 52 Chromium scenarios; 39 Node tests; actual TypeScript-client/Rust-API/PostgreSQL adapter/cost/export interoperability; independent Uniswap references; 23 importer regressions, 59 negative contract cases across 27 API operations, and three Railway containers. docs/20-CHAIN-TIME-AND-SUPPORT-VERIFICATION.md records immutable chain-time policy, exact historical replay, support-catalog boundaries, review corrections and remaining acceptance."
+        "Verified PR #93 runtime checkpoint 1dd5ffbd75caf69e8de691d2e1a87a2027df2339 (https://github.com/makafeli/arbitrage-research/actions/runs/34751924393) passed all four CI jobs: 294 Rust tests including all 61 real PostgreSQL tests with zero ignored/filtered; 52 Chromium scenarios; 39 Node tests; actual TypeScript-client/Rust-API/PostgreSQL adapter/cost/export interoperability; independent Uniswap references; 23 importer regressions, 59 negative contract cases across 27 API operations, and three Railway containers. docs/20-CHAIN-TIME-AND-SUPPORT-VERIFICATION.md records immutable chain-time policy, exact historical replay, support-catalog boundaries, review corrections and remaining acceptance.",
+        "docs/26-FOUNDATION-CLOSEOUT.md",
+        "docs/qualification-fixtures/feasibility-2026-09-14.json",
+        "docs/benchmark-environment.json",
+        "https://github.com/makafeli/arbitrage-research/pull/110"
       ],
-      "remaining_acceptance": "Canonical Rust/PostgreSQL, reference-oracle, frontend/browser, specification and container checks have passed at the recorded PR #89 and PR #90 runtime checkpoints. ARB-004 deployment/retention/benchmark assumptions remain unaccepted; ARB-007 cannot close until that dependency and maintainer review are satisfied. Historical results apply only to their recorded checkpoints."
+      "remaining_acceptance": "",
+      "acceptance_reconciliation_history": [
+        {
+          "date": "2026-09-14",
+          "previous_remaining_acceptance": "Canonical Rust/PostgreSQL, reference-oracle, frontend/browser, specification and container checks have passed at the recorded PR #89 and PR #90 runtime checkpoints. ARB-004 deployment/retention/benchmark assumptions remain unaccepted; ARB-007 cannot close until that dependency and maintainer review are satisfied. Historical results apply only to their recorded checkpoints.",
+          "previous_external_prerequisite": "",
+          "reason": "Original criteria assessed in PR #110, not production qualification; dependency order and native closure remain required."
+        }
+      ],
+      "external_prerequisite": "",
+      "acceptance_review": "Criterion-level integrating-maintainer review in docs/26-FOUNDATION-CLOSEOUT.md and PR #110. Proposed closure against original scope only, subject to current final CI, source review and accepted dependencies. Provider/pool/campaign/live qualification remains on existing downstream tickets; no new paid approval inferred."
     },
     {
       "id": "ARB-008",
@@ -166,9 +206,23 @@
         "Opportunity schema 1.1 represents unknown external-cost net as null and requires matching dataset origin; legacy 1.0 remains supported. QUOTED trace projection stays CANDIDATE and explicitly maps constructed identities to fixture IDs. Seven new domain regressions cover integrity, grouping, large signed amounts, provenance and projection boundaries.",
         "Round-2 implementation/review: https://github.com/makafeli/arbitrage-research/pull/89; scope, review corrections and current verification limits are recorded in docs/17-RESEARCH-INTEGRATION-VERIFICATION.md. The subsequent passing final runtime checkpoint is recorded below and in that verification document.",
         "Validated checkpoint bca37cfff74a9257c95e5e067052adffe0e4ddc9 (https://github.com/makafeli/arbitrage-research/actions/runs/34717405033) passed all four CI jobs: 208 Rust tests including all 40 real PostgreSQL tests with zero ignored/filtered, 30 Chromium scenarios, 20 Node tests, actual browser-client/API interoperability, specifications and all three Railway images. This is the established PR #89 checkpoint before the additional two-pool worker-to-HTTP quote regression.",
-        "Final PR #89 runtime checkpoint d9e288446115ea8a32635c811f9df17584eb65ba (https://github.com/makafeli/arbitrage-research/actions/runs/34718009563) passed all four CI jobs: 210 Rust tests, including all 41 mandatory real PostgreSQL tests with zero ignored/filtered; actual two-pool worker-to-authenticated-HTTP quote integration; separate real TypeScript API-client smoke; 30 Chromium scenarios; 20 Node tests; independent Uniswap oracle reproduction; specifications/importer checks and all three Railway container builds. docs/17-RESEARCH-INTEGRATION-VERIFICATION.md records source review, retained screenshots, test scope and remaining qualification gates."
+        "Final PR #89 runtime checkpoint d9e288446115ea8a32635c811f9df17584eb65ba (https://github.com/makafeli/arbitrage-research/actions/runs/34718009563) passed all four CI jobs: 210 Rust tests, including all 41 mandatory real PostgreSQL tests with zero ignored/filtered; actual two-pool worker-to-authenticated-HTTP quote integration; separate real TypeScript API-client smoke; 30 Chromium scenarios; 20 Node tests; independent Uniswap oracle reproduction; specifications/importer checks and all three Railway container builds. docs/17-RESEARCH-INTEGRATION-VERIFICATION.md records source review, retained screenshots, test scope and remaining qualification gates.",
+        "docs/26-FOUNDATION-CLOSEOUT.md",
+        "docs/qualification-fixtures/feasibility-2026-09-14.json",
+        "docs/benchmark-environment.json",
+        "https://github.com/makafeli/arbitrage-research/pull/110"
       ],
-      "remaining_acceptance": "Accept ARB-007 and complete review of the domain/schema contract against the original acceptance criteria. PR #89 already passed nullable-cost, legacy compatibility and schema tests at the recorded 210-test checkpoint. Provider truth, deployed-program equivalence, full transaction simulation and settlement evidence remain producer responsibilities and cannot be inferred from a valid DTO."
+      "remaining_acceptance": "",
+      "acceptance_reconciliation_history": [
+        {
+          "date": "2026-09-14",
+          "previous_remaining_acceptance": "Accept ARB-007 and complete review of the domain/schema contract against the original acceptance criteria. PR #89 already passed nullable-cost, legacy compatibility and schema tests at the recorded 210-test checkpoint. Provider truth, deployed-program equivalence, full transaction simulation and settlement evidence remain producer responsibilities and cannot be inferred from a valid DTO.",
+          "previous_external_prerequisite": "",
+          "reason": "Original criteria assessed in PR #110, not production qualification; dependency order and native closure remain required."
+        }
+      ],
+      "external_prerequisite": "",
+      "acceptance_review": "Criterion-level integrating-maintainer review in docs/26-FOUNDATION-CLOSEOUT.md and PR #110. Proposed closure against original scope only, subject to current final CI, source review and accepted dependencies. Provider/pool/campaign/live qualification remains on existing downstream tickets; no new paid approval inferred."
     },
     {
       "id": "ARB-009",
