@@ -1,5 +1,23 @@
 # EPIC-01: original-scope identity and foundation acceptance
 
+## Completed epic checkpoint
+
+**EPIC-01 / #2 and its final child ARB-003 / #16 are closed as completed.**
+All six original children (#14-#19) have accepted original criteria; no child was
+excluded or converted to not-planned. Source PR #123 was merged as `86222319f126c70509c8a5c1331975b5816cae7f`,
+with exact tested head `aaf4e9a9f3f4b5171f0ce11a549b92a890becf07`, review `5202820322` and full project CI `34895541170`.
+The native #16 closure was observed at21:01:38UTC immediately after source merge,
+before the intended explicit close action. The existing closeout consistency
+check passed afterwards, before the epic closure at21:05:57UTC. No pre-close
+execution is claimed. All children and the epic's own four unchanged criteria
+were verified before explicitly closing #2. Native states were read back before this register update.
+
+**Burndown for this epic closeout: 69 open issues at start, two closed (one task
+and its epic), zero new task issues, 67 remaining.** Other 67 original task
+records and all original dependencies remain unchanged. Later operational,
+quote-size, simulation, campaign and independent live-review gates remain open.
+No deployment, provider purchase, signing or trading was activated.
+
 ## Current evidence and scope
 
 The missing Base access is resolved by the owner-triggered run
