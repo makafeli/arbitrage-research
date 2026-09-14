@@ -1,5 +1,7 @@
 //! PostgreSQL-controlled OBSERVE/PAPER read-only capture and research runtime.
 //! Captures feed bounded research-only route evaluation. Gross quotes never imply fills or executable profit.
+mod stage_metrics;
+
 use arb_adapter_api::{Chain, HttpReadRpc, ReadRpc, RpcRecord, StateContext};
 use arb_capture::{CaptureManifest, MAX_BUNDLE_BYTES, Origin, file_digest, write_bundle};
 use arb_config::ValidatedConfig;
@@ -571,6 +573,7 @@ async fn finish_collection(
 }
 
 async fn run() -> Result<(), AnyError> {
+    let metrics_enabled = stage_metrics::enabled()?;
     let config = ValidatedConfig::from_toml(&String::from_utf8(read_small(&required_env(
         "ARB_WORKER_CONFIG",
     )?)?)?)?;
@@ -659,6 +662,9 @@ async fn run() -> Result<(), AnyError> {
             stage_deadlines: [EVALUATION_DEADLINE; 6],
         },
     )?;
+    let mut metrics = stage_metrics::start(metrics_enabled)?;
+    let mut metrics_poll = tokio::time::interval(Duration::from_secs(1));
+    metrics_poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let configuration = Arc::new(config);
     let mut evaluation: Option<JoinHandle<Result<Vec<arb_domain::DecisionTrace>, AttemptFailure>>> =
         None;
@@ -673,6 +679,14 @@ async fn run() -> Result<(), AnyError> {
     tokio::pin!(shutdown);
     loop {
         tokio::select! {
+            _ = metrics_poll.tick(), if metrics.is_some() && !stopping => {
+                let outcome = metrics.as_mut().expect("enabled metrics publisher")
+                    .try_publish(&scheduler, Instant::now())?;
+                if outcome == arb_scheduler::telemetry::PublishOutcome::ConsumerDisconnected {
+                    // Disable a failed optional sink; never alter control/journal state.
+                    metrics = None;
+                }
+            }
             _ = &mut shutdown, if !stopping => {
                 // Close local admission immediately. An already started HTTP request
                 // cannot be recalled; its eventual artifact remains unadmitted.

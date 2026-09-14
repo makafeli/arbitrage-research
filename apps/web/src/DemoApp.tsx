@@ -17,10 +17,9 @@ const pages = {
 } as const;
 type Page = keyof typeof pages;
 
-export function DemoApp({ onConnect }: { onConnect: () => void }) {
+export function DemoApp({ onConnect, light, onToggleTheme }: { onConnect: () => void; light: boolean; onToggleTheme: () => void }) {
   const [page, setPage] = useState<Page>('overview');
   const [filter, setFilter] = useState<ChainFilter>('all');
-  const [light, setLight] = useState(false);
   const [sessions, setSessions] = useState(initialSessions);
   const [history, setHistory] = useState<string[]>(['Two stopped paper demo sessions. No workers or submitted transactions.']);
   const [pending, setPending] = useState<PendingOutcome>('INACTIVE');
@@ -36,7 +35,6 @@ export function DemoApp({ onConnect }: { onConnect: () => void }) {
   const paused = sessions.every(session => session.state === 'PAUSED');
   const stateLabel = stopping ? 'Stop requested' : running ? 'Running' : paused ? 'Paused' : 'Stopped';
 
-  useEffect(() => { document.body.classList.toggle('light', light); }, [light]);
   useEffect(() => () => timers.current.forEach(clearTimeout), []);
 
   function navigate(next: Page) {
@@ -73,7 +71,7 @@ export function DemoApp({ onConnect }: { onConnect: () => void }) {
     <a className="skip" href="#main">Skip to content</a>
     <div className="shell">
       <aside className="sidebar"><div className="brand"><span className="brandmark" aria-hidden="true">↗</span>Arbitrage</div><div className="subbrand">RESEARCH WORKSPACE</div><p className="navlabel">Workspace</p><nav className="nav" aria-label="Primary navigation">{(Object.keys(pages) as Page[]).map((key, index) => <button key={key} aria-current={page === key ? 'page' : undefined} onClick={() => navigate(key)}><span className="navindex" aria-hidden="true">0{index + 1}</span>{pages[key][0]}</button>)}</nav><div className="sidefoot"><strong>Research first</strong>Evidence, assumptions and operational control.<br />Synthetic data only.</div></aside>
-      <div className="main"><header className="topbar"><div><strong>Private workspace</strong><small>Solana + Base · Dashboard scaffold</small></div><div className="topactions"><button onClick={onConnect}>Connect API</button><span className="pill paper">PAPER MODE DEMO</span><button onClick={() => setLight(value => !value)} aria-label={`Switch to ${light ? 'dark' : 'light'} theme`}>{light ? 'Dark' : 'Light'} theme</button></div></header>
+      <div className="main"><header className="topbar"><div><strong>Private workspace</strong><small>Solana + Base · Dashboard scaffold</small></div><div className="topactions"><button onClick={onConnect}>Connect API</button><span className="pill paper">PAPER MODE DEMO</span><button onClick={onToggleTheme} aria-label={`Switch to ${light ? 'dark' : 'light'} theme`}>{light ? 'Dark' : 'Light'} theme</button></div></header>
         <main className="workspace" id="main">
           <div className="demo"><strong>LOCAL SYNTHETIC DEMO</strong><span>All values, routes and outcomes are fictional examples. Controls change local interface state only. No market connection, wallet or trading.</span></div>
           <div className="pagehead"><div><p className="eyebrow">Research / {pages[page][0]}</p><h1 ref={title} tabIndex={-1}>{pages[page][1]}</h1><p className="subtitle">{pages[page][2]}</p></div><div className="filter"><label htmlFor="chain">View chain</label><select id="chain" value={filter} onChange={event => { setFilter(event.target.value as ChainFilter); setAnnouncement(`View filtered to ${event.target.selectedOptions[0].text}. Both session scopes remain unchanged.`); }} aria-describedby="filter-scope"><option value="all">All chains</option><option value="solana">Solana</option><option value="base">Base</option></select><p className="scope-note" id="filter-scope">View filter only. Run group always contains two separate chain sessions.</p></div></div>
