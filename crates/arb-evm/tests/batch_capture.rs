@@ -84,6 +84,21 @@ fn final_reorg_invalidates_both_completed_pool_reads() {
     rpc.finish().unwrap();
 }
 
+#[test]
+fn contradictory_canonical_timestamp_invalidates_both_completed_pool_reads() {
+    let (registries, mut records) = fixture();
+    let record = records.last_mut().unwrap();
+    let mut response: Value = serde_json::from_str(&record.response).unwrap();
+    response["result"]["timestamp"] = json!("0x3e9");
+    record.response = response.to_string();
+    let mut rpc = TranscriptRpc::new(records);
+    assert_eq!(
+        capture_pools(&mut rpc, &registries, 100).unwrap_err().0,
+        "Base block invalidated during acquisition"
+    );
+    rpc.finish().unwrap();
+}
+
 struct NoIo;
 impl ReadRpc for NoIo {
     fn call(&mut self, _: ReadMethod, _: Value) -> Result<Value> {

@@ -80,7 +80,10 @@ fn quantity(v: &Value) -> Result<u64> {
         .as_str()
         .and_then(|s| s.strip_prefix("0x"))
         .ok_or(AdapterError("invalid EVM quantity"))?;
-    if s.is_empty() || (s.len() > 1 && s.starts_with('0')) {
+    if s.is_empty()
+        || !s.bytes().all(|c| c.is_ascii_hexdigit())
+        || (s.len() > 1 && s.starts_with('0'))
+    {
         return Err(AdapterError("noncanonical EVM quantity"));
     }
     u64::from_str_radix(s, 16).map_err(|_| AdapterError("EVM quantity overflow"))
@@ -183,8 +186,6 @@ pub const MAX_CAPTURE_POOLS: usize = 8;
 struct CaptureAnchor {
     state: StateContext,
     rpc_context: Value,
-    number: u64,
-    block_hash: String,
 }
 
 fn capture_anchor(rpc: &mut impl ReadRpc) -> Result<CaptureAnchor> {
@@ -206,25 +207,43 @@ fn capture_anchor(rpc: &mut impl ReadRpc) -> Result<CaptureAnchor> {
     Ok(CaptureAnchor {
         state: StateContext::Evm {
             block_number: number,
-            block_hash: block_hash.clone(),
+            block_hash,
             parent_hash,
             block_timestamp_seconds: timestamp,
             finality: "finalized".into(),
         },
         rpc_context: context,
-        number,
-        block_hash,
     })
 }
 
 fn verify_canonical(rpc: &mut impl ReadRpc, anchor: &CaptureAnchor) -> Result<()> {
-    let number = anchor.number;
-    let block_hash = &anchor.block_hash;
+    let StateContext::Evm {
+        block_number,
+        block_hash,
+        parent_hash,
+        block_timestamp_seconds,
+        ..
+    } = &anchor.state
+    else {
+        return Err(AdapterError("invalid Base capture anchor"));
+    };
     let canonical = rpc.call(
         ReadMethod::EthGetBlockByNumber,
-        json!([format!("0x{number:x}"), false]),
+        json!([format!("0x{block_number:x}"), false]),
     )?;
-    if canonical["hash"].as_str() != Some(block_hash.as_str()) {
+    // A matching hash alone cannot establish coherence when the provider also
+    // contradicts or omits the retained height, ancestry or captured chain time.
+    if quantity(&canonical["number"])? != *block_number
+        || !canonical["hash"]
+            .as_str()
+            .filter(|hash| hash.starts_with("0x"))
+            .is_some_and(|hash| hash.eq_ignore_ascii_case(block_hash))
+        || !canonical["parentHash"]
+            .as_str()
+            .filter(|hash| hash.starts_with("0x"))
+            .is_some_and(|hash| hash.eq_ignore_ascii_case(parent_hash))
+        || quantity(&canonical["timestamp"])? != *block_timestamp_seconds
+    {
         return Err(AdapterError("Base block invalidated during acquisition"));
     }
     Ok(())
