@@ -1159,7 +1159,7 @@ async fn request_capacity_is_bounded_and_cancellation_releases_owned_permits() {
     let app = setup_with(store.clone(), true);
     let (cookie, _) = authenticate(&app).await;
     let mut requests = Vec::new();
-    for _ in 0..MAX_INFLIGHT_REQUESTS {
+    for _ in 0..MAX_INFLIGHT_READS {
         let app = app.clone();
         let cookie = cookie.clone();
         requests.push(tokio::spawn(async move {
@@ -1177,16 +1177,16 @@ async fn request_capacity_is_bounded_and_cancellation_releases_owned_permits() {
         }));
     }
     for _ in 0..1000 {
-        if store.calls.load(Ordering::SeqCst) == MAX_INFLIGHT_REQUESTS {
+        if store.calls.load(Ordering::SeqCst) == MAX_INFLIGHT_READS {
             break;
         }
         tokio::task::yield_now().await;
     }
-    assert_eq!(store.calls.load(Ordering::SeqCst), MAX_INFLIGHT_REQUESTS);
+    assert_eq!(store.calls.load(Ordering::SeqCst), MAX_INFLIGHT_READS);
     let response = call(
         &app,
         Method::GET,
-        "/v1/capabilities",
+        "/v1/sessions",
         None,
         Some(&cookie),
         None,
@@ -2836,4 +2836,147 @@ async fn adapter_support_is_authenticated_read_only_and_independent_of_database_
     .await;
     assert_eq!(mutation.status(), StatusCode::METHOD_NOT_ALLOWED);
     assert_eq!(store.calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test(start_paused = true)]
+async fn saturated_dashboard_reads_preserve_stop_and_its_rate_reserve() {
+    let store = Arc::new(MockStore {
+        blocked: true,
+        ..MockStore::default()
+    });
+    let app = setup_with(store.clone(), true);
+    let (cookie, csrf) = authenticate(&app).await;
+    let mut blocked = Vec::new();
+    for _ in 0..MAX_INFLIGHT_READS {
+        let app = app.clone();
+        let cookie = cookie.clone();
+        blocked.push(tokio::spawn(async move {
+            call(
+                &app,
+                Method::GET,
+                "/v1/sessions",
+                None,
+                Some(&cookie),
+                None,
+                None,
+                None,
+            )
+            .await
+        }));
+    }
+    for _ in 0..1000 {
+        if store.calls.load(Ordering::SeqCst) == MAX_INFLIGHT_READS {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(store.calls.load(Ordering::SeqCst), MAX_INFLIGHT_READS);
+    let excess = call(
+        &app,
+        Method::GET,
+        "/v1/sessions",
+        None,
+        Some(&cookie),
+        None,
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(excess.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(value(excess).await["code"], "CAPACITY_EXCEEDED");
+    // More than the complete per-minute budget of rejected read retries cannot
+    // consume the reserved control budget or reach the blocked storage method.
+    for _ in 0..SESSION_REQUESTS_PER_MINUTE {
+        let response = call(
+            &app,
+            Method::GET,
+            "/v1/sessions",
+            None,
+            Some(&cookie),
+            None,
+            None,
+            None,
+        )
+        .await;
+        assert!(matches!(
+            response.status(),
+            StatusCode::SERVICE_UNAVAILABLE | StatusCode::TOO_MANY_REQUESTS
+        ));
+    }
+    assert_eq!(store.calls.load(Ordering::SeqCst), MAX_INFLIGHT_READS);
+    let stop = call(
+        &app,
+        Method::POST,
+        &format!("/v1/sessions/{}/commands", record().session_id),
+        Some(json!({"action":"STOP", "expected_revision":"0"})),
+        Some(&cookie),
+        Some(&csrf),
+        Some(ORIGIN),
+        Some("stop-under-read-load"),
+    )
+    .await;
+    assert_eq!(stop.status(), StatusCode::ACCEPTED);
+    let receipt = value(stop).await;
+    assert_eq!(receipt["status"], "PENDING");
+    assert_eq!(receipt["fence_effective"], false);
+    // The middleware reserves API admission, not a fabricated worker ACK.
+    assert_eq!(store.calls.load(Ordering::SeqCst), MAX_INFLIGHT_READS + 1);
+    for request in blocked {
+        request.abort();
+        assert!(request.await.unwrap_err().is_cancelled());
+    }
+}
+
+#[tokio::test]
+async fn read_reservation_keeps_the_original_global_bound_and_releases_failed_admission() {
+    let store = Arc::new(MockStore::default());
+    let state = AppState::with_store(
+        store.clone(),
+        ServerConfig {
+            listen_address: "127.0.0.1:8080".parse().unwrap(),
+            public_origin: ORIGIN.into(),
+            allow_insecure_loopback: true,
+            operator_secret_hash: hash(SECRET),
+            adapter_support: support::AdapterSupport::empty(),
+            configurations: vec![],
+        },
+    );
+    let app = router(state.clone());
+    let (cookie, _) = authenticate(&app).await;
+    let reserved = state
+        .0
+        .inflight
+        .clone()
+        .acquire_many_owned(MAX_INFLIGHT_REQUESTS as u32)
+        .await
+        .unwrap();
+    let response = call(
+        &app,
+        Method::GET,
+        "/v1/sessions",
+        None,
+        Some(&cookie),
+        None,
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(state.0.reads.available_permits(), MAX_INFLIGHT_READS);
+    assert_eq!(store.calls.load(Ordering::SeqCst), 0);
+    drop(reserved);
+    let response = call(
+        &app,
+        Method::GET,
+        "/v1/sessions",
+        None,
+        Some(&cookie),
+        None,
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(state.0.inflight.available_permits(), MAX_INFLIGHT_REQUESTS);
+    assert_eq!(state.0.reads.available_permits(), MAX_INFLIGHT_READS);
 }

@@ -33,6 +33,10 @@ mod support;
 use research::{PaperAssetChoice, ResearchStore};
 
 const MAX_INFLIGHT_REQUESTS: usize = 64;
+// Bulk reads use at most half of Store::connect's eight database connections.
+// They acquire this sub-budget before a global slot, preserving control capacity.
+const MAX_INFLIGHT_READS: usize = 4;
+const RESERVED_CONTROL_REQUESTS_PER_MINUTE: u32 = 60;
 const REQUEST_TIMEOUT_SECONDS: u64 = 15;
 const SESSION_TTL_SECONDS: u64 = 8 * 60 * 60;
 const MAX_SESSIONS: usize = 8;
@@ -320,6 +324,7 @@ struct Inner {
     auth: Mutex<AuthState>,
     sequence: AtomicU64,
     inflight: Arc<Semaphore>,
+    reads: Arc<Semaphore>,
     exports: Semaphore,
 }
 #[derive(Default)]
@@ -334,6 +339,7 @@ struct AuthSession {
     expires_at: u64,
     request_window: u64,
     requests: u32,
+    read_requests: u32,
 }
 #[derive(Clone)]
 struct Identity {
@@ -354,6 +360,7 @@ impl AppState {
             auth: Mutex::new(AuthState::default()),
             sequence: AtomicU64::new(1),
             inflight: Arc::new(Semaphore::new(MAX_INFLIGHT_REQUESTS)),
+            reads: Arc::new(Semaphore::new(MAX_INFLIGHT_READS)),
             exports: Semaphore::new(2),
         }))
     }
@@ -513,6 +520,19 @@ fn matches_header(headers: &HeaderMap, name: &str, expected: &str) -> bool {
     values.next().is_none() && bool::from(hash(value).ct_eq(&hash(expected)))
 }
 
+/// Expensive/dashboard reads share a strict sub-budget. Cheap capability/auth
+/// status and command receipts remain available to follow a control action.
+/// Unknown read routes are conservative: they also consume the read budget.
+fn bulk_read(request: &Request) -> bool {
+    matches!(
+        *request.method(),
+        Method::GET | Method::HEAD | Method::OPTIONS
+    ) && !matches!(
+        request.uri().path(),
+        "/healthz" | "/v1/health" | "/v1/capabilities" | "/v1/auth/session" | "/v1/adapter-support"
+    ) && !request.uri().path().starts_with("/v1/commands/")
+}
+
 async fn security(State(state): State<AppState>, mut request: Request, next: Next) -> Response {
     let id = RequestId(format!(
         "req-{}-{}",
@@ -520,14 +540,37 @@ async fn security(State(state): State<AppState>, mut request: Request, next: Nex
         state.0.sequence.fetch_add(1, Ordering::Relaxed)
     ));
     request.extensions_mut().insert(id.clone());
-    let result = authorize(&state, &mut request, &id);
+    let result = authorize(&state, &mut request, &id).and_then(|()| {
+        // Try the read sub-budget first: refused reads cannot occupy a global
+        // slot while waiting for capacity. Both owned permits release on cancel.
+        let read = if bulk_read(&request) {
+            Some(state.0.reads.clone().try_acquire_owned().map_err(|_| {
+                ApiError::new(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "CAPACITY_EXCEEDED",
+                    "Read capacity is exhausted; control capacity is reserved",
+                    &id,
+                )
+            })?)
+        } else {
+            None
+        };
+        let global = state.0.inflight.clone().try_acquire_owned().map_err(|_| {
+            ApiError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "CAPACITY_EXCEEDED",
+                "Control request capacity is exhausted; retry later",
+                &id,
+            )
+        })?;
+        Ok((global, read))
+    });
     let mut response = match result {
-        Ok(()) => match state.0.inflight.clone().try_acquire_owned() {
-            Ok(_permit) => match tokio::time::timeout(Duration::from_secs(REQUEST_TIMEOUT_SECONDS), next.run(request)).await {
-                Ok(response) => response,
-                Err(_) => ApiError::new(StatusCode::GATEWAY_TIMEOUT, "REQUEST_TIMEOUT", "Request completion is uncertain; retry mutations with the same idempotency key and payload", &id).into_response(),
-            },
-            Err(_) => ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "CAPACITY_EXCEEDED", "Control request capacity is exhausted; retry later", &id).into_response(),
+        Ok((_global, _read)) => match tokio::time::timeout(
+            Duration::from_secs(REQUEST_TIMEOUT_SECONDS), next.run(request),
+        ).await {
+            Ok(response) => response,
+            Err(_) => ApiError::new(StatusCode::GATEWAY_TIMEOUT, "REQUEST_TIMEOUT", "Request completion is uncertain; retry mutations with the same idempotency key and payload", &id).into_response(),
         },
         Err(error) => error.into_response(),
     };
@@ -586,15 +629,26 @@ fn authorize(state: &AppState, request: &mut Request, id: &RequestId) -> Result<
     if session.request_window != time / 60 {
         session.request_window = time / 60;
         session.requests = 0;
+        session.read_requests = 0;
     }
-    session.requests = session.requests.saturating_add(1);
-    if session.requests > SESSION_REQUESTS_PER_MINUTE {
+    let is_read = bulk_read(request);
+    if session.requests >= SESSION_REQUESTS_PER_MINUTE
+        || (is_read
+            && session.read_requests
+                >= SESSION_REQUESTS_PER_MINUTE - RESERVED_CONTROL_REQUESTS_PER_MINUTE)
+    {
         return Err(ApiError::new(
             StatusCode::TOO_MANY_REQUESTS,
             "RATE_LIMITED",
             "Request rate limit exceeded; retry after a minute",
             id,
         ));
+    }
+    // A denied bulk read does not consume the reserve, even if a client retries
+    // aggressively. The overall session limit remains 300 authorized attempts.
+    session.requests += 1;
+    if is_read {
+        session.read_requests += 1;
     }
     if is_mutation && !matches_header(request.headers(), "x-csrf-token", &session.csrf) {
         return Err(ApiError::new(
@@ -692,6 +746,7 @@ async fn login(
                 expires_at,
                 request_window: time / 60,
                 requests: 0,
+                read_requests: 0,
             },
         );
     }

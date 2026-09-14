@@ -1,0 +1,88 @@
+name: Platform contract acceptance
+on:
+  pull_request:
+    paths:
+      - 'crates/arb-config/**'
+      - 'crates/arb-control/**'
+      - 'crates/arb-storage/**'
+      - 'crates/arb-capture/**'
+      - 'apps/control-api/**'
+      - 'docs/EPIC-02-ACCEPTANCE.md'
+      - '.github/workflows/platform-acceptance.yml'
+permissions:
+  contents: read
+concurrency:
+  group: platform-acceptance-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17.11@sha256:67f41722b7a8cbdb868a44a4995c846eddfdc2973bccb291ce937dce88ad5675
+        env:
+          POSTGRES_USER: arb_test
+          POSTGRES_PASSWORD: isolated-test-only
+          POSTGRES_DB: arb_platform
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U arb_test -d arb_platform"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://arb_test:isolated-test-only@127.0.0.1:5432/arb_platform
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Record exact source and test-host identity
+        run: |
+          rustup show
+          mkdir platform-evidence
+          git rev-parse HEAD > platform-evidence/SOURCE_COMMIT
+          rustc -Vv > platform-evidence/toolchain.txt
+          python3 - <<'PY'
+          import json, os, platform
+          from pathlib import Path
+          Path('platform-evidence/host.json').write_text(json.dumps({
+              'runner':os.environ.get('RUNNER_NAME'),'os':platform.system(),
+              'architecture':platform.machine(),'logical_cpus':os.cpu_count(),
+              'data_origin':'SYNTHETIC_TEST_SESSIONS','production_deployment_verified':False
+          },indent=2)+'\n')
+          PY
+      - name: Test original configuration, journal and process-recovery contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --locked -p arb-config -p arb-storage -p arb-control -p arb-capture 2>&1 | tee platform-evidence/contracts.log
+      - name: Test API authentication, exact contracts and reserved control admission
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --locked -p control-api --lib 2>&1 | tee platform-evidence/api.log
+      - name: Hash available evidence even when a preceding test fails
+        if: always()
+        run: |
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          import hashlib
+          root = Path('platform-evidence')
+          root.mkdir(exist_ok=True)
+          names = ['SOURCE_COMMIT', 'toolchain.txt', 'host.json', 'contracts.log', 'api.log']
+          entries = []
+          for name in names:
+              file = root / name
+              if file.is_file() and not file.is_symlink():
+                  entries.append(hashlib.sha256(file.read_bytes()).hexdigest() + '  ' + name + '\n')
+          (root / 'SHA256SUMS').write_text(''.join(entries))
+          PYCODE
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: platform-contract-evidence
+          path: platform-evidence/
+          retention-days: 30
+          if-no-files-found: error

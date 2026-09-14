@@ -29,6 +29,16 @@ Root integration owns shared manifests, lockfiles, CI, publication and final acc
 
 ## Current delivery checkpoint
 
+### EPIC-02 platform acceptance in progress
+
+The original #23/#24/#25/#26/#28 contracts are being reconciled against current
+source and service-backed tests, with a real process-loss fixture and a correction
+to API read/control admission isolation. [The evidence map](docs/EPIC-02-ACCEPTANCE.md)
+separates those contracts from actual stage instrumentation and the still-required
+recorded #29 observation demonstration. No new task issue or whole-epic acceptance
+is implied. Original M2 adapter/snapshot/route dependencies remain in force.
+
+
 ### EPIC-01 completed
 
 EPIC-01 / #2 and ARB-003 / #16 are closed with verified original criteria,
