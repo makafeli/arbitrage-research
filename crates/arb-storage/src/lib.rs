@@ -1,5 +1,7 @@
 //! Durable research sessions and revisioned operator intent. No signing or broadcast.
 mod collection;
+mod ingestion;
+pub use ingestion::*;
 mod costs;
 mod decisions;
 mod exports;

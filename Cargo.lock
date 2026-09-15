@@ -633,7 +633,11 @@ dependencies = [
  "arb-config",
  "arb-domain",
  "arb-evm",
+ "arb-storage",
+ "hex",
  "serde_json",
+ "sha2 0.11.0",
+ "tokio",
 ]
 
 [[package]]

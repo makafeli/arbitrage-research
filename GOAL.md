@@ -29,7 +29,27 @@ Root integration owns shared manifests, lockfiles, CI, publication and final acc
 
 ## Current delivery checkpoint
 
-### Repository reconciliation, 15 September 2026
+### Durable ingestion continuation after PR131
+
+Main `4317636f9687302d4677719ee2f04988b555acfb` includes the successful recorded
+Base experiment/replay and failure evidence (PR129/130), plus the bounded event
+recovery and user-testing guide (PR131). No re-provisioning of Base access is needed.
+The register has 15 accepted original tasks; EPIC-02 has eight of nine accepted.
+Its remaining #29 depends on original M2 ingest/snapshot/math/route requirements.
+
+The current #30 change adds an explicit restartable finalized polling executable
+and atomic PostgreSQL event/checkpoint persistence. [The ingestion guide](docs/BASE-INGESTION.md)
+describes actual invocation, resource bounds and the remaining subscription,
+rollback-invalidation and market-qualification limits. Source alone is not a
+passing test or completed ticket; exact run/review results belong to its PR.
+The existing real-data user test remains available without waiting for all epics.
+
+The dated reconciliation below is historical; it does not override the newer
+accepted #27 state or the successful experiment in
+[the result record](docs/RECORDED-BASE-SLICE-RESULT.md).
+
+
+### Historical repository reconciliation, 15 September 2026
 
 Main `ff61b29e75fe4f368eab521a1c9dfdd8c2d90cb8` includes the reviewed PR #126
 pipeline measurements and the accepted platform-task registration. Native GitHub
