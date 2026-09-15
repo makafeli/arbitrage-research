@@ -1,0 +1,28 @@
+name: One-shot repository reconciliation
+on:
+  push:
+    branches: [integrator/repository-hygiene-20260915]
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+jobs:
+  audit:
+    if: github.repository == 'makafeli/arbitrage-research' && github.actor == 'makafeli'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Inspect complete native state and preserve branch history without mutation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/repository_audit.py
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: repository-audit-before
+          path: ${{ runner.temp }}/repository-audit/
+          retention-days: 90
+          if-no-files-found: error
