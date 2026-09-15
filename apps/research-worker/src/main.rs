@@ -1,6 +1,8 @@
 //! PostgreSQL-controlled OBSERVE/PAPER read-only capture and research runtime.
 //! Captures feed bounded research-only route evaluation. Gross quotes never imply fills or executable profit.
+mod pipeline_metrics;
 mod stage_metrics;
+use pipeline_metrics::{Component, PipelineMetrics, persistence};
 
 use arb_adapter_api::{Chain, HttpReadRpc, ReadRpc, RpcRecord, StateContext};
 use arb_capture::{CaptureManifest, MAX_BUNDLE_BYTES, Origin, file_digest, write_bundle};
@@ -83,6 +85,8 @@ struct CollectionWork {
     generation: Option<WorkGeneration>,
     started: Instant,
     captured_pools: u32,
+    metrics: Arc<PipelineMetrics>,
+    correlation: Uuid,
 }
 impl CollectionWork {
     fn finish(
@@ -104,6 +108,9 @@ impl CollectionWork {
 struct AcquisitionRpc {
     inner: HttpReadRpc,
     failure: Option<CollectionReason>,
+    metrics: Arc<PipelineMetrics>,
+    correlation: Uuid,
+    rpc_elapsed: Duration,
 }
 impl ReadRpc for AcquisitionRpc {
     fn call(
@@ -111,7 +118,8 @@ impl ReadRpc for AcquisitionRpc {
         method: arb_adapter_api::ReadMethod,
         params: Value,
     ) -> arb_adapter_api::Result<Value> {
-        self.inner.call(method, params).inspect_err(|error| {
+        let started = Instant::now();
+        let result = self.inner.call(method, params).inspect_err(|error| {
             self.failure = Some(match error.0 {
                 "capture RPC deadline exceeded" => CollectionReason::AcquisitionDeadline,
                 "RPC request quota exhausted" | "RPC response or capture exceeds byte quota" => {
@@ -119,11 +127,22 @@ impl ReadRpc for AcquisitionRpc {
                 }
                 _ => CollectionReason::ProviderUnavailable,
             });
-        })
+        });
+        let elapsed = started.elapsed();
+        self.rpc_elapsed = self.rpc_elapsed.saturating_add(elapsed);
+        self.metrics.record(
+            Component::Rpc,
+            self.correlation,
+            Some(elapsed),
+            result.is_ok(),
+        );
+        result
     }
 }
 
 struct EvaluationPayload {
+    metrics: Arc<PipelineMetrics>,
+    correlation: Uuid,
     pools: Vec<arb_engine::CapturedPool>,
     observed_at_ms: u64,
 }
@@ -181,7 +200,13 @@ fn evaluate_blocking(
         deadline_monotonic_ms: EVALUATION_DEADLINE.as_millis() as u64,
         pools: &item.payload.pools,
     };
-    let traces = arb_engine::evaluate(&request, &gate).map_err(|error| {
+    let measurement = item
+        .payload
+        .metrics
+        .span(Component::Evaluation, item.payload.correlation);
+    let evaluated = arb_engine::evaluate(&request, &gate);
+    measurement.finish(evaluated.is_ok());
+    let traces = evaluated.map_err(|error| {
         // The engine's generic admission gate also closes on deadline. Preserve
         // the scheduler's exact reason instead of labelling expiry as STOP.
         if let Err(reason) = gate.cancellation.check(Instant::now()) {
@@ -294,6 +319,7 @@ fn capture_adapter_version(document: &RegistryDocument, chain_time_enabled: bool
 }
 
 struct CapturePlan {
+    metrics: Arc<PipelineMetrics>,
     registry: RegistryDocument,
     chain_time_enabled: bool,
     origin: Origin,
@@ -385,7 +411,10 @@ fn directory_bytes(root: &Path) -> Result<u64, AnyError> {
     Ok(total)
 }
 
-fn capture_blocking(plan: &CapturePlan) -> Result<CompletedBatch, AttemptFailure> {
+fn capture_blocking(
+    plan: &CapturePlan,
+    correlation: Uuid,
+) -> Result<CompletedBatch, AttemptFailure> {
     let started = Instant::now();
     let observed = now_ms()
         .map_err(|_| AttemptFailure::acquisition(CollectionReason::AcquisitionUnavailable, 0))?;
@@ -400,12 +429,24 @@ fn capture_blocking(plan: &CapturePlan) -> Result<CompletedBatch, AttemptFailure
         )
         .map_err(|_| AttemptFailure::acquisition(CollectionReason::AcquisitionUnavailable, 0))?,
         failure: None,
+        metrics: Arc::clone(&plan.metrics),
+        correlation,
+        rpc_elapsed: Duration::ZERO,
     };
     // Pool-set v2 acquires and validates every member before writing artifacts.
     // Every bundle retains the actual complete batch transcript, including the
     // common anchor/union response. Never synthesize per-pool provider responses.
-    let snapshots = capture_document(&plan.registry, &mut rpc, observed, plan.chain_time_enabled)
-        .map_err(|_| {
+    let decoding_started = Instant::now();
+    let decoded = capture_document(&plan.registry, &mut rpc, observed, plan.chain_time_enabled);
+    // Calls are serial and fully inside this interval. Exclude their measured
+    // time from decode/context validation; missing subtraction is unknown.
+    plan.metrics.record(
+        Component::SnapshotDecode,
+        correlation,
+        decoding_started.elapsed().checked_sub(rpc.rpc_elapsed),
+        decoded.is_ok(),
+    );
+    let snapshots = decoded.map_err(|_| {
         AttemptFailure::acquisition(
             rpc.failure
                 .unwrap_or(CollectionReason::InputValidationFailed),
@@ -434,6 +475,7 @@ fn capture_blocking(plan: &CapturePlan) -> Result<CompletedBatch, AttemptFailure
             PoolRegistry::Solana(_) => Registry::Solana,
         };
         let mut artifact_reason = CollectionReason::CaptureStorageUnavailable;
+        let measurement = plan.metrics.span(Component::Persistence, correlation);
         let result = (|| -> Result<CompletedCapture, AnyError> {
             let capture_id = Uuid::new_v4().to_string();
             let path = plan.root.join(&capture_id);
@@ -532,6 +574,7 @@ fn capture_blocking(plan: &CapturePlan) -> Result<CompletedBatch, AttemptFailure
                 pool,
             })
         })();
+        measurement.finish(result.is_ok());
         captures.push(
             result.map_err(|_| AttemptFailure::acquisition(artifact_reason, captures.len()))?,
         );
@@ -562,9 +605,12 @@ async fn finish_collection(
     outcome: CollectionOutcome,
     reason: Option<CollectionReason>,
 ) -> Result<(), StoreError> {
-    worker
-        .finish_collection_attempt(&collection.id, collection.finish(outcome, reason))
-        .await?;
+    persistence(
+        &collection.metrics,
+        collection.correlation,
+        worker.finish_collection_attempt(&collection.id, collection.finish(outcome, reason)),
+    )
+    .await?;
     println!(
         "{}",
         json!({"event":"collection-finished","collection_attempt_id":collection.id,"outcome":outcome,"reason":reason,"captured_pools":collection.captured_pools})
@@ -624,7 +670,9 @@ async fn run() -> Result<(), AnyError> {
         arb_adapter_api::EndpointKind::LoopbackFixture => Origin::ManuallyConstructed,
         arb_adapter_api::EndpointKind::HttpsRemote => Origin::RecordedLive,
     };
+    let pipeline = PipelineMetrics::new(network);
     let plan = Arc::new(CapturePlan {
+        metrics: Arc::clone(&pipeline),
         chain_time_enabled: config.chain_freshness(network).is_some(),
         registry,
         origin,
@@ -662,7 +710,7 @@ async fn run() -> Result<(), AnyError> {
             stage_deadlines: [EVALUATION_DEADLINE; 6],
         },
     )?;
-    let mut metrics = stage_metrics::start(metrics_enabled)?;
+    let mut metrics = stage_metrics::start(metrics_enabled, Arc::clone(&pipeline))?;
     let mut metrics_poll = tokio::time::interval(Duration::from_secs(1));
     metrics_poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let configuration = Arc::new(config);
@@ -704,7 +752,7 @@ async fn run() -> Result<(), AnyError> {
                     match result {
                         Ok(Ok(traces)) if !stopping => {
                             let finish = collection.finish(CollectionOutcome::DecisionsRecorded, None);
-                            let admitted = match worker.admit_collection_decision_traces(generation, &collection.id, &traces, finish).await {
+                            let admitted = match persistence(&pipeline, collection.correlation, worker.admit_collection_decision_traces(generation, &collection.id, &traces, finish)).await {
                                 Ok(_) => true,
                                 Err(error) if is_generation_fence(&error) => {
                                     finish_collection(&worker, &collection, CollectionOutcome::Suppressed, Some(CollectionReason::GenerationFenced)).await?;
@@ -744,7 +792,7 @@ async fn run() -> Result<(), AnyError> {
                             let mut all_admitted=!stopping && generation.is_some();
                             for capture in &batch.captures {
                                 let admission = if stopping { None } else if let Some(generation)=generation {
-                                    match worker.admit_capture_manifest(generation,&capture.capture_id,&capture.manifest_digest,capture.path.to_str().ok_or("capture path is not UTF-8")?).await {
+                                    match persistence(&pipeline, collection.correlation, worker.admit_capture_manifest(generation,&capture.capture_id,&capture.manifest_digest,capture.path.to_str().ok_or("capture path is not UTF-8")?)).await {
                                         Ok(update)=>update.attempt_id,
                                         Err(error) if is_generation_fence(&error)=>None,
                                         Err(error @ (StoreError::Conflict(_) | StoreError::InvalidInput(_)))=>{
@@ -765,6 +813,8 @@ async fn run() -> Result<(), AnyError> {
                                     correlation_id:arb_scheduler::CorrelationId::new(&collection.id)?,
                                     observed_at:batch.started,
                                     payload:EvaluationPayload {
+                                        metrics: Arc::clone(&pipeline),
+                                        correlation: collection.correlation,
                                         pools:batch.captures.into_iter().map(|c|c.pool).collect(),
                                         observed_at_ms:batch.observed_at_ms,
                                     },
@@ -839,13 +889,14 @@ async fn run() -> Result<(), AnyError> {
                 if job.is_none() && evaluation.is_none() && Instant::now()>=next_capture {
                     let generation=worker.generation().await.ok();
                     let purpose=if generation.is_some() { CollectionPurpose::Research } else { CollectionPurpose::Readiness };
-                    let id=Uuid::now_v7().to_string();
+                    let correlation=Uuid::now_v7();
+                    let id=correlation.to_string();
                     // Commit before scheduling blocking work. A failed start writes no
                     // acquisition evidence and performs no external provider request.
-                    worker.begin_collection_attempt(&id, update.generation, purpose).await?;
-                    active_collection=Some(CollectionWork { id, generation, started:Instant::now(), captured_pools:0 });
+                    persistence(&pipeline, correlation, worker.begin_collection_attempt(&id, update.generation, purpose)).await?;
+                    active_collection=Some(CollectionWork { id, generation, started:Instant::now(), captured_pools:0, correlation, metrics:Arc::clone(&pipeline) });
                     let task_plan=Arc::clone(&plan);
-                    job=Some(tokio::task::spawn_blocking(move||capture_blocking(&task_plan)));
+                    job=Some(tokio::task::spawn_blocking(move||capture_blocking(&task_plan, correlation)));
                 }
             }
         }

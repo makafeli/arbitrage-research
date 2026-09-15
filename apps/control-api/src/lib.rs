@@ -23,7 +23,7 @@ use std::{
         Arc, Mutex,
         atomic::{AtomicU64, Ordering},
     },
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use subtle::ConstantTimeEq;
 use tokio::sync::Semaphore;
@@ -534,6 +534,7 @@ fn bulk_read(request: &Request) -> bool {
 }
 
 async fn security(State(state): State<AppState>, mut request: Request, next: Next) -> Response {
+    let request_started = Instant::now();
     let id = RequestId(format!(
         "req-{}-{}",
         now(),
@@ -574,6 +575,13 @@ async fn security(State(state): State<AppState>, mut request: Request, next: Nex
         },
         Err(error) => error.into_response(),
     };
+    // Integer microseconds rendered as milliseconds retain sub-ms observations
+    // without suggesting transaction latency or adding a data-dependent label.
+    let elapsed_us = request_started.elapsed().as_micros();
+    let duration = format!("api;dur={}.{:03}", elapsed_us / 1000, elapsed_us % 1000);
+    if let Ok(value) = HeaderValue::from_str(&duration) {
+        response.headers_mut().insert("server-timing", value);
+    }
     response.headers_mut().insert(
         "x-request-id",
         HeaderValue::from_str(&id.0).expect("generated request ID is a valid header"),
@@ -1049,5 +1057,7 @@ async fn fallback(Extension(id): Extension<RequestId>) -> ApiError {
     )
 }
 
+#[cfg(test)]
+mod request_timing;
 #[cfg(test)]
 mod tests;

@@ -1,0 +1,94 @@
+name: Worker pipeline observations
+on:
+  pull_request:
+    paths:
+      - 'apps/research-worker/**'
+      - 'apps/control-api/**'
+      - 'crates/arb-scheduler/**'
+      - '.github/workflows/pipeline-observations.yml'
+      - 'docs/PIPELINE-MEASUREMENTS.md'
+permissions:
+  contents: read
+concurrency:
+  group: pipeline-observations-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  process-observations:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:17.11@sha256:67f41722b7a8cbdb868a44a4995c846eddfdc2973bccb291ce937dce88ad5675
+        env:
+          POSTGRES_USER: arb_test
+          POSTGRES_PASSWORD: isolated-test-only
+          POSTGRES_DB: arb_pipeline
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U arb_test -d arb_pipeline"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://arb_test:isolated-test-only@127.0.0.1:5432/arb_pipeline
+      ARB_TEST_CONTROL_API_BIN: ${{ github.workspace }}/target/debug/control-api
+      ARB_TEST_STAGE_EVIDENCE_DIR: ${{ github.workspace }}/pipeline-evidence
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Record actual source, host and toolchain
+        run: |
+          rustup show
+          mkdir -p "$ARB_TEST_STAGE_EVIDENCE_DIR"
+          git rev-parse HEAD > "$ARB_TEST_STAGE_EVIDENCE_DIR/SOURCE_COMMIT"
+          rustc -Vv > "$ARB_TEST_STAGE_EVIDENCE_DIR/toolchain.txt"
+          python3 - <<'PY'
+          import json, os, platform
+          from pathlib import Path
+          root = Path(os.environ['ARB_TEST_STAGE_EVIDENCE_DIR'])
+          (root/'host.json').write_text(json.dumps({
+              'runner': os.environ.get('RUNNER_NAME'), 'os': platform.system(),
+              'architecture': platform.machine(), 'logical_cpus': os.cpu_count(),
+              'build_profile':'debug', 'input_origin':'MANUALLY_CONSTRUCTED_LOOPBACK_INPUTS',
+              'real_worker_processes':True, 'production_or_market_performance_verified':False
+          },indent=2)+'\n')
+          PY
+      - name: Compile and exercise bounded metrics and API timing
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --locked -p control-api
+          cargo test --locked -p arb-scheduler 2>&1 | tee "$ARB_TEST_STAGE_EVIDENCE_DIR/scheduler.log"
+          cargo test --locked -p research-worker --bin research-worker 2>&1 | tee "$ARB_TEST_STAGE_EVIDENCE_DIR/worker-unit.log"
+          cargo test --locked -p control-api --lib 2>&1 | tee "$ARB_TEST_STAGE_EVIDENCE_DIR/api.log"
+      - name: Execute unchanged control boundaries and real pipeline measurements
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --locked -p research-worker --test controlled_capture 2>&1 | tee "$ARB_TEST_STAGE_EVIDENCE_DIR/process.log"
+          test -s "$ARB_TEST_STAGE_EVIDENCE_DIR/two-pool-profile.json"
+          test -s "$ARB_TEST_STAGE_EVIDENCE_DIR/stale-state-profile.json"
+      - name: Hash available evidence without masking failed tests
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import hashlib, os
+          from pathlib import Path
+          root=Path(os.environ['ARB_TEST_STAGE_EVIDENCE_DIR']); root.mkdir(exist_ok=True)
+          names=['SOURCE_COMMIT','toolchain.txt','host.json','scheduler.log','worker-unit.log','api.log','process.log','two-pool-profile.json','stale-state-profile.json']
+          lines=[]
+          for name in names:
+              path=root/name
+              if path.is_file() and not path.is_symlink():
+                  lines.append(hashlib.sha256(path.read_bytes()).hexdigest()+'  '+name+'\n')
+          (root/'SHA256SUMS').write_text(''.join(lines))
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: pipeline-process-evidence
+          path: ${{ github.workspace }}/pipeline-evidence/
+          retention-days: 30
+          if-no-files-found: error
