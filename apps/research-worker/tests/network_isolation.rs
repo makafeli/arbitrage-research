@@ -1,30 +1,22 @@
 //! Two actual research processes and independent bounded local RPC services.
 //! Deliberately constructed inputs prove control isolation, not market coverage.
-use arb_adapter_api::RpcRecord;
+#[path = "support/isolation_provider.rs"]
+mod isolation_provider;
+use isolation_provider::{ASSERTION_WINDOW, ChildGuard, Handshake, IsolatedRpc};
 use arb_capture::digest;
 use arb_config::ValidatedConfig;
 use arb_storage::{NewCommand, NewSession, Store};
 use serde_json::{Value, json};
 use std::{
     fs,
-    io::{BufRead, BufReader, Read, Write},
-    net::TcpListener,
-    process::{Child, Command, Stdio},
+    process::{Command, Stdio},
     sync::{
         Arc,
-        atomic::{AtomicBool, Ordering},
+        atomic::Ordering,
     },
     time::{Duration, Instant},
 };
 use uuid::Uuid;
-
-struct ChildGuard(Child);
-impl Drop for ChildGuard {
-    fn drop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
-    }
-}
 
 async fn wait_until(mut check: impl AsyncFnMut() -> bool, seconds: u64) {
     let deadline = Instant::now() + Duration::from_secs(seconds);
@@ -37,132 +29,6 @@ async fn wait_until(mut check: impl AsyncFnMut() -> bool, seconds: u64) {
     }
 }
 use arb_domain::NetworkId;
-
-struct IsolatedRpc {
-    endpoint: String,
-    release: Arc<AtomicBool>,
-    entered: Arc<AtomicBool>,
-    done: Arc<AtomicBool>,
-    server: Option<std::thread::JoinHandle<()>>,
-}
-impl IsolatedRpc {
-    fn start(network: NetworkId, blocked: bool) -> Self {
-        let records: Vec<RpcRecord> = serde_json::from_str(match network {
-            NetworkId::BaseMainnet => {
-                include_str!("../../../crates/arb-evm/tests/fixtures/batch-rpc.json")
-            }
-            NetworkId::SolanaMainnet => {
-                include_str!("../../../crates/arb-solana/tests/fixtures/batch-rpc.json")
-            }
-        })
-        .unwrap();
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        listener.set_nonblocking(true).unwrap();
-        let endpoint = format!("http://{}", listener.local_addr().unwrap());
-        let release = Arc::new(AtomicBool::new(!blocked));
-        let entered = Arc::new(AtomicBool::new(false));
-        let done = Arc::new(AtomicBool::new(false));
-        let (allow, waiting, finished) = (release.clone(), entered.clone(), done.clone());
-        let server = std::thread::spawn(move || {
-            let mut cursor = 0;
-            let mut batches = 0;
-            while !finished.load(Ordering::SeqCst) {
-                let Ok((mut stream, _)) = listener.accept() else {
-                    std::thread::sleep(Duration::from_millis(2));
-                    continue;
-                };
-                stream
-                    .set_read_timeout(Some(Duration::from_secs(2)))
-                    .unwrap();
-                stream
-                    .set_write_timeout(Some(Duration::from_secs(2)))
-                    .unwrap();
-                let mut reader = BufReader::new(stream.try_clone().unwrap());
-                let mut line = String::new();
-                reader.read_line(&mut line).unwrap();
-                assert!(line.starts_with("POST "));
-                let mut length = None;
-                let mut header_bytes = line.len();
-                loop {
-                    line.clear();
-                    assert!(reader.read_line(&mut line).unwrap() > 0);
-                    header_bytes += line.len();
-                    assert!(header_bytes <= 16_384);
-                    if line == "\r\n" {
-                        break;
-                    }
-                    if let Some((key, value)) = line.split_once(':')
-                        && key.eq_ignore_ascii_case("content-length")
-                    {
-                        assert!(length.is_none());
-                        length = Some(value.trim().parse::<usize>().unwrap());
-                    }
-                }
-                let length = length.unwrap();
-                assert!(length <= 65_536);
-                let mut body = vec![0; length];
-                reader.read_exact(&mut body).unwrap();
-                let request: Value = serde_json::from_slice(&body).unwrap();
-                let record = &records[cursor];
-                assert_eq!(request["method"], record.method.wire_name());
-                assert_eq!(request["params"], record.params);
-                assert_eq!(request["id"], record.sequence);
-                // Let readiness finish. Only the subsequent research capture stalls.
-                if cursor == 0 && batches == 1 && blocked {
-                    waiting.store(true, Ordering::SeqCst);
-                    let deadline = Instant::now() + Duration::from_secs(20);
-                    while !allow.load(Ordering::SeqCst) && !finished.load(Ordering::SeqCst) {
-                        assert!(
-                            Instant::now() < deadline,
-                            "isolation hold exceeded test deadline"
-                        );
-                        std::thread::sleep(Duration::from_millis(2));
-                    }
-                }
-                if finished.load(Ordering::SeqCst) {
-                    break;
-                }
-                let response = format!(
-                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                    record.response.len(),
-                    record.response,
-                );
-                if stream.write_all(response.as_bytes()).is_err() {
-                    assert!(
-                        finished.load(Ordering::SeqCst),
-                        "unexpected provider disconnect"
-                    );
-                    break;
-                }
-                cursor = (cursor + 1) % records.len();
-                if cursor == 0 {
-                    batches += 1;
-                }
-            }
-        });
-        Self {
-            endpoint,
-            release,
-            entered,
-            done,
-            server: Some(server),
-        }
-    }
-}
-impl Drop for IsolatedRpc {
-    fn drop(&mut self) {
-        self.done.store(true, Ordering::SeqCst);
-        self.release.store(true, Ordering::SeqCst);
-        if let Some(server) = self.server.take() {
-            // Do not hide a test-server panic on the successful test path.
-            if std::thread::panicking() {
-                let _ = server.join();
-            } else {
-                server.join().unwrap();
-            }
-        }
-    }
-}
 
 /// Reuse the adapters' exact two-pool fixtures and common-anchor transcripts.
 /// These remain explicitly synthetic; duplicating one pool would not be a route.
@@ -294,7 +160,7 @@ fn a_single_pool_allowlist_remains_invalid() {
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn either_blocked_provider_leaves_the_other_worker_evaluating_and_both_controls_responsive() {
     let database = std::env::var("TEST_DATABASE_URL")
         .expect("TEST_DATABASE_URL required for dual-process isolation");
@@ -310,6 +176,7 @@ async fn either_blocked_provider_leaves_the_other_worker_evaluating_and_both_con
         let root = std::env::temp_dir().join(format!("arb-dual-isolation-{}", Uuid::new_v4()));
         fs::create_dir(&root).unwrap();
         let operator = format!("dual-isolation-{}", Uuid::new_v4());
+        let handshake = Arc::new(Handshake::default());
         let mut providers = Vec::new();
         let mut workers = Vec::new();
         let mut sessions = Vec::new();
@@ -347,10 +214,10 @@ async fn either_blocked_provider_leaves_the_other_worker_evaluating_and_both_con
                 )
                 .await
                 .unwrap();
-            let provider = IsolatedRpc::start(network, network == blocked);
+            let provider = IsolatedRpc::start(network, network == blocked, Arc::clone(&handshake), observer.clone(), session.session_id.clone());
             let log = fs::File::create(directory.join("worker.log")).unwrap();
-            let worker = ChildGuard(
-                Command::new(env!("CARGO_BIN_EXE_research-worker"))
+            let worker = ChildGuard {
+                process: Command::new(env!("CARGO_BIN_EXE_research-worker"))
                     .env("ARB_WORKER_CONFIG", config)
                     .env("ARB_POOL_REGISTRY", registry)
                     .env("ARB_OPERATOR_ID", &operator)
@@ -362,7 +229,8 @@ async fn either_blocked_provider_leaves_the_other_worker_evaluating_and_both_con
                     .stderr(Stdio::from(log))
                     .spawn()
                     .unwrap(),
-            );
+                shutdown: Arc::clone(&provider.shutdown),
+            };
             providers.push(provider);
             workers.push(worker);
             sessions.push(session);
@@ -388,6 +256,8 @@ async fn either_blocked_provider_leaves_the_other_worker_evaluating_and_both_con
                 15,
             )
             .await;
+        }
+        for session in &sessions {
             let command = store
                 .issue_command(
                     &operator,
@@ -418,10 +288,13 @@ async fn either_blocked_provider_leaves_the_other_worker_evaluating_and_both_con
         let blocked_index = usize::from(blocked == NetworkId::SolanaMainnet);
         let active_index = 1 - blocked_index;
         wait_until(
-            async || providers[blocked_index].entered.load(Ordering::SeqCst),
+            async || handshake.entered.load(Ordering::SeqCst),
             10,
         )
         .await;
+        let (held_attempt, held_since) = handshake.held.lock().unwrap().clone().expect("handshake has exact attempt");
+        let receipts = tokio::time::timeout_at(
+            tokio::time::Instant::from_std(held_since + ASSERTION_WINDOW), async {
         let active = &sessions[active_index];
         wait_until(
             async || {
@@ -435,10 +308,11 @@ async fn either_blocked_provider_leaves_the_other_worker_evaluating_and_both_con
             8,
         )
         .await;
-        assert!(!providers[blocked_index].release.load(Ordering::SeqCst));
+        assert!(!handshake.release.load(Ordering::SeqCst));
         let pending_capture: i64 = sqlx::query_scalar(
-            "SELECT count(*) FROM collection_attempts WHERE session_id=$1 AND purpose='RESEARCH' AND outcome='IN_PROGRESS'",
+            "SELECT count(*) FROM collection_attempts WHERE attempt_id=$1 AND session_id=$2 AND purpose='RESEARCH' AND outcome='IN_PROGRESS'",
         )
+        .bind(&held_attempt)
         .bind(&sessions[blocked_index].session_id)
         .fetch_one(&observer)
         .await
@@ -492,18 +366,28 @@ async fn either_blocked_provider_leaves_the_other_worker_evaluating_and_both_con
                 .unwrap();
             assert_eq!(state.observed_state, "STOPPED");
             assert!(!state.execution_authorized);
-            assert!(providers[blocked_index].entered.load(Ordering::SeqCst));
-            assert!(!providers[blocked_index].release.load(Ordering::SeqCst));
+            assert!(handshake.entered.load(Ordering::SeqCst));
+            assert!(!handshake.release.load(Ordering::SeqCst));
             receipts.push(json!({"network":session.network_id,"command_id":stop.command_id,"status":"APPLIED","stop_elapsed_ns":elapsed.as_nanos().to_string()}));
         }
         assert_ne!(receipts[0]["command_id"], receipts[1]["command_id"]);
-        providers[blocked_index]
-            .release
-            .store(true, Ordering::SeqCst);
+        let unchanged: i64 = sqlx::query_scalar("SELECT count(*) FROM collection_attempts WHERE attempt_id=$1 AND outcome='IN_PROGRESS'")
+            .bind(&held_attempt).fetch_one(&observer).await.unwrap();
+        assert_eq!(unchanged, 1, "both ACKs must precede completion of the exact held attempt");
+        receipts
+        }).await.expect("isolation and both STOP acknowledgements must fit below the real RPC timeout");
+        handshake.release.store(true, Ordering::SeqCst);
         wait_until(async || {
-            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM collection_attempts WHERE session_id=$1 AND purpose='RESEARCH' AND outcome='SUPPRESSED'")
-                .bind(&sessions[blocked_index].session_id).fetch_one(&observer).await.unwrap() > 0
+            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM collection_attempts WHERE attempt_id=$1 AND purpose='RESEARCH' AND outcome='SUPPRESSED' AND captured_pools=2")
+                .bind(&held_attempt).fetch_one(&observer).await.unwrap() == 1
         }, 8).await;
+        // A timed-out earlier attempt or a later retry cannot satisfy this check:
+        // the socket's exact held attempt must finish a complete two-pool capture.
+        let active_attempt = handshake.active.lock().unwrap().clone().expect("active research handshake");
+        let active_completed: i64 = sqlx::query_scalar("SELECT count(*) FROM collection_attempts WHERE attempt_id=$1 AND session_id=$2 AND outcome='DECISIONS_RECORDED'")
+            .bind(&active_attempt).bind(&sessions[active_index].session_id).fetch_one(&observer).await.unwrap();
+        assert_eq!(active_completed, 1);
+        let active = &sessions[active_index];
         let decisions = store
             .list_decision_traces(&operator, &active.session_id, None, 10)
             .await
@@ -511,7 +395,7 @@ async fn either_blocked_provider_leaves_the_other_worker_evaluating_and_both_con
         assert!(decisions.items.iter().all(
             |item| item.trace.dataset_origin == arb_domain::DatasetOrigin::ManuallyConstructed
         ));
-        evidence.push(json!({"blocked_network":blocked.as_str(),"other_network_decisions":decisions.items.len(),"blocked_decisions":0,"stop_receipts":receipts,"late_capture_suppressed":true}));
+        evidence.push(json!({"blocked_network":blocked.as_str(),"other_network_decisions":decisions.items.len(),"blocked_decisions":0,"stop_receipts":receipts,"late_capture_suppressed":true,"held_attempt_id":held_attempt,"active_attempt_id":active_attempt,"held_rpc_completed_two_pools":true,"assertion_window_ms":ASSERTION_WINDOW.as_millis().to_string()}));
         drop(workers);
         drop(providers);
         fs::remove_dir_all(&root).unwrap();
