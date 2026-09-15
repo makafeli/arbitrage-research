@@ -104,7 +104,10 @@ mod tests {
             pacing.delay(now + Duration::from_millis(30)),
             Duration::from_millis(45)
         );
-        assert_eq!(pacing.delay(now + Duration::from_millis(100)), Duration::ZERO);
+        assert_eq!(
+            pacing.delay(now + Duration::from_millis(100)),
+            Duration::ZERO
+        );
     }
 
     #[test]
@@ -141,7 +144,11 @@ mod tests {
             minimum: Duration::ZERO,
             previous_start: None,
         };
-        assert!(pacing.before_request(now - Duration::from_secs(61)).is_err());
+        assert!(
+            pacing
+                .before_request(now - Duration::from_secs(61))
+                .is_err()
+        );
         assert!(pacing.previous_start.is_none());
     }
 }
