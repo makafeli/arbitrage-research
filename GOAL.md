@@ -46,15 +46,17 @@ reject a single-pool test configuration before the intended process experiment.
 That failure is not proof of a runtime isolation defect, and the PR is not merged
 or accepted. Resume there without rebuilding the completed platform contracts.
 
-### EPIC-02: seven original tasks accepted
+### EPIC-02: eight original tasks accepted
 
-Configuration #23 and the durable journal #24 closed on 14 September; worker
-lifecycle #25, authenticated API #26 and capture provenance #28 closed on
-15 September after the reviewed PR #125 integration and native closeout checks.
-Together with the earlier #20/#22 acceptances, seven of nine epic tasks are done.
-[The acceptance record](docs/EPIC-02-ACCEPTANCE.md) preserves exact source, CI and
-chronology. #27 real-stage telemetry/isolation and #29 recorded integration remain
-open, including their original M2 prerequisites. The epic is not yet complete.
+Configuration #23, journal #24, lifecycle #25, API #26 and capture #28 were
+already accepted before this continuation. Scheduler/telemetry/isolation #27
+closed on 15 September at 11:17:27 UTC after PR127's verified integration and
+native criterion/dependency closeout. With #20/#22, eight of nine tasks are done.
+The [platform record](docs/EPIC-02-ACCEPTANCE.md) retains the source/test history.
+Only #29 remains inside this epic, with its original M2 ingestion, snapshot,
+mathematics and route prerequisites. [Recorded-slice orchestration](docs/RECORDED-BASE-SLICE.md)
+is being tested; authored code is not an executed market experiment or epic
+acceptance. The already-working Base secret does not need to be replaced.
 
 ### EPIC-01 completed
 

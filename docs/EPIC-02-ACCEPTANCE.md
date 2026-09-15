@@ -182,3 +182,22 @@ including #29's M2 adapter/snapshot/route dependencies. No epic criterion or chi
 is excluded to reduce counts. Previous remaining-acceptance notes remain in the
 reconciliation history. This checkpoint does not declare the epic, an executable
 paper release, a deployed recovery drill or a live service complete.
+
+## Scheduler acceptance synchronized on 15 September 2026
+
+Native #27 closed at 11:17:27 UTC before the current recorded-slice continuation.
+Its four original criteria and accepted #20/#22/#25 dependencies are preserved.
+Final PR127 head `b460a82b87389c7a6be2e1a0d507bda9d0f269e4` and merged main
+`ecabdfab7a045398994f421f1ffa624b7bd7d27b` share tree
+`4bfb5ff4d3c5cee0c7b49095869517e4692948f5`. Full project34961520133 and
+pipeline34961520116 passed along with the other three required workflows.
+Four isolation cases and all eight existing controlled-capture cases ran without
+ignored/filtered cases. The held RESEARCH attempt stayed pending through both
+STOP acknowledgements and was suppressed after release; production deadlines
+were unchanged. Root review5209212132 and CodeRabbit's confirmed corrections are
+recorded in the native issue. This synchronization is not counted as a new closure.
+
+Eight of the nine epic children are therefore accepted. #29's genuine recorded
+observation/control/replay demonstration and its original M2 prerequisites still
+remain. The new orchestration is not an acceptance shortcut or a production
+activation. Earlier sections retain their dated implementation/verification scope.
