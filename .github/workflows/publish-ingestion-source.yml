@@ -1,0 +1,76 @@
+name: One-shot exact durable-ingestion source publication
+on:
+  push:
+    branches: [integrator/arb016-durable-source]
+permissions:
+  contents: write
+jobs:
+  publish:
+    if: github.repository == 'makafeli/arbitrage-research' && github.actor == 'makafeli'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Reconstruct only the exact reviewed eleven-file source
+        run: |
+          python3 - <<'PY'
+          import gzip, hashlib, io, json, os, subprocess
+          from pathlib import Path
+          base='4317636f9687302d4677719ee2f04988b555acfb'
+          expected='dbb1be4111f7efc96debee60b610be76bca336b5'
+          paths=['Cargo.lock','GOAL.md','apps/evm-worker/Cargo.toml','apps/evm-worker/src/bin/base-ingest.rs','apps/evm-worker/tests/ingestion.rs','crates/arb-storage/src/ingestion.rs','crates/arb-storage/src/lib.rs','crates/arb-storage/tests/ingestion.rs','docs/BASE-INGESTION.md','migrations/0005_ingestion_checkpoints.sql','planning/implementation-progress.json']
+          def git(*args): return subprocess.check_output(['git',*args],text=True).strip()
+          assert git('rev-parse','HEAD^') == base
+          parts=[Path('.github/ingestion-source')/name for name in ['part1','part2','part3','part4a','part4b']]
+          compressed=b''.join(p.read_bytes() for p in parts)
+          assert len(compressed)==20364
+          assert hashlib.sha256(compressed).hexdigest()=='8b85a33ffd46c606bee1550737d230ea4c7cee22370c623995c14e6b3c57840d'
+          with gzip.GzipFile(fileobj=io.BytesIO(compressed)) as stream:
+              patch=stream.read(77413)
+          assert len(patch)==77412
+          assert hashlib.sha256(patch).hexdigest()=='3c2db2b8501c6eede9c9505f383d2bdaf5db91cd6be7ae90fb7ceecc00105d56'
+          subprocess.run(['git','rm','--',*[str(p) for p in parts],'.github/workflows/publish-ingestion-source.yml'],check=True)
+          subprocess.run(['git','apply','--index','--binary','-'],input=patch,check=True)
+          assert git('write-tree')==expected
+          assert set(git('diff','--cached','--name-only',base).splitlines())==set(paths)
+          assert not git('diff','--name-only')
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          subprocess.run(['python3','scripts/validate_project.py'],check=True)
+          subprocess.run(['python3','scripts/test_delivery.py'],check=True)
+          out=Path(os.environ['RUNNER_TEMP'])/'ingestion-source';out.mkdir()
+          (out/'manifest.json').write_text(json.dumps({'base':base,'tree':expected,'paths':paths,'issue_mutations':False,'ref_mutations':False},indent=2)+'\n')
+          PY
+      - name: Publish immutable source objects, never change a source branch or issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          out=Path(os.environ['RUNNER_TEMP'])/'ingestion-source'
+          manifest=json.loads((out/'manifest.json').read_text())
+          def git(*args): return subprocess.check_output(['git',*args],text=True).strip()
+          def post(endpoint,payload):
+              result=subprocess.run(['gh','api','--method','POST','repos/makafeli/arbitrage-research/'+endpoint,'--input','-'],input=json.dumps(payload),text=True,capture_output=True,check=True)
+              return json.loads(result.stdout)
+          assert git('write-tree')==manifest['tree']
+          entries=[]
+          for path in manifest['paths']:
+              blob=post('git/blobs',{'content':Path(path).read_text(),'encoding':'utf-8'})['sha']
+              assert blob==git('hash-object',path)
+              entries.append({'path':path,'mode':'100644','type':'blob','sha':blob})
+          tree=post('git/trees',{'base_tree':'61b1d7ddc050a61f67a1a8310e4f4f5fab78aa3f','tree':entries})['sha']
+          assert tree==manifest['tree']
+          manifest['files']=entries
+          (out/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
+          print(json.dumps({'published_tree':tree,'issue_mutations':False,'ref_mutations':False}))
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ingestion-source-manifest
+          path: ${{ runner.temp }}/ingestion-source/
+          retention-days: 7
+          if-no-files-found: error
