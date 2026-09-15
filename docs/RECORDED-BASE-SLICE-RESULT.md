@@ -103,3 +103,21 @@ and arithmetic qualification. Streaming, reconnect/backfill, persistent rollback
 invalidation and current protocol qualification cannot be inferred from one Base
 trace. No ticket or epic closes through this evidence record. The integrating
 review is by the implementing assistant, not an independent security audit.
+
+## Preserve future failure evidence without another request
+
+The follow-up saves an already-fetched collection-attempt journal as
+`collection-failure.json` before raising the existing terminal failure. It makes
+no additional API/provider request and introduces no retry. At most six records
+are accepted, original ordering and unknown/null fields are retained, and an
+existing evidence file cannot be overwritten. Malformed or over-limit input
+fails before writing. The existing bounded-file and credential-scan gate remains
+mandatory before any artifact upload. A write failure remains a failure; a saved
+diagnostic never becomes success or an accepted epic.
+
+Seven new offline tests cover each terminal outcome, preserved context, no calls,
+limits, malformed input, exclusive output and export refusal on credential-like
+content. These tests do not retroactively add missing diagnostics to old runs or
+prove that a historical provider failure was HTTP 429. They prevent loss of the
+existing journal when a later collection fails. The successful recorded result
+above keeps its original source and date; this correction does not rerun it.
