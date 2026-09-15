@@ -134,7 +134,19 @@ impl Fixture {
                     other => panic!("unexpected method: {other}"),
                 };
                 let body = json!({"jsonrpc":"2.0","id":req["id"],"result":result}).to_string();
-                write!(socket,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",body.len(),body).unwrap();
+                // Process-stop tests may deliberately close the peer before
+                // its response is written. The client still verifies success.
+                if let Err(error) = write!(
+                    socket,
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                ) {
+                    assert!(matches!(
+                        error.kind(),
+                        std::io::ErrorKind::BrokenPipe | std::io::ErrorKind::ConnectionReset
+                    ));
+                }
             }
         });
         Self {
@@ -345,3 +357,7 @@ async fn interrupt_during_an_actual_rpc_prevents_checkpoint_publication() {
             .is_empty()
     );
 }
+
+#[cfg(unix)]
+#[path = "ingestion/shutdown.rs"]
+mod shutdown;
