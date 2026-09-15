@@ -17,7 +17,7 @@ def inventory_and_report():
     inventory = json.loads((s.ROOT/'docs/registries/initial-identities.json').read_text())
     chain = inventory['chains'][0]
     report = {'network':s.NETWORK, 'status':'OBSERVATIONS_COLLECTED', 'canonical_recheck_passed':True,
-              'factory':{'address':chain['venue']['identity']['address'], 'runtime_sha256':chain['venue']['observed_runtime_sha256']},
+              'factory':{'address':chain['venue']['identity']['address'],'runtime_sha256':chain['venue']['observed_runtime_sha256']},
               'assets':[{'address':a['identity']['address'],'decimals':a['decimals'],'runtime_sha256':a['observed_runtime_sha256']} for a in chain['assets']],
               'pools':[{'address':p['identity']['address'],'token0':s.WETH,'token1':s.USDC,
                         'fee_millionths':p['fee_millionths'],'tick_spacing':p['tick_spacing'],
@@ -144,6 +144,88 @@ class RecordedSliceTests(unittest.TestCase):
             code=s.main(['--run','--output',str(Path(directory)/'out')])
             self.assertEqual(code,2);run.assert_not_called()
             self.assertEqual(json.loads(out.getvalue())['reason'],'REQUIRED_BINARY_MISSING')
+
+
+class ReplayBatchTests(unittest.TestCase):
+    def traces(self):
+        first = dict(session_id='session-1', experiment_id='experiment-1', generation='1',
+                     configuration_digest='sha256:config', calculation_version='v1',
+                     strategy_id='cycle-v1', network_id=s.NETWORK, mode='OBSERVE',
+                     dataset_origin='RECORDED_LIVE', observed_at_unix_ms=1000,
+                     capture_refs=[dict(capture_id='capture-a', manifest_digest='sha256:a', snapshot_id='sha256:a'),
+                                   dict(capture_id='capture-b', manifest_digest='sha256:b', snapshot_id='sha256:b')],
+                     route=['pool-a', 'pool-b'], amount_in_minor='1000000',
+                     result={'status':'QUOTED', 'gross_delta_minor':'-3389'},
+                     diagnostics=['EXTERNAL_COSTS_UNAVAILABLE'])
+        second = copy.deepcopy(first)
+        second['capture_refs'].reverse(); second['route'].reverse()
+        second['result']['gross_delta_minor'] = '-3609'
+        return first, second
+
+    def replay(self, traces):
+        return dict(network_requests=0, dataset_origin='RECORDED_LIVE', decisions=traces)
+
+    def test_reverse_routes_belong_to_one_batch_without_reordering_either(self):
+        first, second = self.traces(); original = copy.deepcopy([first, second])
+        # Regression: the preceding equality selected only one expected route.
+        self.assertNotEqual(first['capture_refs'], second['capture_refs'])
+        rows = [{'trace':first}, {'trace':second}]
+        selected = s.batch_traces(rows, first)
+        self.assertEqual(len(selected), 2)
+        self.assertEqual(s.compare_replay(selected, self.replay([second, first])), 2)
+        self.assertEqual([first, second], original)
+        self.assertNotEqual(s.projection(first)['route'], s.projection(second)['route'])
+
+    def test_other_session_config_generation_or_acquisition_never_joins_batch(self):
+        first, _ = self.traces()
+        for key in ('session_id','experiment_id','generation','configuration_digest',
+                    'calculation_version','strategy_id','network_id','mode','dataset_origin','observed_at_unix_ms'):
+            different = copy.deepcopy(first); different[key] = 'different'
+            self.assertEqual(s.batch_traces([{'trace':first},{'trace':different}],first), [first])
+            with self.assertRaisesRegex(s.SliceError, 'REPLAY_BATCH_MISMATCH'):
+                s.compare_replay([first], self.replay([different]))
+
+    def test_changed_manifest_or_snapshot_is_not_the_same_batch(self):
+        first, _ = self.traces()
+        for key in ('capture_id','manifest_digest','snapshot_id'):
+            different = copy.deepcopy(first); different['capture_refs'][0][key] = 'changed'
+            self.assertNotEqual(s.capture_batch_key(first), s.capture_batch_key(different))
+            with self.assertRaisesRegex(s.SliceError, 'REPLAY_BATCH_MISMATCH'):
+                s.compare_replay([first], self.replay([different]))
+
+    def test_duplicate_missing_and_invalid_capture_references_fail_closed(self):
+        first, _ = self.traces()
+        variants = [[], [first['capture_refs'][0]], [first['capture_refs'][0]] * 2,
+                    [{}, first['capture_refs'][1]], [None, first['capture_refs'][1]]]
+        invalid = copy.deepcopy(first['capture_refs']); invalid[0]['snapshot_id'] = None
+        variants.append(invalid)
+        conflicting = copy.deepcopy(first['capture_refs'])
+        conflicting[1]['capture_id'] = conflicting[0]['capture_id']; variants.append(conflicting)
+        for refs in variants:
+            changed = copy.deepcopy(first); changed['capture_refs'] = refs
+            with self.assertRaises(s.SliceError): s.capture_batch_key(changed)
+
+    def test_missing_duplicate_or_mutated_routes_do_not_pass_comparison(self):
+        first, second = self.traces()
+        for actual in ([], [first], [first, first], [first, second, second]):
+            with self.assertRaisesRegex(s.SliceError, 'REPLAY_DECISION_MISMATCH'):
+                s.compare_replay([first, second], self.replay(actual))
+        for key, value in [('route',['pool-b','pool-a']),('amount_in_minor','1000001'),
+                           ('result',{'status':'QUOTED','gross_delta_minor':'0'}),
+                           ('diagnostics',[])]:
+            changed = copy.deepcopy(first); changed[key] = value
+            with self.assertRaisesRegex(s.SliceError, 'REPLAY_DECISION_MISMATCH'):
+                s.compare_replay([first, second], self.replay([changed, second]))
+        changed = copy.deepcopy(first); changed['capture_refs'].reverse()
+        with self.assertRaisesRegex(s.SliceError, 'REPLAY_DECISION_MISMATCH'):
+            s.compare_replay([first, second], self.replay([changed, second]))
+
+    def test_network_replay_or_synthetic_substitution_is_never_accepted(self):
+        first, second = self.traces()
+        for key, value in [('network_requests',1),('dataset_origin','MANUALLY_CONSTRUCTED')]:
+            replayed = self.replay([first, second]); replayed[key] = value
+            with self.assertRaisesRegex(s.SliceError, 'REPLAY_ORIGIN_CHANGED'):
+                s.compare_replay([first, second], replayed)
 
 
 if __name__ == '__main__':

@@ -188,6 +188,50 @@ def projection(trace: dict) -> dict:
     return {key: trace[key] for key in keys}
 
 
+def capture_batch_key(trace: dict) -> tuple[str, tuple[tuple[str, str, str], ...]]:
+    """Identify a source batch independent of route traversal order.
+
+    Only batch selection is unordered. The comparison projection still retains
+    the original ordered capture references, route legs, amounts and results.
+    """
+    context_fields = ('session_id', 'experiment_id', 'generation',
+                      'configuration_digest', 'calculation_version', 'strategy_id',
+                      'network_id', 'mode', 'dataset_origin', 'observed_at_unix_ms')
+    try:
+        refs = trace['capture_refs']
+        require(isinstance(refs, list) and len(refs) == 2,
+                'TWO_DISTINCT_CAPTURE_REFERENCES_REQUIRED')
+        identity = tuple((ref['capture_id'], ref['manifest_digest'], ref['snapshot_id'])
+                         for ref in refs)
+        require(all(isinstance(value, str) and value for ref in identity for value in ref)
+                and len({ref[0] for ref in identity}) == 2,
+                'TWO_DISTINCT_CAPTURE_REFERENCES_REQUIRED')
+        context = json.dumps({key: trace[key] for key in context_fields},
+                             sort_keys=True, allow_nan=False)
+        return context, tuple(sorted(identity))
+    except (KeyError, TypeError):
+        raise SliceError('INVALID_CAPTURE_BATCH_IDENTITY') from None
+
+
+def batch_traces(rows: list[dict], reference: dict) -> list[dict]:
+    """Select both directions from the exact session/configuration/source batch."""
+    key = capture_batch_key(reference)
+    return [row['trace'] for row in rows if capture_batch_key(row['trace']) == key]
+
+
+def compare_replay(expected: list[dict], replayed: dict) -> int:
+    """Compare the full ordered decision projections, retaining multiplicity."""
+    require(replayed['network_requests'] == 0
+            and replayed['dataset_origin'] == 'RECORDED_LIVE', 'REPLAY_ORIGIN_CHANGED')
+    actual = replayed['decisions']
+    require(bool(expected) and all(capture_batch_key(t) == capture_batch_key(expected[0])
+                                  for t in expected + actual), 'REPLAY_BATCH_MISMATCH')
+    canonical = lambda traces: sorted(json.dumps(projection(t), sort_keys=True)
+                                      for t in traces)
+    require(canonical(expected) == canonical(actual), 'REPLAY_DECISION_MISMATCH')
+    return len(actual)
+
+
 def private_process(args: list[str], env: dict[str, str], log: Path, children: list) -> subprocess.Popen:
     stream = log.open('xb')
     try:
@@ -294,7 +338,7 @@ def exercise(root: Path, endpoint: str, database: str) -> dict:
         # Freeze the worker before inspecting its raw files. API remains running.
         stop_process(worker)
         first = rows[0]['trace']; projection(first)
-        same_batch = [row['trace'] for row in rows if row['trace']['capture_refs'] == first['capture_refs']]
+        same_batch = batch_traces(rows, first)
         require(len(first['capture_refs']) == 2, 'TWO_REAL_CAPTURE_REFERENCES_REQUIRED')
         request = dict(schema_version=1, session_id=sid, experiment_id=first['experiment_id'],
                        strategy_id=first['strategy_id'], network_id=NETWORK, generation=int(first['generation']),
@@ -306,11 +350,10 @@ def exercise(root: Path, endpoint: str, database: str) -> dict:
                                 env=base, capture_output=True, timeout=25, check=False)
         require(replay.returncode == 0, 'RECORDED_REPLAY_FAILED')
         replayed = json.loads(replay.stdout)
-        require(replayed['network_requests'] == 0 and replayed['dataset_origin'] == 'RECORDED_LIVE', 'REPLAY_ORIGIN_CHANGED')
-        expected = sorted(json.dumps(projection(t), sort_keys=True) for t in same_batch)
-        actual = sorted(json.dumps(projection(t), sort_keys=True) for t in replayed['decisions'])
-        require(expected == actual, 'REPLAY_DECISION_MISMATCH')
+        # Preserve the bounded replay output even when comparison fails, so
+        # a later investigation does not need another provider collection.
         save(evidence/'replay.json', replayed)
+        matched = compare_replay(same_batch, replayed)
         # Wait for the original 15-second lease rather than changing database rows.
         time.sleep(16)
         restarted = private_process([str(ROOT/'target/debug/research-worker')], worker_env, work/'restarted-worker.log', children)
@@ -339,7 +382,7 @@ def exercise(root: Path, endpoint: str, database: str) -> dict:
                       worker_build_digest=sha((ROOT/'target/debug/research-worker').read_bytes()),
                       api_build_digest=sha((ROOT/'target/debug/control-api').read_bytes()),
                       replay_build_digest=sha((ROOT/'target/debug/replay').read_bytes()),
-                      matched_decisions=len(actual), browser_elapsed_ms=round((time.monotonic()-before_browser)*1000,3))
+                      matched_decisions=matched, browser_elapsed_ms=round((time.monotonic()-before_browser)*1000,3))
     except (SliceError, operator_access.AccessError) as exc:
         result.update(status='BLOCKED', reason=str(exc))
     except (OSError, ValueError, KeyError, StopIteration, subprocess.SubprocessError):
