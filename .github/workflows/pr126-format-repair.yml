@@ -21,8 +21,10 @@ jobs:
           from pathlib import Path
           import subprocess
           p=Path('.github/workflows/pipeline-observations.yml')
-          s=p.read_text(); assert s.count('${{ runner.temp }}/pipeline-evidence')==2
-          p.write_text(s.replace('${{ runner.temp }}/pipeline-evidence','${{ github.workspace }}/pipeline-evidence'))
+          before=chr(36)+'{{ runner.temp }}/pipeline-evidence'
+          after=chr(36)+'{{ github.workspace }}/pipeline-evidence'
+          s=p.read_text(); assert s.count(before)==2
+          p.write_text(s.replace(before,after))
           subprocess.run(['git','add','--','.'],check=True)
           tree=subprocess.check_output(['git','write-tree'],text=True).strip()
           assert tree=='0cb6fc6d351950e2615a9c6bb9e01fddd28b7ccc',tree
