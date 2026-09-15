@@ -1,63 +1,64 @@
-name: One-shot pinned offline validation inputs
+name: Archive retired validation helper and close merged branches
 on:
   push:
     branches: [integrator/epic02-local-validation]
 permissions:
-  contents: read
+  contents: write
+  pull-requests: read
 jobs:
-  bundle:
+  cleanup:
     if: github.repository == 'makafeli/arbitrage-research' && github.actor == 'makafeli'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 4
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          ref: 595ae6c3c6a49568918b2c4f93409bafb4426e44
-          persist-credentials: false
-      - name: Package only public pinned compiler and lockfile-verified crate sources
+      - name: Preserve helper history and atomically remove only verified inactive refs
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          set -eu
-          rustup show
-          root="$RUNNER_TEMP/offline-validation"
-          mkdir -p "$root/toolchain" "$root/postgres" "$root/evidence"
-          toolchain="$(dirname "$(dirname "$(rustup which rustc)")")"
-          cp -a "$toolchain/bin" "$toolchain/lib" "$root/toolchain/"
-          rm -rf "$root/toolchain/lib/rustlib/src"
-          cargo vendor --locked "$root/vendor" > "$root/evidence/vendor-config.txt"
-          rustc -Vv > "$root/evidence/rustc.txt"
-          cp Cargo.lock "$root/evidence/Cargo.lock"
-          git rev-parse HEAD > "$root/evidence/SOURCE_COMMIT"
-          echo "$root" > "$RUNNER_TEMP/validation-root"
-      - name: Package pinned disposable PostgreSQL binaries, not database contents or secrets
-        run: |
-          set -eu
-          root="$(cat "$RUNNER_TEMP/validation-root")"
-          image='postgres:17.11@sha256:67f41722b7a8cbdb868a44a4995c846eddfdc2973bccb291ce937dce88ad5675'
-          docker pull "$image"
-          docker run --rm --entrypoint sh -v "$root/postgres:/out" "$image" -ec '
-            mkdir -p /out/usr/lib/postgresql /out/usr/share/postgresql /out/deps
-            cp -a /usr/lib/postgresql/17 /out/usr/lib/postgresql/
-            cp -a /usr/share/postgresql/17 /out/usr/share/postgresql/
-            for executable in /usr/lib/postgresql/17/bin/* /usr/lib/postgresql/17/lib/*.so; do
-              ldd "$executable" 2>/dev/null || true
-            done | awk "/=> \\/(lib|usr)/ {print \$3}" | sort -u > /out/dependencies.txt
-            while IFS= read -r library; do
-              case "$(basename "$library")" in libc.so.*|libm.so.*|libpthread.so.*|librt.so.*|libdl.so.*|libutil.so.*|ld-linux*) continue;; esac
-              cp -L "$library" /out/deps/
-            done < /out/dependencies.txt
-          '
-          printf '%s\n' "$image" > "$root/evidence/postgres-image.txt"
-      - name: Hash and archive inputs for local-only validation
-        run: |
-          set -eu
-          root="$(cat "$RUNNER_TEMP/validation-root")"
-          mkdir "$RUNNER_TEMP/validation-artifact"
-          tar -C "$root" -czf "$RUNNER_TEMP/validation-artifact/offline-validation.tar.gz" .
-          cd "$RUNNER_TEMP/validation-artifact"
-          sha256sum offline-validation.tar.gz > SHA256SUMS
+          python3 - <<'PY'
+          import hashlib, json, os, subprocess
+          from pathlib import Path
+          repo='repos/makafeli/arbitrage-research'
+          def get(path): return json.loads(subprocess.check_output(['gh','api',repo+path],text=True))
+          main='92caa33cf23586b2101215eaab658d051e0b03b7'
+          current=os.environ['GITHUB_SHA']
+          assert get('/git/commits/'+current)['parents'][0]['sha']=='c4ac38c00e8e1e5e23e33d04550a6713293294b4'
+          assert get('/git/commits/c4ac38c00e8e1e5e23e33d04550a6713293294b4')['tree']['sha']=='c6d056f22733c9d94c398c0e0fb018487620abbb'
+          pr=get('/pulls/127')
+          assert pr['merged'] and pr['head']['sha']=='b460a82b87389c7a6be2e1a0d507bda9d0f269e4'
+          assert pr['merge_commit_sha']=='ecabdfab7a045398994f421f1ffa624b7bd7d27b'
+          assert get('/git/ref/heads/main')['object']['sha']==main
+          targets={'feat/ARB-013-dual-worker-isolation':'b460a82b87389c7a6be2e1a0d507bda9d0f269e4',
+                   'integrator/epic02-local-validation':current}
+          tag='archive/retired-validation-helper-2026-09-15'
+          assert not get('/git/matching-refs/tags/'+tag)
+          for branch,sha in targets.items():
+              assert get('/git/ref/heads/'+branch)['object']['sha']==sha
+              assert not get('/pulls?state=open&head=makafeli:'+branch)
+          root=Path(os.environ['RUNNER_TEMP'])/'safe-retirement';root.mkdir()
+          subprocess.run(['git','init','--quiet',str(root)],check=True)
+          credential='credential.helper=!gh auth git-credential'
+          url='https://github.com/makafeli/arbitrage-research.git'
+          subprocess.run(['git','-c',credential,'fetch','--quiet','--no-tags','--depth=1',url,current],cwd=root,check=True)
+          args=['git','-c',credential,'push','--atomic','--force-with-lease=refs/tags/'+tag+':']
+          args += ['--force-with-lease=refs/heads/'+branch+':'+sha for branch,sha in targets.items()]
+          args += [url, current+':refs/tags/'+tag] + [':refs/heads/'+branch for branch in targets]
+          # Archive creation and both deletions succeed together or not at all.
+          # The archive includes this recipe and its earlier helper ancestors.
+          subprocess.run(args,cwd=root,text=True,capture_output=True,check=True)
+          assert get('/git/ref/tags/'+tag)['object']['sha']==current
+          assert get('/git/ref/heads/main')['object']['sha']==main
+          out=Path(os.environ['RUNNER_TEMP'])/'retirement-evidence';out.mkdir()
+          data={'main':main,'archived_helper_tag':tag,'archive_commit':current,
+                'deleted_expected_refs':targets,'atomic_exact_head_leases':True,
+                'provider_requests':0,'issue_mutations':False}
+          (out/'result.json').write_text(json.dumps(data,indent=2)+'\n')
+          (out/'SHA256SUMS').write_text(hashlib.sha256((out/'result.json').read_bytes()).hexdigest()+'  result.json\n')
+          print(json.dumps(data))
+          PY
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: pinned-offline-validation
-          path: ${{ runner.temp }}/validation-artifact/
-          retention-days: 1
+          name: retired-validation-helper
+          path: ${{ runner.temp }}/retirement-evidence/
+          retention-days: 30
           if-no-files-found: error
