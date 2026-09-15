@@ -1,0 +1,63 @@
+name: One-shot pinned offline validation inputs
+on:
+  push:
+    branches: [integrator/epic02-local-validation]
+permissions:
+  contents: read
+jobs:
+  bundle:
+    if: github.repository == 'makafeli/arbitrage-research' && github.actor == 'makafeli'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 595ae6c3c6a49568918b2c4f93409bafb4426e44
+          persist-credentials: false
+      - name: Package only public pinned compiler and lockfile-verified crate sources
+        run: |
+          set -eu
+          rustup show
+          root="$RUNNER_TEMP/offline-validation"
+          mkdir -p "$root/toolchain" "$root/postgres" "$root/evidence"
+          toolchain="$(dirname "$(dirname "$(rustup which rustc)")")"
+          cp -a "$toolchain/bin" "$toolchain/lib" "$root/toolchain/"
+          rm -rf "$root/toolchain/lib/rustlib/src"
+          cargo vendor --locked "$root/vendor" > "$root/evidence/vendor-config.txt"
+          rustc -Vv > "$root/evidence/rustc.txt"
+          cp Cargo.lock "$root/evidence/Cargo.lock"
+          git rev-parse HEAD > "$root/evidence/SOURCE_COMMIT"
+          echo "$root" > "$RUNNER_TEMP/validation-root"
+      - name: Package pinned disposable PostgreSQL binaries, not database contents or secrets
+        run: |
+          set -eu
+          root="$(cat "$RUNNER_TEMP/validation-root")"
+          image='postgres:17.11@sha256:67f41722b7a8cbdb868a44a4995c846eddfdc2973bccb291ce937dce88ad5675'
+          docker pull "$image"
+          docker run --rm --entrypoint sh -v "$root/postgres:/out" "$image" -ec '
+            mkdir -p /out/usr/lib/postgresql /out/usr/share/postgresql /out/deps
+            cp -a /usr/lib/postgresql/17 /out/usr/lib/postgresql/
+            cp -a /usr/share/postgresql/17 /out/usr/share/postgresql/
+            for executable in /usr/lib/postgresql/17/bin/* /usr/lib/postgresql/17/lib/*.so; do
+              ldd "$executable" 2>/dev/null || true
+            done | awk "/=> \\/(lib|usr)/ {print \$3}" | sort -u > /out/dependencies.txt
+            while IFS= read -r library; do
+              case "$(basename "$library")" in libc.so.*|libm.so.*|libpthread.so.*|librt.so.*|libdl.so.*|libutil.so.*|ld-linux*) continue;; esac
+              cp -L "$library" /out/deps/
+            done < /out/dependencies.txt
+          '
+          printf '%s\n' "$image" > "$root/evidence/postgres-image.txt"
+      - name: Hash and archive inputs for local-only validation
+        run: |
+          set -eu
+          root="$(cat "$RUNNER_TEMP/validation-root")"
+          mkdir "$RUNNER_TEMP/validation-artifact"
+          tar -C "$root" -czf "$RUNNER_TEMP/validation-artifact/offline-validation.tar.gz" .
+          cd "$RUNNER_TEMP/validation-artifact"
+          sha256sum offline-validation.tar.gz > SHA256SUMS
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: pinned-offline-validation
+          path: ${{ runner.temp }}/validation-artifact/
+          retention-days: 1
+          if-no-files-found: error
