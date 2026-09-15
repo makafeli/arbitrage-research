@@ -1,0 +1,114 @@
+name: Verify existing platform completions
+on:
+  push:
+    branches: [integrator/epic02-completion-record]
+permissions:
+  contents: write
+  issues: read
+  pull-requests: read
+jobs:
+  record:
+    if: github.repository == 'makafeli/arbitrage-research' && github.actor == 'makafeli'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: d78635df4a4f63d4bc2d702e611f52b580ec757c
+          persist-credentials: false
+      - name: Reconcile only three metadata files from already completed native tasks
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import copy,json,subprocess,sys
+          sys.path.insert(0,'scripts')
+          import delivery
+          repo='repos/makafeli/arbitrage-research'
+          def get(path): return json.loads(subprocess.check_output(['gh','api',repo+path],text=True))
+          pr=get('/pulls/125')
+          assert pr['merged'] and pr['merge_commit_sha']=='d78635df4a4f63d4bc2d702e611f52b580ec757c'
+          assert pr['head']['sha']=='c9933f3b9582cc6ab38204ba3ddf01dbcfff65b0'
+          snapshot=delivery.collect_snapshot()
+          native={i['number']:i for i in snapshot['issues']}
+          tasks,old_rows=delivery.load_register(Path.cwd())
+          ids={'ARB-009':23,'ARB-010':24,'ARB-011':25,'ARB-012':26,'ARB-014':28}
+          path=Path('planning/implementation-progress.json'); data=json.loads(path.read_text());before=copy.deepcopy(data)
+          for row in data['tickets']:
+              if row['id'] not in ids: continue
+              issue=native[ids[row['id']]]
+              assert issue['state']=='closed' and issue['state_reason']=='completed'
+              assert delivery.acceptance(issue['body'])==[(t,True) for t,_ in delivery.acceptance(tasks[row['id']]['body'])]
+              assert 'd78635df4a4f63d4bc2d702e611f52b580ec757c' in issue['body']
+              for dependency in row['dependencies']:
+                  prior=native[delivery.issue_number(old_rows[dependency])]
+                  assert prior['state']=='closed' and prior['state_reason']=='completed'
+              row['state']='completed';row['remaining_acceptance']='';row['external_prerequisite']=''
+              row['acceptance_review']='Original platform-contract acceptance: merged PR #125, tested c9933f3b9582cc6ab38204ba3ddf01dbcfff65b0 / main d78635df4a4f63d4bc2d702e611f52b580ec757c, source reviews 5203567914/5203647170 and five successful workflows including full project34905430286. Native criteria/dependencies and existing closeout preflights checked before explicit closure. ARB-009/010 closed 2026-09-14; ARB-011/012/014 closed 2026-09-15. No entire-epic, provider, deployment or simulation acceptance implied.'
+              row['evidence'].extend([f'https://github.com/makafeli/arbitrage-research/issues/{ids[row["id"]]}','https://github.com/makafeli/arbitrage-research/pull/125','https://github.com/makafeli/arbitrage-research/actions/runs/34905430286'])
+          assert [r for r in before['tickets'] if r['id'] not in ids]==[r for r in data['tickets'] if r['id'] not in ids]
+          data['updated_on']='2026-09-15';path.write_text(json.dumps(data,ensure_ascii=False,indent=2)+'\n')
+          p=Path('GOAL.md');s=p.read_text();a=s.index('### EPIC-02 platform acceptance in progress');b=s.index('### EPIC-01 completed',a)
+          s=s[:a]+'''### EPIC-02: seven original tasks accepted
+          
+          Configuration #23 and the durable journal #24 closed on 14 September; worker
+          lifecycle #25, authenticated API #26 and capture provenance #28 closed on
+          15 September after the reviewed PR #125 integration and native closeout checks.
+          Together with the earlier #20/#22 acceptances, seven of nine epic tasks are done.
+          [The acceptance record](docs/EPIC-02-ACCEPTANCE.md) preserves exact source, CI and
+          chronology. #27 real-stage telemetry/isolation and #29 recorded integration remain
+          open, including their original M2 prerequisites. The epic is not yet complete.
+          
+          '''+s[b:];p.write_text(s)
+          p=Path('docs/EPIC-02-ACCEPTANCE.md');p.write_text(p.read_text()+'''
+          ## Verified native acceptance checkpoint, 15 September 2026
+          
+          PR #125 is merged as `d78635df4a4f63d4bc2d702e611f52b580ec757c` with tree
+          `c7ab8a8ed05e8758959808cb0acf987b893ba6f5`, identical to tested source
+          `c9933f3b9582cc6ab38204ba3ddf01dbcfff65b0`. Source reviews 5203567914 and
+          5203647170 identify the implementing Technical Lead under the solo-maintainer
+          convention. CodeRabbit confirmed both workflow corrections and resolved them;
+          no new independent safety certification is claimed.
+          
+          All five source-head workflows passed: full project 34905430286, platform
+          34905430399, delivery 34905430391, recovery 34905430459 and preparation
+          34905430331. The four core jobs include actual Rust/PostgreSQL/process/HTTP
+          execution, web/browser checks, specifications and all three container builds.
+          The test inputs remain labelled synthetic; this is not market performance.
+          
+          Native #23 and #24 had already closed on 14 September before the interrupted
+          conversation resumed. On 15 September, the original criteria and accepted
+          predecessors were checked, the existing offline closeout verifier returned
+          EVIDENCE_PACKET_CONSISTENT, and #25, #26 and #28 were explicitly closed at
+          05:05:06, 05:09:01 and 05:13:09 UTC respectively. Those resumed packets used a
+          complete prior snapshot with explicitly identified current native state/checklist
+          projections: non-atomic, not a fabricated fresh authenticated snapshot. The final
+          metadata reconciliation independently reads the current issue set before publication.
+          
+          The five platform tasks and earlier #20/#22 make seven of nine EPIC-02 tasks
+          accepted. #27 and #29 remain open with their unchanged original requirements,
+          including #29's M2 adapter/snapshot/route dependencies. No epic criterion or child
+          is excluded to reduce counts. Previous remaining-acceptance notes remain in the
+          reconciliation history. This checkpoint does not declare the epic, an executable
+          paper release, a deployed recovery drill or a live service complete.
+          ''')
+          paths={'planning/implementation-progress.json':'e5f247cf85c16cc0487fc47c590d73ecffd9168b','GOAL.md':'f4c092fc79606e91cf3b6fd952d744ecc3c3470d','docs/EPIC-02-ACCEPTANCE.md':'c10c9f35751d189b945a0e17b165b32897fd795b'}
+          subprocess.run(['git','add','--',*paths],check=True)
+          assert set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==set(paths)
+          assert subprocess.check_output(['git','write-tree'],text=True).strip()=='ffc1942ac3410928f6c3b1b9f6e0c5a7a60fed6a'
+          tasks,rows=delivery.load_register(Path.cwd());assert not delivery.audit(tasks,rows,snapshot)['findings']
+          subprocess.run(['python3','scripts/validate_project.py'],check=True)
+          subprocess.run(['python3','scripts/test_delivery.py'],check=True)
+          def post(path,payload):
+              r=subprocess.run(['gh','api','--method','POST',repo+path,'--input','-'],input=json.dumps(payload),text=True,capture_output=True,check=True)
+              return json.loads(r.stdout)
+          entries=[]
+          for path,expected in paths.items():
+              assert subprocess.check_output(['git','hash-object',path],text=True).strip()==expected
+              blob=post('/git/blobs',{'encoding':'utf-8','content':Path(path).read_text()})['sha'];assert blob==expected
+              entries.append({'path':path,'mode':'100644','type':'blob','sha':blob})
+          tree=post('/git/trees',{'base_tree':'c7ab8a8ed05e8758959808cb0acf987b893ba6f5','tree':entries})['sha']
+          assert tree=='ffc1942ac3410928f6c3b1b9f6e0c5a7a60fed6a'
+          print(json.dumps({'metadata_tree':tree,'closed_tasks':[23,24,25,26,28],'source_or_issue_ref_mutations':False}))
+          PY
