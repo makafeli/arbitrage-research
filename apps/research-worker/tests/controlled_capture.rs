@@ -828,6 +828,7 @@ async fn two_pool_worker_http(chain_stale: bool) {
             .env("ARB_SESSION_ID", &id)
             .env("TEST_DATABASE_URL", &database)
             .env("TEST_WORKER_RPC", &rpc.endpoint)
+            .env("ARB_STAGE_METRICS_STDERR", "1")
             .stdout(Stdio::from(log.try_clone().unwrap()))
             .stderr(Stdio::from(log))
             .spawn()
@@ -883,6 +884,50 @@ async fn two_pool_worker_http(chain_stale: bool) {
         20,
     )
     .await;
+    // This is real worker/process/HTTP/database execution using labelled local
+    // fixture responses. It is not the same placeholder under four stage names.
+    wait_until(async || {
+        fs::read_to_string(root.join("worker.log")).unwrap_or_default().lines()
+            .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+            .any(|value| value["pipeline_at_encoding"]["components"].as_array()
+                .is_some_and(|rows| rows.len() == 4 && rows.iter().all(|row|
+                    row["completed"]["samples"].as_str().and_then(|s| s.parse::<u64>().ok())
+                        .is_some_and(|n| n > 0))))
+    }, 5).await;
+    let measured: Value = fs::read_to_string(root.join("worker.log")).unwrap().lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .find(|value| value["pipeline_at_encoding"]["components"].as_array()
+            .is_some_and(|rows| rows.len() == 4 && rows.iter().all(|row|
+                row["completed"]["samples"].as_str().and_then(|s| s.parse::<u64>().ok())
+                    .is_some_and(|n| n > 0))))
+        .expect("all implemented pipeline components must have actual observations");
+    let profile = &measured["pipeline_at_encoding"];
+    assert_eq!(profile["network_id"], "base-mainnet");
+    assert_eq!(profile["simulation"]["status"], "NOT_IMPLEMENTED");
+    assert!(profile["simulation"]["duration_ns"].is_null());
+    assert_eq!(measured["market_coverage_verified"], false);
+    for row in profile["components"].as_array().unwrap() {
+        assert!(Uuid::parse_str(row["last_collection_attempt_id"].as_str().unwrap()).is_ok());
+        let summary = &row["completed"];
+        let values: Vec<u128> = ["min_ns", "p50_upper_ns", "p95_upper_ns", "p99_upper_ns", "max_ns"]
+            .iter().map(|key| summary[*key].as_str().unwrap().parse().unwrap()).collect();
+        assert!(values.windows(2).all(|pair| pair[0] <= pair[1]));
+    }
+    if let Ok(directory) = std::env::var("ARB_TEST_STAGE_EVIDENCE_DIR") {
+        // CI supplies an isolated output path, never a capture volume or secret.
+        let directory = std::path::Path::new(&directory);
+        fs::create_dir_all(directory).unwrap();
+        let evidence = json!({
+            "origin":"MANUALLY_CONSTRUCTED_LOOPBACK_INPUTS",
+            "real_worker_and_postgres":true,
+            "production_or_market_performance_verified":false,
+            "chain_stale_case":chain_stale,
+            "profile":profile,
+        });
+        let mut file = fs::OpenOptions::new().write(true).create_new(true)
+            .open(directory.join(if chain_stale { "stale-state-profile.json" } else { "two-pool-profile.json" })).unwrap();
+        std::io::Write::write_all(&mut file, evidence.to_string().as_bytes()).unwrap();
+    }
     let observed = store.get_session(operator, &id).await.unwrap();
     let stop = store
         .issue_command(
@@ -1185,6 +1230,8 @@ async fn two_pool_worker_http(chain_stale: bool) {
     let auth = [("Cookie", cookie)];
     let first = local_http(address, "GET", &path, &auth, None).unwrap();
     assert_eq!(first.status, 200);
+    assert!(first.headers.iter().any(|(name, value)| name == "server-timing" && value.starts_with("api;dur=")));
+    assert!(first.headers.iter().any(|(name, value)| name == "x-request-id" && value.starts_with("req-")));
     assert_eq!(first.body["items"].as_array().unwrap().len(), 1);
     let mut responses = vec![first];
     if !chain_stale {

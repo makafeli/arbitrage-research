@@ -151,3 +151,34 @@ whole-epic criteria have actual evidence. No new provider request, secrets read,
 paid service, production deployment, wallet operation, signing or broadcasting
 is introduced. Reviewer is the implementing/root assistant under the established
 solo-maintainer convention, not an invented independent reviewer or agent team.
+
+## Verified native acceptance checkpoint, 15 September 2026
+
+PR #125 is merged as `d78635df4a4f63d4bc2d702e611f52b580ec757c` with tree
+`c7ab8a8ed05e8758959808cb0acf987b893ba6f5`, identical to tested source
+`c9933f3b9582cc6ab38204ba3ddf01dbcfff65b0`. Source reviews 5203567914 and
+5203647170 identify the implementing Technical Lead under the solo-maintainer
+convention. CodeRabbit confirmed both workflow corrections and resolved them;
+no new independent safety certification is claimed.
+
+All five source-head workflows passed: full project 34905430286, platform
+34905430399, delivery 34905430391, recovery 34905430459 and preparation
+34905430331. The four core jobs include actual Rust/PostgreSQL/process/HTTP
+execution, web/browser checks, specifications and all three container builds.
+The test inputs remain labelled synthetic; this is not market performance.
+
+Native #23 and #24 had already closed on 14 September before the interrupted
+conversation resumed. On 15 September, the original criteria and accepted
+predecessors were checked, the existing offline closeout verifier returned
+EVIDENCE_PACKET_CONSISTENT, and #25, #26 and #28 were explicitly closed at
+05:05:06, 05:09:01 and 05:13:09 UTC respectively. Those resumed packets used a
+complete prior snapshot with explicitly identified current native state/checklist
+projections: non-atomic, not a fabricated fresh authenticated snapshot. The final
+metadata reconciliation independently reads the current issue set before publication.
+
+The five platform tasks and earlier #20/#22 make seven of nine EPIC-02 tasks
+accepted. #27 and #29 remain open with their unchanged original requirements,
+including #29's M2 adapter/snapshot/route dependencies. No epic criterion or child
+is excluded to reduce counts. Previous remaining-acceptance notes remain in the
+reconciliation history. This checkpoint does not declare the epic, an executable
+paper release, a deployed recovery drill or a live service complete.

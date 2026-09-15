@@ -1,4 +1,5 @@
 //! Optional lossy operational telemetry, independent of durable research records.
+use crate::pipeline_metrics::{PipelineMetrics, Snapshot};
 use arb_scheduler::{
     DropReason, Stage,
     telemetry::{self, Frame, Publisher},
@@ -6,7 +7,7 @@ use arb_scheduler::{
 use serde_json::json;
 use std::{
     io::{self, Write},
-    sync::mpsc::Receiver,
+    sync::{Arc, mpsc::Receiver},
     time::Instant,
 };
 
@@ -22,7 +23,7 @@ pub fn enabled() -> io::Result<bool> {
     }
 }
 
-pub fn start(enabled: bool) -> io::Result<Option<Publisher>> {
+pub fn start(enabled: bool, pipeline: Arc<PipelineMetrics>) -> io::Result<Option<Publisher>> {
     if !enabled {
         return Ok(None);
     }
@@ -32,7 +33,7 @@ pub fn start(enabled: bool) -> io::Result<Option<Publisher>> {
     let thread = std::thread::Builder::new()
         .name("arb-stage-metrics".into())
         .spawn(move || {
-            let _ = write_frames(receiver, io::stderr());
+            let _ = write_frames(receiver, io::stderr(), Some(pipeline));
         })?;
     // A stopped producer closes the channel. A blocked OS write cannot be
     // cancelled; do not join it on the control/shutdown path. Process exit ends
@@ -64,7 +65,27 @@ fn latency_json(summary: &arb_scheduler::timing::LatencySummary) -> serde_json::
     })
 }
 
-fn write_frames(receiver: Receiver<Frame>, mut writer: impl Write) -> io::Result<()> {
+fn pipeline_json(snapshot: Snapshot) -> serde_json::Value {
+    let rows: Vec<_> = snapshot.rows.iter().map(|row| json!({
+        "component": row.component.name(),
+        "completed": latency_json(&row.completed),
+        "failed": latency_json(&row.failed),
+        "unfinished": row.unfinished.to_string(),
+        "last_collection_attempt_id": row.last_collection.map(|id| id.to_string()),
+    })).collect();
+    json!({
+        "network_id": snapshot.network.as_str(),
+        "measurement_origin": "ACTUAL_PROCESS_CALLS_NOT_PROVIDER_QUALIFICATION",
+        "method": "cumulative-log2-nanoseconds-upper-bounds",
+        "missed_samples": snapshot.missed_samples.to_string(),
+        "components": rows,
+        "simulation": {"status": "NOT_IMPLEMENTED", "duration_ns": null},
+        "api": {"status": "SEPARATE_PROCESS", "measurement": "server-timing-response-header"}
+    })
+}
+
+fn write_frames(receiver: Receiver<Frame>, mut writer: impl Write,
+    pipeline: Option<Arc<PipelineMetrics>>) -> io::Result<()> {
     for frame in receiver {
         // Frame ownership contains no scheduler/control lock. Encoding and
         // potentially blocking I/O happen only on this dedicated writer.
@@ -95,12 +116,16 @@ fn write_frames(receiver: Receiver<Frame>, mut writer: impl Write) -> io::Result
                 })
             })
             .collect();
+        // Unlike the scheduler frame sampled earlier, this optional bounded
+        // snapshot is taken at encoding time. Neither snapshot holds a lock in I/O.
+        let pipeline_state = pipeline.as_ref().and_then(|p| p.snapshot()).map(pipeline_json);
         let message = json!({
             "event":"scheduler-stage-metrics", "scope":"PROCESS_LOCAL_OPERATIONAL",
             "process_id":std::process::id(),
             "sample_age_ms":Instant::now().saturating_duration_since(frame.sampled_at).as_millis().to_string(),
             "missed_metric_samples":frame.missed_samples.to_string(), "stages":stages,
-            "market_coverage_verified":false
+            "market_coverage_verified":false,
+            "pipeline_at_encoding": pipeline_state
         });
         writeln!(writer, "{message}")?;
         writer.flush()?;
@@ -127,7 +152,7 @@ mod tests {
 
     #[test]
     fn disabled_output_creates_no_channel_or_thread() {
-        assert!(start(false).unwrap().is_none());
+        assert!(start(false, PipelineMetrics::new(Base)).unwrap().is_none());
     }
 
     #[test]
@@ -137,7 +162,7 @@ mod tests {
         publisher.try_publish(&scheduler, Instant::now()).unwrap();
         drop(publisher);
         let mut bytes = Vec::new();
-        write_frames(receiver, &mut bytes).unwrap();
+        write_frames(receiver, &mut bytes, None).unwrap();
         let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(value["scope"], "PROCESS_LOCAL_OPERATIONAL");
         assert_eq!(value["market_coverage_verified"], false);
@@ -186,7 +211,7 @@ mod tests {
         let scheduler = scheduler();
         let (mut publisher, receiver) = telemetry::channel(1).unwrap();
         publisher.try_publish(&scheduler, Instant::now()).unwrap();
-        assert!(write_frames(receiver, FailedWriter).is_err());
+        assert!(write_frames(receiver, FailedWriter, None).is_err());
         assert_eq!(
             publisher.try_publish(&scheduler, Instant::now()).unwrap(),
             PublishOutcome::ConsumerDisconnected
@@ -223,6 +248,7 @@ mod tests {
                     entered: Some(entered_tx),
                     release: release_rx,
                 },
+                None,
             )
         });
         publisher.try_publish(&scheduler, Instant::now()).unwrap();

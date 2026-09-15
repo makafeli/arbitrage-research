@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "goal": "Implement a reproducible Rust research and paper platform on Base and Solana, using the approved dashboard, with evidence-backed ticket delivery.",
-  "updated_on": "2026-09-14",
+  "updated_on": "2026-09-15",
   "branch": "main",
   "autonomous_background_runner": false,
   "completion_rule": "A source implementation is not completion. Original ticket acceptance and dependency gates must have reviewable evidence before closing its GitHub issue.",
@@ -259,7 +259,7 @@
     {
       "id": "ARB-009",
       "issue_url": "https://github.com/makafeli/arbitrage-research/issues/23",
-      "state": "implemented_pending_acceptance",
+      "state": "completed",
       "owner_role": "domain-config",
       "dependencies": [
         "ARB-003",
@@ -278,9 +278,12 @@
         "Optional per-network finalized-chain-time-v1 policies are validated and bound into immutable effective configuration digests. Absent policy is omitted from serialization, preserving prior configuration bytes and behavior; an additional inert example declares explicit uncalibrated research limits without changing the original example. The support catalog checks actual loaded registry documents against full frozen allowlists while keeping oversized existing configurations and duplicate-equivalent configuration registration compatible. Source, independent review corrections and verification boundaries: docs/20-CHAIN-TIME-AND-SUPPORT-VERIFICATION.md.",
         "Verified PR #93 runtime checkpoint 1dd5ffbd75caf69e8de691d2e1a87a2027df2339 (https://github.com/makafeli/arbitrage-research/actions/runs/34751924393) passed all four CI jobs: 294 Rust tests including all 61 real PostgreSQL tests with zero ignored/filtered; 52 Chromium scenarios; 39 Node tests; actual TypeScript-client/Rust-API/PostgreSQL adapter/cost/export interoperability; independent Uniswap references; 23 importer regressions, 59 negative contract cases across 27 API operations, and three Railway containers. docs/20-CHAIN-TIME-AND-SUPPORT-VERIFICATION.md records immutable chain-time policy, exact historical replay, support-catalog boundaries, review corrections and remaining acceptance.",
         "docs/EPIC-02-ACCEPTANCE.md",
-        ".github/workflows/platform-acceptance.yml"
+        ".github/workflows/platform-acceptance.yml",
+        "https://github.com/makafeli/arbitrage-research/issues/23",
+        "https://github.com/makafeli/arbitrage-research/pull/125",
+        "https://github.com/makafeli/arbitrage-research/actions/runs/34905430286"
       ],
-      "remaining_acceptance": "Complete original-criterion source review and current-source CI, then accept original predecessors and update native checklist before the existing closeout preflight. No platform task is closed by this publication.",
+      "remaining_acceptance": "",
       "acceptance_reconciliation_history": [
         {
           "date": "2026-09-14",
@@ -289,12 +292,13 @@
           "reason": "EPIC-02 original configuration/journal/lifecycle/API/manifest contracts; actual deployment, economic fills and recorded market demonstration remain with their existing operational/simulation/ARB-015 gates."
         }
       ],
-      "external_prerequisite": ""
+      "external_prerequisite": "",
+      "acceptance_review": "Original platform-contract acceptance: merged PR #125, tested c9933f3b9582cc6ab38204ba3ddf01dbcfff65b0 / main d78635df4a4f63d4bc2d702e611f52b580ec757c, source reviews 5203567914/5203647170 and five successful workflows including full project34905430286. Native criteria/dependencies and existing closeout preflights checked before explicit closure. ARB-009/010 closed 2026-09-14; ARB-011/012/014 closed 2026-09-15. No entire-epic, provider, deployment or simulation acceptance implied."
     },
     {
       "id": "ARB-010",
       "issue_url": "https://github.com/makafeli/arbitrage-research/issues/24",
-      "state": "implemented_pending_acceptance",
+      "state": "completed",
       "owner_role": "storage-control",
       "dependencies": [
         "ARB-008",
@@ -317,9 +321,12 @@
         "Decision append and idempotent retry, decision/opportunity reads, cost-source reads and frozen export projections validate exact report policy against the scoped immutable configuration policy and check the immutable session network. Self-consistent resealing cannot remove or widen the policy or switch networks to bypass it. Existing queries project only the relevant policy/network; no migration or separate per-export-row application query is introduced. Source, independent review corrections and verification boundaries: docs/20-CHAIN-TIME-AND-SUPPORT-VERIFICATION.md.",
         "Verified PR #93 runtime checkpoint 1dd5ffbd75caf69e8de691d2e1a87a2027df2339 (https://github.com/makafeli/arbitrage-research/actions/runs/34751924393) passed all four CI jobs: 294 Rust tests including all 61 real PostgreSQL tests with zero ignored/filtered; 52 Chromium scenarios; 39 Node tests; actual TypeScript-client/Rust-API/PostgreSQL adapter/cost/export interoperability; independent Uniswap references; 23 importer regressions, 59 negative contract cases across 27 API operations, and three Railway containers. docs/20-CHAIN-TIME-AND-SUPPORT-VERIFICATION.md records immutable chain-time policy, exact historical replay, support-catalog boundaries, review corrections and remaining acceptance.",
         "docs/EPIC-02-ACCEPTANCE.md",
-        ".github/workflows/platform-acceptance.yml"
+        ".github/workflows/platform-acceptance.yml",
+        "https://github.com/makafeli/arbitrage-research/issues/24",
+        "https://github.com/makafeli/arbitrage-research/pull/125",
+        "https://github.com/makafeli/arbitrage-research/actions/runs/34905430286"
       ],
-      "remaining_acceptance": "Complete original-criterion source review and current-source CI, then accept original predecessors and update native checklist before the existing closeout preflight. No platform task is closed by this publication.",
+      "remaining_acceptance": "",
       "acceptance_reconciliation_history": [
         {
           "date": "2026-09-14",
@@ -328,12 +335,13 @@
           "reason": "EPIC-02 original configuration/journal/lifecycle/API/manifest contracts; actual deployment, economic fills and recorded market demonstration remain with their existing operational/simulation/ARB-015 gates."
         }
       ],
-      "external_prerequisite": ""
+      "external_prerequisite": "",
+      "acceptance_review": "Original platform-contract acceptance: merged PR #125, tested c9933f3b9582cc6ab38204ba3ddf01dbcfff65b0 / main d78635df4a4f63d4bc2d702e611f52b580ec757c, source reviews 5203567914/5203647170 and five successful workflows including full project34905430286. Native criteria/dependencies and existing closeout preflights checked before explicit closure. ARB-009/010 closed 2026-09-14; ARB-011/012/014 closed 2026-09-15. No entire-epic, provider, deployment or simulation acceptance implied."
     },
     {
       "id": "ARB-011",
       "issue_url": "https://github.com/makafeli/arbitrage-research/issues/25",
-      "state": "implemented_pending_acceptance",
+      "state": "completed",
       "owner_role": "storage-control",
       "dependencies": [
         "ARB-010"
@@ -354,9 +362,12 @@
         "Worker batch capture obtains all pool states before artifact writes and preserves generation/epoch/STOP fences. Canonical/input failure cannot admit a partial capture set or decision; later storage failures may retain only unadmitted raw files. Scope, review and verification boundaries: docs/19-ANCHORED-CAPTURE-AND-COST-VERIFICATION.md.",
         "Verified PR #92 runtime checkpoint 6c8e39628282b95b4531cd2b1006fd4c2455ef64 (https://github.com/makafeli/arbitrage-research/actions/runs/34728060968) passed all four CI jobs: 261 Rust tests including all 57 real PostgreSQL tests with zero ignored/filtered; 43 Chromium scenarios; 30 Node tests; actual TypeScript-client/Rust-API/PostgreSQL cost/export interoperability; independent Uniswap references; 23 importer regressions, 43 negative contract cases across 26 API operations, and all three Railway containers. docs/19-ANCHORED-CAPTURE-AND-COST-VERIFICATION.md records common-anchor/original-input review, exact manual-cost replay, the corrected fault-exit process assertion, three inspected cost screenshots and remaining acceptance.",
         "docs/EPIC-02-ACCEPTANCE.md",
-        ".github/workflows/platform-acceptance.yml"
+        ".github/workflows/platform-acceptance.yml",
+        "https://github.com/makafeli/arbitrage-research/issues/25",
+        "https://github.com/makafeli/arbitrage-research/pull/125",
+        "https://github.com/makafeli/arbitrage-research/actions/runs/34905430286"
       ],
-      "remaining_acceptance": "Complete original-criterion source review and current-source CI, then accept original predecessors and update native checklist before the existing closeout preflight. No platform task is closed by this publication.",
+      "remaining_acceptance": "",
       "acceptance_reconciliation_history": [
         {
           "date": "2026-09-14",
@@ -365,12 +376,13 @@
           "reason": "EPIC-02 original configuration/journal/lifecycle/API/manifest contracts; actual deployment, economic fills and recorded market demonstration remain with their existing operational/simulation/ARB-015 gates."
         }
       ],
-      "external_prerequisite": ""
+      "external_prerequisite": "",
+      "acceptance_review": "Original platform-contract acceptance: merged PR #125, tested c9933f3b9582cc6ab38204ba3ddf01dbcfff65b0 / main d78635df4a4f63d4bc2d702e611f52b580ec757c, source reviews 5203567914/5203647170 and five successful workflows including full project34905430286. Native criteria/dependencies and existing closeout preflights checked before explicit closure. ARB-009/010 closed 2026-09-14; ARB-011/012/014 closed 2026-09-15. No entire-epic, provider, deployment or simulation acceptance implied."
     },
     {
       "id": "ARB-012",
       "issue_url": "https://github.com/makafeli/arbitrage-research/issues/26",
-      "state": "implemented_pending_acceptance",
+      "state": "completed",
       "owner_role": "control-api",
       "dependencies": [
         "ARB-008",
@@ -395,9 +407,12 @@
         "Authenticated GET /v1/adapter-support exposes a bounded immutable startup catalog with separate configured scope, loaded registry authorization, compiled capabilities and optional chain-age policy. Decision schema 1.1.0 carries source-bound historical chain-time reports through existing scoped APIs; schema 1.0.0 remains supported. Optional registry inputs preserve unchanged API startup when absent, and the frontend distinguishes an older API lacking the capability from a failed catalog request. Source, independent review corrections and verification boundaries: docs/20-CHAIN-TIME-AND-SUPPORT-VERIFICATION.md.",
         "Verified PR #93 runtime checkpoint 1dd5ffbd75caf69e8de691d2e1a87a2027df2339 (https://github.com/makafeli/arbitrage-research/actions/runs/34751924393) passed all four CI jobs: 294 Rust tests including all 61 real PostgreSQL tests with zero ignored/filtered; 52 Chromium scenarios; 39 Node tests; actual TypeScript-client/Rust-API/PostgreSQL adapter/cost/export interoperability; independent Uniswap references; 23 importer regressions, 59 negative contract cases across 27 API operations, and three Railway containers. docs/20-CHAIN-TIME-AND-SUPPORT-VERIFICATION.md records immutable chain-time policy, exact historical replay, support-catalog boundaries, review corrections and remaining acceptance.",
         "docs/EPIC-02-ACCEPTANCE.md",
-        ".github/workflows/platform-acceptance.yml"
+        ".github/workflows/platform-acceptance.yml",
+        "https://github.com/makafeli/arbitrage-research/issues/26",
+        "https://github.com/makafeli/arbitrage-research/pull/125",
+        "https://github.com/makafeli/arbitrage-research/actions/runs/34905430286"
       ],
-      "remaining_acceptance": "Complete original-criterion source review and current-source CI, then accept original predecessors and update native checklist before the existing closeout preflight. No platform task is closed by this publication.",
+      "remaining_acceptance": "",
       "acceptance_reconciliation_history": [
         {
           "date": "2026-09-14",
@@ -406,7 +421,8 @@
           "reason": "EPIC-02 original configuration/journal/lifecycle/API/manifest contracts; actual deployment, economic fills and recorded market demonstration remain with their existing operational/simulation/ARB-015 gates."
         }
       ],
-      "external_prerequisite": ""
+      "external_prerequisite": "",
+      "acceptance_review": "Original platform-contract acceptance: merged PR #125, tested c9933f3b9582cc6ab38204ba3ddf01dbcfff65b0 / main d78635df4a4f63d4bc2d702e611f52b580ec757c, source reviews 5203567914/5203647170 and five successful workflows including full project34905430286. Native criteria/dependencies and existing closeout preflights checked before explicit closure. ARB-009/010 closed 2026-09-14; ARB-011/012/014 closed 2026-09-15. No entire-epic, provider, deployment or simulation acceptance implied."
     },
     {
       "id": "ARB-013",
@@ -441,7 +457,7 @@
     {
       "id": "ARB-014",
       "issue_url": "https://github.com/makafeli/arbitrage-research/issues/28",
-      "state": "implemented_pending_acceptance",
+      "state": "completed",
       "owner_role": "acquisition",
       "dependencies": [
         "ARB-008",
@@ -468,9 +484,12 @@
         "PR #105 merged at 24b310d064676d693bc163fe6ff469076333271f after exact-source CI 34784750561 and external CodeRabbit review: bounded local capture dependency audit, 34 Python regressions, four actual Rust/Python interop cases, explicit expiry and unknown replay. docs/23-CAPTURE-DEPENDENCY-AUDIT.md records limits. This is not original-ticket acceptance.",
         "The export consumer in docs/25-EXPORT-CAPTURE-AUDIT.md derives a source-bound request from the authenticated, hash-verified frozen export and validates a separately imported local audit. Original JSON/CSV bytes and reference sets remain unchanged; imported reports are explicitly operator-supplied and not independently attested. Current PR/CI evidence belongs to issue #28; configured tests alone do not establish a production rollout.",
         "docs/EPIC-02-ACCEPTANCE.md",
-        ".github/workflows/platform-acceptance.yml"
+        ".github/workflows/platform-acceptance.yml",
+        "https://github.com/makafeli/arbitrage-research/issues/28",
+        "https://github.com/makafeli/arbitrage-research/pull/125",
+        "https://github.com/makafeli/arbitrage-research/actions/runs/34905430286"
       ],
-      "remaining_acceptance": "Complete original-criterion source review and current-source CI, then accept original predecessors and update native checklist before the existing closeout preflight. No platform task is closed by this publication.",
+      "remaining_acceptance": "",
       "acceptance_reconciliation_history": [
         {
           "date": "2026-09-14",
@@ -479,7 +498,8 @@
           "reason": "EPIC-02 original configuration/journal/lifecycle/API/manifest contracts; actual deployment, economic fills and recorded market demonstration remain with their existing operational/simulation/ARB-015 gates."
         }
       ],
-      "external_prerequisite": ""
+      "external_prerequisite": "",
+      "acceptance_review": "Original platform-contract acceptance: merged PR #125, tested c9933f3b9582cc6ab38204ba3ddf01dbcfff65b0 / main d78635df4a4f63d4bc2d702e611f52b580ec757c, source reviews 5203567914/5203647170 and five successful workflows including full project34905430286. Native criteria/dependencies and existing closeout preflights checked before explicit closure. ARB-009/010 closed 2026-09-14; ARB-011/012/014 closed 2026-09-15. No entire-epic, provider, deployment or simulation acceptance implied."
     },
     {
       "id": "ARB-015",

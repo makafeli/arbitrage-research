@@ -29,8 +29,9 @@ pub struct StageTimingSnapshot {
     pub unmeasurable_completions: u64,
 }
 
+/// Reusable fixed-memory duration population; see LatencySummary for bound semantics.
 #[derive(Clone)]
-pub(crate) struct Histogram {
+pub struct Histogram {
     buckets: [u64; BUCKETS],
     samples: u64,
     saturated: bool,
@@ -51,7 +52,7 @@ impl Default for Histogram {
 impl Histogram {
     /// O(1) insertion without allocation. Freeze the entire population on count
     /// exhaustion so bucket counts and the percentile denominator never diverge.
-    pub(crate) fn record(&mut self, duration: Duration) {
+    pub fn record(&mut self, duration: Duration) {
         if self.samples == u64::MAX {
             self.saturated = true;
             return;
@@ -81,7 +82,8 @@ impl Histogram {
         unreachable!("histogram population equals the sum of its buckets")
     }
 
-    pub(crate) fn snapshot(&self) -> LatencySummary {
+    /// Copy conservative integer percentile bounds without retaining raw samples.
+    pub fn snapshot(&self) -> LatencySummary {
         LatencySummary {
             samples: self.samples,
             saturated: self.saturated,

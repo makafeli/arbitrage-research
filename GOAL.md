@@ -29,15 +29,15 @@ Root integration owns shared manifests, lockfiles, CI, publication and final acc
 
 ## Current delivery checkpoint
 
-### EPIC-02 platform acceptance in progress
+### EPIC-02: seven original tasks accepted
 
-The original #23/#24/#25/#26/#28 contracts are being reconciled against current
-source and service-backed tests, with a real process-loss fixture and a correction
-to API read/control admission isolation. [The evidence map](docs/EPIC-02-ACCEPTANCE.md)
-separates those contracts from actual stage instrumentation and the still-required
-recorded #29 observation demonstration. No new task issue or whole-epic acceptance
-is implied. Original M2 adapter/snapshot/route dependencies remain in force.
-
+Configuration #23 and the durable journal #24 closed on 14 September; worker
+lifecycle #25, authenticated API #26 and capture provenance #28 closed on
+15 September after the reviewed PR #125 integration and native closeout checks.
+Together with the earlier #20/#22 acceptances, seven of nine epic tasks are done.
+[The acceptance record](docs/EPIC-02-ACCEPTANCE.md) preserves exact source, CI and
+chronology. #27 real-stage telemetry/isolation and #29 recorded integration remain
+open, including their original M2 prerequisites. The epic is not yet complete.
 
 ### EPIC-01 completed
 
