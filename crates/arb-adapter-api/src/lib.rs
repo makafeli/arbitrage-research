@@ -29,6 +29,7 @@ pub enum Chain {
 pub enum ReadMethod {
     EthChainId,
     EthGetBlockByNumber,
+    EthGetLogs,
     EthGetCode,
     EthCall,
     GetGenesisHash,
@@ -40,6 +41,7 @@ impl ReadMethod {
         match self {
             Self::EthChainId => "eth_chainId",
             Self::EthGetBlockByNumber => "eth_getBlockByNumber",
+            Self::EthGetLogs => "eth_getLogs",
             Self::EthGetCode => "eth_getCode",
             Self::EthCall => "eth_call",
             Self::GetGenesisHash => "getGenesisHash",

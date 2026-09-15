@@ -154,3 +154,33 @@ fn status_classification_is_fixed_and_never_retains_error_bodies() {
         server.join().unwrap();
     }
 }
+
+#[test]
+fn block_hash_log_request_uses_the_read_only_transport_and_replays_exactly() {
+    let body = "{\n\"jsonrpc\":\"2.0\",\"id\":0,\"result\":[]\n}".to_owned();
+    let (endpoint, server) = server("200 OK", body.clone(), "");
+    let params = json!([{"blockHash":format!("0x{}", "a".repeat(64)),
+                        "address":["0x0303030303030303030303030303030303030303"]}]);
+    let mut rpc = HttpReadRpc::new(&endpoint, Duration::from_secs(2), 1024, 1).unwrap();
+    assert_eq!(
+        rpc.call(ReadMethod::EthGetLogs, params.clone()).unwrap(),
+        json!([])
+    );
+    let records = rpc.into_records();
+    assert_eq!(records[0].response, body);
+    let request = server.join().unwrap();
+    let wire: serde_json::Value =
+        serde_json::from_str(request.split_once("\r\n\r\n").unwrap().1).unwrap();
+    assert_eq!(wire["method"], "eth_getLogs");
+    assert_eq!(wire["params"], params);
+    assert!(wire["params"][0].get("fromBlock").is_none());
+    assert!(wire["params"][0].get("toBlock").is_none());
+    let serialized = serde_json::to_string(&records).unwrap();
+    let restored = serde_json::from_str(&serialized).unwrap();
+    let mut replay = arb_adapter_api::TranscriptRpc::new(restored);
+    assert_eq!(
+        replay.call(ReadMethod::EthGetLogs, params).unwrap(),
+        json!([])
+    );
+    replay.finish().unwrap();
+}
