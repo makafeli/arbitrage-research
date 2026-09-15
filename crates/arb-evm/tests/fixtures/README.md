@@ -1,3 +1,0 @@
-These fixtures are manually constructed protocol-layout examples, not captured market data. All pool, token and program-data identities are fabricated. Never copy this registry into a production configuration. The fixture transcript checks exact request order and parameters, strict decoding, and fail-closed identity validation. Source layout provenance is documented in the crate README.
-
-`batch-registries.json` and `batch-rpc.json` are two-pool synthetic variants for the shared acquisition API: one chain check, one finalized anchor, both pools' pinned state reads, and one final canonical check. They are test inputs only, not recorded network evidence or deployment qualification.

@@ -1,0 +1,14 @@
+{
+  "purpose": "ARCHIVE_ONLY_NOT_MAIN_INTEGRATION",
+  "date": "2026-09-15",
+  "repository": "makafeli/arbitrage-research",
+  "original_main": "ff61b29e75fe4f368eab521a1c9dfdd8c2d90cb8",
+  "audit_run": 34944130239,
+  "branches": [
+    {"name":"fix/98-restored-auth-announcement","sha":"f93255f120069e2b7a8c97491fb6120933352a87","reason":"Closed PR101 superseded by merged PR102. ConnectedApp.tsx is identical at the replacement merge; the replacement tests retain initial restored-auth assertions and extend revocation/re-login coverage."},
+    {"name":"integrator/base-identity-29943609","sha":"73b2d861a6ad73ed2ad11bffc3c05357dd16e951","reason":"Retired one-shot public-provider diagnostic. Authorized Base identity evidence has since been accepted in PR123/EPIC01."},
+    {"name":"integrator/epic02-completion-record","sha":"fb333bb11d850c0d085fcf0dba506aa1027c1b29","reason":"One-shot metadata producer. The five accepted platform task records are integrated in PR126 and the current register/native audit has no drift."},
+    {"name":"integrator/epic02-platform-source","sha":"f96d3e51009e622e7bcc4c0e50b0f6a1694536bb","reason":"Superseded preparation recipe and early platform snapshots. Final reviewed implementation is in merged PR125; the recipe is archival, not runtime source."},
+    {"name":"integrator/pr126-format-repair","sha":"f62a48ed3a217ba7f6884fe37c899f708e59f2e8","reason":"Superseded formatter/workflow repair. Corrected PR126 is merged as ff61b29e; the failed helper history is retained without replaying it."}
+  ]
+}
