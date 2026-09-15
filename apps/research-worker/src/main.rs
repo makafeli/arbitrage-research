@@ -1,7 +1,7 @@
 //! PostgreSQL-controlled OBSERVE/PAPER read-only capture and research runtime.
 //! Captures feed bounded research-only route evaluation. Gross quotes never imply fills or executable profit.
-mod stage_metrics;
 mod pipeline_metrics;
+mod stage_metrics;
 use pipeline_metrics::{Component, PipelineMetrics, persistence};
 
 use arb_adapter_api::{Chain, HttpReadRpc, ReadRpc, RpcRecord, StateContext};
@@ -130,7 +130,12 @@ impl ReadRpc for AcquisitionRpc {
         });
         let elapsed = started.elapsed();
         self.rpc_elapsed = self.rpc_elapsed.saturating_add(elapsed);
-        self.metrics.record(Component::Rpc, self.correlation, Some(elapsed), result.is_ok());
+        self.metrics.record(
+            Component::Rpc,
+            self.correlation,
+            Some(elapsed),
+            result.is_ok(),
+        );
         result
     }
 }
@@ -195,7 +200,10 @@ fn evaluate_blocking(
         deadline_monotonic_ms: EVALUATION_DEADLINE.as_millis() as u64,
         pools: &item.payload.pools,
     };
-    let measurement = item.payload.metrics.span(Component::Evaluation, item.payload.correlation);
+    let measurement = item
+        .payload
+        .metrics
+        .span(Component::Evaluation, item.payload.correlation);
     let evaluated = arb_engine::evaluate(&request, &gate);
     measurement.finish(evaluated.is_ok());
     let traces = evaluated.map_err(|error| {
@@ -403,7 +411,10 @@ fn directory_bytes(root: &Path) -> Result<u64, AnyError> {
     Ok(total)
 }
 
-fn capture_blocking(plan: &CapturePlan, correlation: Uuid) -> Result<CompletedBatch, AttemptFailure> {
+fn capture_blocking(
+    plan: &CapturePlan,
+    correlation: Uuid,
+) -> Result<CompletedBatch, AttemptFailure> {
     let started = Instant::now();
     let observed = now_ms()
         .map_err(|_| AttemptFailure::acquisition(CollectionReason::AcquisitionUnavailable, 0))?;
@@ -429,8 +440,12 @@ fn capture_blocking(plan: &CapturePlan, correlation: Uuid) -> Result<CompletedBa
     let decoded = capture_document(&plan.registry, &mut rpc, observed, plan.chain_time_enabled);
     // Calls are serial and fully inside this interval. Exclude their measured
     // time from decode/context validation; missing subtraction is unknown.
-    plan.metrics.record(Component::SnapshotDecode, correlation,
-        decoding_started.elapsed().checked_sub(rpc.rpc_elapsed), decoded.is_ok());
+    plan.metrics.record(
+        Component::SnapshotDecode,
+        correlation,
+        decoding_started.elapsed().checked_sub(rpc.rpc_elapsed),
+        decoded.is_ok(),
+    );
     let snapshots = decoded.map_err(|_| {
         AttemptFailure::acquisition(
             rpc.failure
@@ -590,9 +605,12 @@ async fn finish_collection(
     outcome: CollectionOutcome,
     reason: Option<CollectionReason>,
 ) -> Result<(), StoreError> {
-    persistence(&collection.metrics, collection.correlation,
-        worker.finish_collection_attempt(&collection.id, collection.finish(outcome, reason)))
-        .await?;
+    persistence(
+        &collection.metrics,
+        collection.correlation,
+        worker.finish_collection_attempt(&collection.id, collection.finish(outcome, reason)),
+    )
+    .await?;
     println!(
         "{}",
         json!({"event":"collection-finished","collection_attempt_id":collection.id,"outcome":outcome,"reason":reason,"captured_pools":collection.captured_pools})

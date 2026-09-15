@@ -66,13 +66,19 @@ fn latency_json(summary: &arb_scheduler::timing::LatencySummary) -> serde_json::
 }
 
 fn pipeline_json(snapshot: Snapshot) -> serde_json::Value {
-    let rows: Vec<_> = snapshot.rows.iter().map(|row| json!({
-        "component": row.component.name(),
-        "completed": latency_json(&row.completed),
-        "failed": latency_json(&row.failed),
-        "unfinished": row.unfinished.to_string(),
-        "last_collection_attempt_id": row.last_collection.map(|id| id.to_string()),
-    })).collect();
+    let rows: Vec<_> = snapshot
+        .rows
+        .iter()
+        .map(|row| {
+            json!({
+                "component": row.component.name(),
+                "completed": latency_json(&row.completed),
+                "failed": latency_json(&row.failed),
+                "unfinished": row.unfinished.to_string(),
+                "last_collection_attempt_id": row.last_collection.map(|id| id.to_string()),
+            })
+        })
+        .collect();
     json!({
         "network_id": snapshot.network.as_str(),
         "measurement_origin": "ACTUAL_PROCESS_CALLS_NOT_PROVIDER_QUALIFICATION",
@@ -84,8 +90,11 @@ fn pipeline_json(snapshot: Snapshot) -> serde_json::Value {
     })
 }
 
-fn write_frames(receiver: Receiver<Frame>, mut writer: impl Write,
-    pipeline: Option<Arc<PipelineMetrics>>) -> io::Result<()> {
+fn write_frames(
+    receiver: Receiver<Frame>,
+    mut writer: impl Write,
+    pipeline: Option<Arc<PipelineMetrics>>,
+) -> io::Result<()> {
     for frame in receiver {
         // Frame ownership contains no scheduler/control lock. Encoding and
         // potentially blocking I/O happen only on this dedicated writer.
@@ -118,7 +127,10 @@ fn write_frames(receiver: Receiver<Frame>, mut writer: impl Write,
             .collect();
         // Unlike the scheduler frame sampled earlier, this optional bounded
         // snapshot is taken at encoding time. Neither snapshot holds a lock in I/O.
-        let pipeline_state = pipeline.as_ref().and_then(|p| p.snapshot()).map(pipeline_json);
+        let pipeline_state = pipeline
+            .as_ref()
+            .and_then(|p| p.snapshot())
+            .map(pipeline_json);
         let message = json!({
             "event":"scheduler-stage-metrics", "scope":"PROCESS_LOCAL_OPERATIONAL",
             "process_id":std::process::id(),

@@ -4,7 +4,10 @@ use arb_domain::NetworkId;
 use arb_scheduler::timing::{Histogram, LatencySummary};
 use std::{
     future::Future,
-    sync::{Arc, Mutex, atomic::{AtomicU64, Ordering}},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicU64, Ordering},
+    },
     time::{Duration, Instant},
 };
 use uuid::Uuid;
@@ -17,8 +20,15 @@ pub enum Component {
     Persistence,
 }
 impl Component {
-    const ALL: [Self; 4] = [Self::Rpc, Self::SnapshotDecode, Self::Evaluation, Self::Persistence];
-    fn index(self) -> usize { self as usize }
+    const ALL: [Self; 4] = [
+        Self::Rpc,
+        Self::SnapshotDecode,
+        Self::Evaluation,
+        Self::Persistence,
+    ];
+    fn index(self) -> usize {
+        self as usize
+    }
     pub fn name(self) -> &'static str {
         match self {
             Self::Rpc => "ingestion_rpc",
@@ -66,14 +76,26 @@ impl PipelineMetrics {
     }
 
     fn miss(&self) {
-        let _ = self.missed.fetch_update(Ordering::Relaxed, Ordering::Relaxed,
-            |value| Some(value.saturating_add(1)));
+        let _ = self
+            .missed
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+                Some(value.saturating_add(1))
+            });
     }
 
     /// Nonblocking and fixed-memory, including when operational output is disabled.
     /// None means interrupted or unmeasurable, never a zero-duration completion.
-    pub fn record(&self, component: Component, collection: Uuid, duration: Option<Duration>, ok: bool) {
-        let Ok(mut populations) = self.populations.try_lock() else { self.miss(); return; };
+    pub fn record(
+        &self,
+        component: Component,
+        collection: Uuid,
+        duration: Option<Duration>,
+        ok: bool,
+    ) {
+        let Ok(mut populations) = self.populations.try_lock() else {
+            self.miss();
+            return;
+        };
         let population = &mut populations[component.index()];
         population.last_collection = Some(collection);
         match duration {
@@ -84,24 +106,36 @@ impl PipelineMetrics {
     }
 
     pub fn span(self: &Arc<Self>, component: Component, collection: Uuid) -> Span {
-        Span { metrics: Arc::clone(self), component, collection, started: Instant::now(), finished: false }
+        Span {
+            metrics: Arc::clone(self),
+            component,
+            collection,
+            started: Instant::now(),
+            finished: false,
+        }
     }
 
     /// The output consumer copies a bounded snapshot before any encoding or I/O.
     pub fn snapshot(&self) -> Option<Snapshot> {
-        let Ok(populations) = self.populations.try_lock() else { self.miss(); return None; };
+        let Ok(populations) = self.populations.try_lock() else {
+            self.miss();
+            return None;
+        };
         Some(Snapshot {
             network: self.network,
-            rows: Component::ALL.into_iter().map(|component| {
-                let population = &populations[component.index()];
-                Row {
-                    component,
-                    completed: population.completed.snapshot(),
-                    failed: population.failed.snapshot(),
-                    unfinished: population.unfinished,
-                    last_collection: population.last_collection,
-                }
-            }).collect(),
+            rows: Component::ALL
+                .into_iter()
+                .map(|component| {
+                    let population = &populations[component.index()];
+                    Row {
+                        component,
+                        completed: population.completed.snapshot(),
+                        failed: population.failed.snapshot(),
+                        unfinished: population.unfinished,
+                        last_collection: population.last_collection,
+                    }
+                })
+                .collect(),
             missed_samples: self.missed.load(Ordering::Relaxed),
         })
     }
@@ -117,21 +151,29 @@ pub struct Span {
 impl Span {
     /// A successful stage is not a successful trade, an admission, or settlement.
     pub fn finish(mut self, ok: bool) {
-        self.metrics.record(self.component, self.collection,
-            Instant::now().checked_duration_since(self.started), ok);
+        self.metrics.record(
+            self.component,
+            self.collection,
+            Instant::now().checked_duration_since(self.started),
+            ok,
+        );
         self.finished = true;
     }
 }
 impl Drop for Span {
     fn drop(&mut self) {
         if !self.finished {
-            self.metrics.record(self.component, self.collection, None, false);
+            self.metrics
+                .record(self.component, self.collection, None, false);
         }
     }
 }
 
-pub async fn persistence<T, E>(metrics: &Arc<PipelineMetrics>, collection: Uuid,
-    operation: impl Future<Output = Result<T, E>>) -> Result<T, E> {
+pub async fn persistence<T, E>(
+    metrics: &Arc<PipelineMetrics>,
+    collection: Uuid,
+    operation: impl Future<Output = Result<T, E>>,
+) -> Result<T, E> {
     let span = metrics.span(Component::Persistence, collection);
     let result = operation.await;
     span.finish(result.is_ok());
@@ -159,14 +201,26 @@ mod tests {
         assert_eq!(snapshot.rows[0].unfinished, 1);
         assert_eq!(snapshot.rows[0].last_collection, Some(id));
         assert_eq!(snapshot.rows[1].completed.p99_upper_ns, None);
-        assert!(solana.snapshot().unwrap().rows.iter().all(|r| r.completed.samples == 0));
+        assert!(
+            solana
+                .snapshot()
+                .unwrap()
+                .rows
+                .iter()
+                .all(|r| r.completed.samples == 0)
+        );
     }
 
     #[test]
     fn contention_skips_metrics_instead_of_waiting_or_holding_control() {
         let metrics = PipelineMetrics::new(NetworkId::BaseMainnet);
         let held = metrics.populations.lock().unwrap();
-        metrics.record(Component::Evaluation, Uuid::new_v4(), Some(Duration::ZERO), true);
+        metrics.record(
+            Component::Evaluation,
+            Uuid::new_v4(),
+            Some(Duration::ZERO),
+            true,
+        );
         assert!(metrics.snapshot().is_none());
         drop(held);
         let snapshot = metrics.snapshot().unwrap();
@@ -194,7 +248,11 @@ mod tests {
     async fn dropped_polled_future_records_one_unfinished_persistence() {
         let metrics = PipelineMetrics::new(NetworkId::SolanaMainnet);
         {
-            let future = persistence(&metrics, Uuid::new_v4(), std::future::pending::<Result<(), ()>>());
+            let future = persistence(
+                &metrics,
+                Uuid::new_v4(),
+                std::future::pending::<Result<(), ()>>(),
+            );
             tokio::pin!(future);
             tokio::select! {
                 biased;
@@ -212,8 +270,14 @@ mod tests {
     #[tokio::test]
     async fn persistence_result_and_error_are_returned_unchanged() {
         let metrics = PipelineMetrics::new(NetworkId::BaseMainnet);
-        assert_eq!(persistence(&metrics, Uuid::new_v4(), async { Ok::<_, &str>(17) }).await, Ok(17));
-        assert_eq!(persistence(&metrics, Uuid::new_v4(), async { Err::<u8, _>("original") }).await, Err("original"));
+        assert_eq!(
+            persistence(&metrics, Uuid::new_v4(), async { Ok::<_, &str>(17) }).await,
+            Ok(17)
+        );
+        assert_eq!(
+            persistence(&metrics, Uuid::new_v4(), async { Err::<u8, _>("original") }).await,
+            Err("original")
+        );
         let snapshot = metrics.snapshot().unwrap();
         assert_eq!(snapshot.rows[3].completed.samples, 1);
         assert_eq!(snapshot.rows[3].failed.samples, 1);

@@ -1058,6 +1058,6 @@ async fn fallback(Extension(id): Extension<RequestId>) -> ApiError {
 }
 
 #[cfg(test)]
-mod tests;
-#[cfg(test)]
 mod request_timing;
+#[cfg(test)]
+mod tests;
