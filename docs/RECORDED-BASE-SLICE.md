@@ -95,3 +95,28 @@ changed contracts, unsuccessful acquisition, failed replay or failed browser
 inspection remain explicit failures. Existing ARB-016/018/022/023 prerequisites
 and both quote adapters must be accepted before #29 and EPIC-02 close. They are
 not waived by this driver's successful exit status.
+
+## Bounded acquisition pacing and replay correction
+
+The recorded driver explicitly sets `ARB_RPC_MIN_INTERVAL_MS=75` only for its
+capture worker and records that value in `result.json`. The synchronous transport
+spaces request starts by at least that interval. Unset or zero keeps the existing
+unpaced default; only canonical integer milliseconds from 0 through 1000 are
+accepted. Malformed values fail without echoing their contents. Replay, API and
+browser processes do not inherit this setting. Pacing consumes the existing
+60-second capture budget and never increases request, response or total-byte
+limits. There are no retries or provider fallbacks. Measured RPC duration includes
+any configured admission wait; it is not pure provider service latency.
+
+This reduces bursts for an already authorized endpoint without asserting which
+provider quota applied or silently changing an account. The prior failed run
+34975061523 had 27 successful identity requests, then 299 successful worker calls
+and one failed acquisition. Its redacted error does not establish whether that
+was throttling or another provider failure. That result remains failed.
+
+The replay selector now groups the same capture batch independently of route
+traversal order. Batch identity includes session, configuration, generation,
+strategy, acquisition time, and each exact capture/manifest/snapshot identity.
+The final comparison still preserves ordered references, route legs, results and
+multiplicity. Opposite routes are not collapsed into one result. Replay output
+is saved before comparison, so a mismatch leaves diagnostics for offline review.

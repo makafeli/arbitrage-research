@@ -29,6 +29,7 @@ WETH = '0x4200000000000000000000000000000000000006'
 MAX_FILE = 64 * 1024 * 1024
 MAX_API_CALLS = 500
 TIME_LIMIT = 240
+RPC_MIN_INTERVAL_MS = 75
 
 
 class SliceError(ValueError):
@@ -257,6 +258,7 @@ def exercise(root: Path, endpoint: str, database: str) -> dict:
     result = {'schema_version': 1, 'kind': 'RECORDED_BASE_SLICE', 'status': 'INCOMPLETE',
               'execution_authorized': False, 'full_transaction_simulation': False,
               'whole_epic_accepted': False, 'upstream_prerequisites_accepted': False,
+              'rpc_min_request_interval_ms': RPC_MIN_INTERVAL_MS,
               'host': {'runner': os.environ.get('RUNNER_NAME'), 'os': platform.system(),
                        'architecture': platform.machine(), 'logical_cpus': os.cpu_count(),
                        'build_profile': 'debug', 'production_capacity_verified': False}}
@@ -296,7 +298,8 @@ def exercise(root: Path, endpoint: str, database: str) -> dict:
         result['configuration_digest'] = session['configuration_digest']
         worker_env = {**base, 'ARB_WORKER_CONFIG': str(config_path), 'ARB_POOL_REGISTRY': str(registry_path),
                       'ARB_OPERATOR_ID': 'operator', 'ARB_SESSION_ID': sid, 'TEST_DATABASE_URL': database,
-                      'ARB_BASE_RPC_URL': endpoint, 'ARB_STAGE_METRICS_STDERR': '1'}
+                      'ARB_BASE_RPC_URL': endpoint, 'ARB_STAGE_METRICS_STDERR': '1',
+                      'ARB_RPC_MIN_INTERVAL_MS': str(RPC_MIN_INTERVAL_MS)}
         worker = private_process([str(ROOT/'target/debug/research-worker')], worker_env, work/'worker.log', children)
         def checked_attempts():
             require(worker.poll() is None, 'WORKER_PROCESS_EXITED')

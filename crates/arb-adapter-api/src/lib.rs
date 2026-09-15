@@ -1,4 +1,5 @@
 //! Read-only acquisition boundary. This transport exposes no signing or broadcast method.
+mod pacing;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
@@ -123,6 +124,7 @@ pub struct HttpReadRpc {
     requests_sent: usize,
     started: Instant,
     request_timeout: Duration,
+    pacing: pacing::RequestPacer,
     records: Vec<RpcRecord>,
 }
 impl HttpReadRpc {
@@ -156,6 +158,7 @@ impl HttpReadRpc {
             requests_sent: 0,
             started: Instant::now(),
             request_timeout: timeout,
+            pacing: pacing::RequestPacer::from_environment()?,
             records: Vec::new(),
         })
     }
@@ -174,6 +177,7 @@ impl ReadRpc for HttpReadRpc {
         if self.requests_sent >= self.max_requests {
             return Err(AdapterError("RPC request quota exhausted"));
         }
+        self.pacing.before_request(self.started)?;
         let remaining = Duration::from_secs(60)
             .checked_sub(self.started.elapsed())
             .filter(|d| !d.is_zero())
@@ -190,7 +194,12 @@ impl ReadRpc for HttpReadRpc {
             .send()
             .map_err(|_| AdapterError("RPC transport failed (endpoint redacted)"))?;
         if !response.status().is_success() {
-            return Err(AdapterError("RPC HTTP error (details redacted)"));
+            return Err(AdapterError(match response.status().as_u16() {
+                429 => "RPC HTTP error: rate limited (details redacted)",
+                401 | 403 => "RPC HTTP error: access refused (details redacted)",
+                500..=599 => "RPC HTTP error: provider server failure (details redacted)",
+                _ => "RPC HTTP error (details redacted)",
+            }));
         }
         let mut bytes = Vec::new();
         response
