@@ -1,76 +1,53 @@
-name: One-shot exact durable-ingestion source publication
+name: Archive completed ingestion helper and remove merged branches
 on:
   push:
     branches: [integrator/arb016-durable-source]
 permissions:
   contents: write
+  pull-requests: read
 jobs:
-  publish:
+  cleanup:
     if: github.repository == 'makafeli/arbitrage-research' && github.actor == 'makafeli'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 3
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          persist-credentials: false
-          fetch-depth: 2
-      - name: Reconstruct only the exact reviewed eleven-file source
-        run: |
-          python3 - <<'PY'
-          import gzip, hashlib, io, json, os, subprocess
-          from pathlib import Path
-          base='4317636f9687302d4677719ee2f04988b555acfb'
-          expected='dbb1be4111f7efc96debee60b610be76bca336b5'
-          paths=['Cargo.lock','GOAL.md','apps/evm-worker/Cargo.toml','apps/evm-worker/src/bin/base-ingest.rs','apps/evm-worker/tests/ingestion.rs','crates/arb-storage/src/ingestion.rs','crates/arb-storage/src/lib.rs','crates/arb-storage/tests/ingestion.rs','docs/BASE-INGESTION.md','migrations/0005_ingestion_checkpoints.sql','planning/implementation-progress.json']
-          def git(*args): return subprocess.check_output(['git',*args],text=True).strip()
-          assert git('rev-parse','HEAD^') == base
-          parts=[Path('.github/ingestion-source')/name for name in ['part1','part2','part3','part4a','part4b']]
-          compressed=b''.join(p.read_bytes() for p in parts)
-          assert len(compressed)==20364
-          assert hashlib.sha256(compressed).hexdigest()=='8b85a33ffd46c606bee1550737d230ea4c7cee22370c623995c14e6b3c57840d'
-          with gzip.GzipFile(fileobj=io.BytesIO(compressed)) as stream:
-              patch=stream.read(77413)
-          assert len(patch)==77412
-          assert hashlib.sha256(patch).hexdigest()=='3c2db2b8501c6eede9c9505f383d2bdaf5db91cd6be7ae90fb7ceecc00105d56'
-          subprocess.run(['git','rm','--',*[str(p) for p in parts],'.github/workflows/publish-ingestion-source.yml'],check=True)
-          subprocess.run(['git','apply','--index','--binary','-'],input=patch,check=True)
-          assert git('write-tree')==expected
-          assert set(git('diff','--cached','--name-only',base).splitlines())==set(paths)
-          assert not git('diff','--name-only')
-          subprocess.run(['git','diff','--cached','--check'],check=True)
-          subprocess.run(['python3','scripts/validate_project.py'],check=True)
-          subprocess.run(['python3','scripts/test_delivery.py'],check=True)
-          out=Path(os.environ['RUNNER_TEMP'])/'ingestion-source';out.mkdir()
-          (out/'manifest.json').write_text(json.dumps({'base':base,'tree':expected,'paths':paths,'issue_mutations':False,'ref_mutations':False},indent=2)+'\n')
-          PY
-      - name: Publish immutable source objects, never change a source branch or issue
+      - name: Verify both merges, archive the helper, then remove only owned unchanged refs
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          python3 - <<'PY'
+          python3 - <<'PYTHON'
           import json, os, subprocess
-          from pathlib import Path
-          out=Path(os.environ['RUNNER_TEMP'])/'ingestion-source'
-          manifest=json.loads((out/'manifest.json').read_text())
-          def git(*args): return subprocess.check_output(['git',*args],text=True).strip()
-          def post(endpoint,payload):
-              result=subprocess.run(['gh','api','--method','POST','repos/makafeli/arbitrage-research/'+endpoint,'--input','-'],input=json.dumps(payload),text=True,capture_output=True,check=True)
+          repo='repos/makafeli/arbitrage-research'
+          def get(path):
+              return json.loads(subprocess.check_output(['gh','api',repo+path],text=True))
+          def post(path,payload):
+              result=subprocess.run(['gh','api','--method','POST',repo+path,'--input','-'],input=json.dumps(payload),text=True,capture_output=True,check=True)
               return json.loads(result.stdout)
-          assert git('write-tree')==manifest['tree']
-          entries=[]
-          for path in manifest['paths']:
-              blob=post('git/blobs',{'content':Path(path).read_text(),'encoding':'utf-8'})['sha']
-              assert blob==git('hash-object',path)
-              entries.append({'path':path,'mode':'100644','type':'blob','sha':blob})
-          tree=post('git/trees',{'base_tree':'61b1d7ddc050a61f67a1a8310e4f4f5fab78aa3f','tree':entries})['sha']
-          assert tree==manifest['tree']
-          manifest['files']=entries
-          (out/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
-          print(json.dumps({'published_tree':tree,'issue_mutations':False,'ref_mutations':False}))
-          PY
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        with:
-          name: ingestion-source-manifest
-          path: ${{ runner.temp }}/ingestion-source/
-          retention-days: 7
-          if-no-files-found: error
+          current=os.environ['GITHUB_SHA']
+          helper='integrator/arb016-durable-source'
+          assert get('/git/commits/'+current)['parents'][0]['sha']=='3d70602671ab11cef1e75f4144cecd2dcd8a834c'
+          targets=[]
+          for number,branch,head,tree in [
+              (132,'feat/ARB-016-durable-ingestion','03288a7832ae04a5351a6b4a255ecc2c46c84ef4','dbb1be4111f7efc96debee60b610be76bca336b5'),
+              (133,'fix/ARB-016-graceful-process-stop','09afef23a90c12d42bdc1663ca16fea4b3b4ddac','93bdb253618a270a12ded8388b00b3c9344419db')
+          ]:
+              pr=get('/pulls/'+str(number))
+              assert pr['merged'] and pr['state']=='closed' and pr['head']['sha']==head
+              assert get('/git/commits/'+pr['merge_commit_sha'])['tree']['sha']==tree
+              targets.append((branch,head))
+          targets.append((helper,current))
+          # Check the full deletion set before creating the archive or deleting.
+          for name,sha in targets:
+              assert name != 'main'
+              assert get('/git/ref/heads/'+name)['object']['sha']==sha
+              assert not get('/pulls?state=open&head=makafeli:'+name)
+          tag='archive/arb016-durable-source-2026-09-15'
+          assert not get('/git/matching-refs/tags/'+tag)
+          archived=post('/git/refs',{'ref':'refs/tags/'+tag,'sha':current})
+          assert archived['object']['sha']==current
+          assert get('/git/ref/tags/'+tag)['object']['sha']==current
+          for name,sha in targets:
+              assert get('/git/ref/heads/'+name)['object']['sha']==sha
+              subprocess.run(['gh','api','--method','DELETE',repo+'/git/refs/heads/'+name],check=True)
+          print(json.dumps({'removed':[name for name,_ in targets],'archive':tag,'main_modified':False}))
+          PYTHON
