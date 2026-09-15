@@ -43,8 +43,8 @@ struct IsolatedRpc {
 impl IsolatedRpc {
     fn start(network: NetworkId, blocked: bool) -> Self {
         let records: Vec<RpcRecord> = serde_json::from_str(match network {
-            NetworkId::BaseMainnet => include_str!("../../../crates/arb-evm/tests/fixtures/rpc.json"),
-            NetworkId::SolanaMainnet => include_str!("../../../crates/arb-solana/tests/fixtures/rpc.json"),
+            NetworkId::BaseMainnet => include_str!("../../../crates/arb-evm/tests/fixtures/batch-rpc.json"),
+            NetworkId::SolanaMainnet => include_str!("../../../crates/arb-solana/tests/fixtures/batch-rpc.json"),
         }).unwrap();
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         listener.set_nonblocking(true).unwrap();
@@ -126,19 +126,42 @@ impl Drop for IsolatedRpc {
     }
 }
 
+/// Reuse the adapters' exact two-pool fixtures and common-anchor transcripts.
+/// These remain explicitly synthetic; duplicating one pool would not be a route.
+fn registry_bytes(network: NetworkId) -> Vec<u8> {
+    let pools: Value = serde_json::from_str(match network {
+        NetworkId::BaseMainnet => include_str!("../../../crates/arb-evm/tests/fixtures/batch-registries.json"),
+        NetworkId::SolanaMainnet => include_str!("../../../crates/arb-solana/tests/fixtures/batch-registries.json"),
+    }).unwrap();
+    serde_json::to_vec(&json!({
+        "schema_version": 1, "network_id": network.as_str(), "pools": pools,
+    })).unwrap()
+}
+
 fn configuration(network: NetworkId, root: &std::path::Path, registry: &[u8]) -> String {
-    let value: Value = serde_json::from_slice(registry).unwrap();
-    let mut input = include_str!("../../../config/research.example.toml").replace("mode = \"PAPER\"", "mode = \"OBSERVE\"");
+    let document: Value = serde_json::from_slice(registry).unwrap();
+    let pools = document["pools"].as_array().unwrap();
+    assert_eq!(pools.len(), 2);
+    let first = &pools[0];
+    let mut input = include_str!("../../../config/research.example.toml")
+        .replace("mode = \"PAPER\"", "mode = \"OBSERVE\"")
+        .replace("trade_sizes_minor = []", "trade_sizes_minor = [\"10000\"]");
     let (key, end_marker, venue, asset_a, asset_b, identity) = match network {
         NetworkId::BaseMainnet => ("base", "[networks.solana]", "uniswap-v3", "token0", "token1", "expected_evm_chain_id = 8453".to_string()),
-        NetworkId::SolanaMainnet => ("solana", "[resources]", "orca-whirlpools", "mint_a", "mint_b", format!("expected_genesis_identity = {}", value["expected_genesis_hash"])),
+        NetworkId::SolanaMainnet => ("solana", "[resources]", "orca-whirlpools", "mint_a", "mint_b", format!("expected_genesis_identity = {}", first["expected_genesis_hash"])),
     };
     let start = input.find(&format!("[networks.{key}]")).unwrap();
     let end = input.find(end_marker).unwrap();
+    let ids: Vec<_> = pools.iter().map(|pool| {
+        assert_eq!(pool[asset_a], first[asset_a]);
+        assert_eq!(pool[asset_b], first[asset_b]);
+        format!("{}:{}", network.as_str(), pool["pool"].as_str().unwrap())
+    }).collect();
+    assert_ne!(ids[0], ids[1]);
     let section = format!(
-        "[networks.{key}]\nregistry_id = \"{id}\"\nenabled = true\ncandidate_venue = \"{venue}\"\n{identity}\nverified_pool_ids = [\"{id}:{pool}\"]\nverified_asset_ids = [\"{id}:{a}\",\"{id}:{b}\"]\nrpc_secret_reference = \"env:TEST_WORKER_RPC\"\nregistry_qualification_digest = \"{digest}\"\n\n",
-        id = network.as_str(), pool = value["pool"].as_str().unwrap(),
-        a = value[asset_a].as_str().unwrap(), b = value[asset_b].as_str().unwrap(), digest = digest(registry),
+        "[networks.{key}]\nregistry_id = \"{id}\"\nenabled = true\ncandidate_venue = \"{venue}\"\n{identity}\nverified_pool_ids = {pools}\nverified_asset_ids = [\"{id}:{a}\",\"{id}:{b}\"]\nstarting_asset_id = \"{id}:{a}\"\nrpc_secret_reference = \"env:TEST_WORKER_RPC\"\nregistry_qualification_digest = \"{digest}\"\n\n",
+        id = network.as_str(), pools = serde_json::to_string(&ids).unwrap(),
+        a = first[asset_a].as_str().unwrap(), b = first[asset_b].as_str().unwrap(), digest = digest(registry),
     );
     input.replace_range(start..end, &section);
     input.replace("database_secret_reference = \"UNCONFIGURED\"", "database_secret_reference = \"env:TEST_DATABASE_URL\"")
@@ -147,13 +170,32 @@ fn configuration(network: NetworkId, root: &std::path::Path, registry: &[u8]) ->
 
 #[test]
 fn both_isolation_inputs_are_valid_but_explicitly_not_market_qualification() {
-    for (network, registry) in [
-        (NetworkId::BaseMainnet, include_bytes!("../../../crates/arb-evm/tests/fixtures/registry.json").as_slice()),
-        (NetworkId::SolanaMainnet, include_bytes!("../../../crates/arb-solana/tests/fixtures/registry.json").as_slice()),
-    ] {
-        let config = ValidatedConfig::from_toml(&configuration(network, std::path::Path::new("./synthetic-captures"), registry)).unwrap();
-        arb_registry::RegistryDocument::from_bytes(registry, network).unwrap().authorize(&config).unwrap();
+    for network in [NetworkId::BaseMainnet, NetworkId::SolanaMainnet] {
+        let registry = registry_bytes(network);
+        let config = ValidatedConfig::from_toml(&configuration(network, std::path::Path::new("./synthetic-captures"), &registry)).unwrap();
+        let document = arb_registry::RegistryDocument::from_bytes(&registry, network).unwrap();
+        document.authorize(&config).unwrap();
         assert_eq!(config.mode(), arb_domain::Mode::Observe);
+        assert_eq!(document.pools().len(), 2);
+        assert_eq!(config.verified_pools(network).len(), 2);
+        assert_eq!(config.trade_sizes()[0].to_string(), "10000");
+        let encoded: Value = serde_json::from_slice(&registry).unwrap();
+        assert!(encoded["pools"].as_array().unwrap().iter().all(|p| {
+            p["qualification_reference"] == "MANUALLY-CONSTRUCTED-NOT-A-DEPLOYMENT"
+        }));
+    }
+}
+
+#[test]
+fn a_single_pool_allowlist_remains_invalid() {
+    for network in [NetworkId::BaseMainnet, NetworkId::SolanaMainnet] {
+        let registry = registry_bytes(network);
+        let valid = configuration(network, std::path::Path::new("./synthetic-captures"), &registry);
+        let row = valid.lines().find(|line| line.starts_with("verified_pool_ids = [\"")).unwrap();
+        let pool_ids: Vec<String> = serde_json::from_str(row.split_once(" = ").unwrap().1).unwrap();
+        let invalid = valid.replace(row, &format!("verified_pool_ids = {}", json!([pool_ids[0]])));
+        let error = ValidatedConfig::from_toml(&invalid).unwrap_err();
+        assert!(error.reason.contains("at least two distinct qualified pools"));
     }
 }
 
@@ -172,20 +214,17 @@ async fn either_blocked_provider_leaves_the_other_worker_evaluating_and_both_con
         let mut workers = Vec::new();
         let mut sessions = Vec::new();
         for network in [NetworkId::BaseMainnet, NetworkId::SolanaMainnet] {
-            let data = match network {
-                NetworkId::BaseMainnet => include_bytes!("../../../crates/arb-evm/tests/fixtures/registry.json").as_slice(),
-                NetworkId::SolanaMainnet => include_bytes!("../../../crates/arb-solana/tests/fixtures/registry.json").as_slice(),
-            };
+            let data = registry_bytes(network);
             let directory = root.join(network.as_str());
             fs::create_dir(&directory).unwrap();
             let captures = directory.join("captures");
             fs::create_dir(&captures).unwrap();
-            let text = configuration(network, &captures, data);
+            let text = configuration(network, &captures, &data);
             let validated = ValidatedConfig::from_toml(&text).unwrap();
             let config = directory.join("config.toml");
             let registry = directory.join("registry.json");
             fs::write(&config, &text).unwrap();
-            fs::write(&registry, data).unwrap();
+            fs::write(&registry, &data).unwrap();
             store.save_configuration(&operator, validated.digest(), serde_json::from_str(validated.effective_json()).unwrap()).await.unwrap();
             let session = store.create_session(&operator, network.as_str(), NewSession {
                 network_id: network.as_str().into(), mode: "OBSERVE".into(),
