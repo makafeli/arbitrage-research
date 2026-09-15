@@ -228,5 +228,68 @@ class ReplayBatchTests(unittest.TestCase):
                 s.compare_replay([first, second], replayed)
 
 
+class CollectionFailureEvidenceTests(unittest.TestCase):
+    def test_empty_and_successful_journal_never_creates_failure_output(self):
+        with tempfile.TemporaryDirectory() as root:
+            evidence = Path(root)
+            for attempts in ([], [{'outcome': 'READINESS_COMPLETED'}], [{'outcome': 'STARTED'}]):
+                self.assertIs(s.checked_collection_attempts(attempts, evidence), attempts)
+            self.assertEqual(list(evidence.iterdir()), [])
+
+    def test_each_terminal_failure_is_saved_and_still_refused_without_calls(self):
+        for outcome in ('ACQUISITION_FAILED', 'EVALUATION_FAILED', 'DEADLINE_EXCEEDED', 'WORKER_CANCELLED'):
+            with self.subTest(outcome=outcome), tempfile.TemporaryDirectory() as root, patch.object(s, 'LocalAPI') as api, patch.object(s.operator_access, 'collect') as provider:
+                attempts = [{'attempt_id': 'fixture:attempt', 'outcome': outcome,
+                             'reason': 'PROVIDER_UNAVAILABLE', 'captured_pools': 0}]
+                with self.assertRaisesRegex(s.SliceError, 'COLLECTION_FAILED_NO_AUTOMATIC_RETRY'):
+                    s.checked_collection_attempts(attempts, Path(root))
+                saved = json.loads((Path(root)/'collection-failure.json').read_text())
+                self.assertEqual(saved['attempts'], attempts)
+                self.assertFalse(saved['automatic_retry'])
+                self.assertFalse(saved['whole_epic_accepted'])
+                api.assert_not_called(); provider.assert_not_called()
+
+    def test_original_journal_order_context_and_null_values_are_preserved(self):
+        attempts = [{'outcome':'ACQUISITION_FAILED','reason':'PROVIDER_UNAVAILABLE',
+                     'attempt_id':'fixture:latest','generation':None,'decision_rows':'0'},
+                    {'outcome':'READINESS_COMPLETED','reason':None,'attempt_id':'fixture:earlier'}]
+        before = copy.deepcopy(attempts)
+        with tempfile.TemporaryDirectory() as root:
+            with self.assertRaises(s.SliceError): s.checked_collection_attempts(attempts, Path(root))
+            saved = json.loads((Path(root)/'collection-failure.json').read_text())
+        self.assertEqual(saved['attempts'], before)
+        self.assertEqual(attempts, before)
+
+    def test_collection_limit_refuses_before_persisting(self):
+        with tempfile.TemporaryDirectory() as root:
+            with self.assertRaisesRegex(s.SliceError, 'COLLECTION_ATTEMPT_LIMIT'):
+                s.checked_collection_attempts([{'outcome':'ACQUISITION_FAILED'}]*7, Path(root))
+            self.assertEqual(list(Path(root).iterdir()), [])
+
+    def test_malformed_journal_has_a_fixed_failure_and_no_output(self):
+        for value in (None, {}, [None], [{}], [{'outcome': None}]):
+            with tempfile.TemporaryDirectory() as root:
+                with self.assertRaisesRegex(s.SliceError, 'INVALID_COLLECTION_ATTEMPTS'):
+                    s.checked_collection_attempts(value, Path(root))
+                self.assertEqual(list(Path(root).iterdir()), [])
+
+    def test_failure_file_is_exclusive_and_does_not_overwrite_prior_evidence(self):
+        with tempfile.TemporaryDirectory() as root:
+            path=Path(root)/'collection-failure.json';path.write_text('existing-evidence')
+            with self.assertRaises(FileExistsError):
+                s.checked_collection_attempts([{'outcome':'ACQUISITION_FAILED'}], Path(root))
+            self.assertEqual(path.read_text(), 'existing-evidence')
+
+    def test_existing_credential_scan_still_gates_new_diagnostic_export(self):
+        with tempfile.TemporaryDirectory() as root:
+            evidence=Path(root)
+            with self.assertRaises(s.SliceError):
+                s.checked_collection_attempts([{'outcome':'ACQUISITION_FAILED',
+                                               'unexpected':'fixture-private-credential'}], evidence)
+            with self.assertRaisesRegex(s.SliceError, 'CREDENTIAL_IN_EVIDENCE'):
+                s.validate_export(evidence, ['fixture-private-credential'])
+            self.assertFalse((evidence/'EXPORT_READY').exists())
+
+
 if __name__ == '__main__':
     unittest.main()

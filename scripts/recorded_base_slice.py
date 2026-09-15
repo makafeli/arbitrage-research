@@ -233,6 +233,32 @@ def compare_replay(expected: list[dict], replayed: dict) -> int:
     return len(actual)
 
 
+def checked_collection_attempts(attempts: list[dict], evidence: Path) -> list[dict]:
+    """Preserve the already-read bounded journal before stopping on failure.
+
+    This performs no provider/API call or retry. The final existing credential
+    scan still controls export, and an earlier evidence file is not overwritten.
+    """
+    require(isinstance(attempts, list)
+            and all(isinstance(a, dict) and isinstance(a.get('outcome'), str)
+                    for a in attempts), 'INVALID_COLLECTION_ATTEMPTS')
+    require(len(attempts) <= 6, 'COLLECTION_ATTEMPT_LIMIT')
+    failed_outcomes = ('ACQUISITION_FAILED', 'EVALUATION_FAILED',
+                       'DEADLINE_EXCEEDED', 'WORKER_CANCELLED')
+    if any(a['outcome'] in failed_outcomes for a in attempts):
+        save(evidence/'collection-failure.json', {
+            'schema_version': 1,
+            'kind': 'BOUNDED_COLLECTION_FAILURE_JOURNAL',
+            'status': 'BLOCKED',
+            'reason': 'COLLECTION_FAILED_NO_AUTOMATIC_RETRY',
+            'attempts': attempts,
+            'automatic_retry': False,
+            'whole_epic_accepted': False,
+        })
+        raise SliceError('COLLECTION_FAILED_NO_AUTOMATIC_RETRY')
+    return attempts
+
+
 def private_process(args: list[str], env: dict[str, str], log: Path, children: list) -> subprocess.Popen:
     stream = log.open('xb')
     try:
@@ -304,11 +330,7 @@ def exercise(root: Path, endpoint: str, database: str) -> dict:
         def checked_attempts():
             require(worker.poll() is None, 'WORKER_PROCESS_EXITED')
             attempts = api.call(session_path + '/collection-attempts?limit=100')['items']
-            require(len(attempts) <= 6, 'COLLECTION_ATTEMPT_LIMIT')
-            require(not any(a['outcome'] in ('ACQUISITION_FAILED', 'EVALUATION_FAILED',
-                        'DEADLINE_EXCEEDED', 'WORKER_CANCELLED') for a in attempts),
-                    'COLLECTION_FAILED_NO_AUTOMATIC_RETRY')
-            return attempts
+            return checked_collection_attempts(attempts, evidence)
         def ready_worker():
             attempts = checked_attempts()
             return next((a for a in attempts if a['outcome'] == 'READINESS_COMPLETED'), None)
