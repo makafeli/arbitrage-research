@@ -137,3 +137,20 @@ fn redirects_and_wrong_ids_fail_closed() {
     assert!(rpc.call(ReadMethod::EthChainId, json!([])).is_err());
     server.join().unwrap();
 }
+
+#[test]
+fn status_classification_is_fixed_and_never_retains_error_bodies() {
+    for (status, expected) in [
+        ("429 Too Many Requests", "rate limited"),
+        ("403 Forbidden", "access refused"),
+        ("503 Service Unavailable", "provider server failure"),
+    ] {
+        let (endpoint, server) = server(status, "PRIVATE_ERROR_BODY".into(), "");
+        let mut rpc = HttpReadRpc::new(&endpoint, Duration::from_secs(2), 1024, 1).unwrap();
+        let error = rpc.call(ReadMethod::EthChainId, json!([])).unwrap_err();
+        assert!(error.0.contains(expected));
+        assert!(!error.0.contains("PRIVATE_ERROR_BODY"));
+        assert!(rpc.into_records().is_empty());
+        server.join().unwrap();
+    }
+}

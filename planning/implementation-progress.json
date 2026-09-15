@@ -427,7 +427,7 @@
     {
       "id": "ARB-013",
       "issue_url": "https://github.com/makafeli/arbitrage-research/issues/27",
-      "state": "implemented_pending_acceptance",
+      "state": "completed",
       "owner_role": "integration",
       "dependencies": [
         "ARB-007",
@@ -450,9 +450,22 @@
         "Bounded capacity-one asynchronous scheduler metric export is available as an opt-in process-local stderr sink. Contended snapshot or slow/disconnected consumer cannot retain a scheduler/control lock; metric loss remains distinct from dropped market work. Existing Tokio two-I/O/one-blocking thread bounds are preserved.",
         "docs/29-SCHEDULER-TELEMETRY.md",
         "crates/arb-scheduler/src/timing.rs defines fixed-memory per-network/stage queue and explicit-finish latency populations with conservative percentile bounds, null missing measurements, and reversed-clock refusal. crates/arb-scheduler/examples/timing_profile.rs defines the synthetic workload; .github/workflows/stage-timing-review.yml runs the scheduler and worker-serializer tests and produces the named-runner measurement artifact. Execution evidence belongs to the exact PR/CI record, not merely these source references.",
-        "apps/control-api/src/lib.rs: bounded bulk-read concurrency/rate sub-budgets reserve control admission without weakening the overall cap. Tests preserve PENDING until worker acknowledgement and release permits on cancellation/refusal. Actual current-source execution remains required."
+        "apps/control-api/src/lib.rs: bounded bulk-read concurrency/rate sub-budgets reserve control admission without weakening the overall cap. Tests preserve PENDING until worker acknowledgement and release permits on cancellation/refusal. Actual current-source execution remains required.",
+        "https://github.com/makafeli/arbitrage-research/issues/27",
+        "https://github.com/makafeli/arbitrage-research/pull/127#pullrequestreview-5209212132",
+        "https://github.com/makafeli/arbitrage-research/actions/runs/34961520116",
+        "https://github.com/makafeli/arbitrage-research/actions/runs/34961520133"
       ],
-      "remaining_acceptance": "Accept original ARB-011/#25 dependency. Complete actual application-wide stage-duration instrumentation, deployed resource calibration and slow analytics/shared-database isolation evidence. Bounded scheduler permit timing and synthetic CI microprofiles do not measure uninstrumented RPC/simulation/persistence/API stages or qualify production capacity."
+      "remaining_acceptance": "",
+      "acceptance_reconciliation_history": [
+        {
+          "date": "2026-09-15",
+          "previous_remaining_acceptance": "Accept original ARB-011/#25 dependency. Complete actual application-wide stage-duration instrumentation, deployed resource calibration and slow analytics/shared-database isolation evidence. Bounded scheduler permit timing and synthetic CI microprofiles do not measure uninstrumented RPC/simulation/persistence/API stages or qualify production capacity.",
+          "reason": "Synchronize actual native #27 closure at 11:17:27 UTC after merged PR127. This is not a new task closure or acceptance of the remaining recorded slice."
+        }
+      ],
+      "external_prerequisite": "",
+      "acceptance_review": "Original research scheduler/isolation contract accepted on 2026-09-15 in native #27. PR127 tested head b460a82b87389c7a6be2e1a0d507bda9d0f269e4, merged ecabdfab7a045398994f421f1ffa624b7bd7d27b, tree 4bfb5ff4d3c5cee0c7b49095869517e4692948f5. Five final-head workflows passed including full project34961520133 and pipeline34961520116; review5209212132 records the implementing root and CodeRabbit-confirmed corrections. Native predecessors and original checklists/preflight were accepted before actual closure at11:17:27UTC. Production capacity, full atomic simulation and #29 remain separate."
     },
     {
       "id": "ARB-014",
