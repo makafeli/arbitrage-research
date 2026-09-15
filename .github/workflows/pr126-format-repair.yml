@@ -1,0 +1,60 @@
+name: One-shot exact PR126 formatting repair
+on:
+  push:
+    branches: [integrator/pr126-format-repair]
+permissions:
+  contents: write
+jobs:
+  repair:
+    if: github.repository == 'makafeli/arbitrage-research' && github.actor == 'makafeli'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 96e0315d2b7d74e60ebff18d8fd74996dcde5fd8
+          persist-credentials: false
+      - name: Reproduce reviewed formatting and workflow correction
+        run: |
+          cargo fmt --all
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          p=Path('.github/workflows/pipeline-observations.yml')
+          s=p.read_text(); assert s.count('${{ runner.temp }}/pipeline-evidence')==2
+          p.write_text(s.replace('${{ runner.temp }}/pipeline-evidence','${{ github.workspace }}/pipeline-evidence'))
+          subprocess.run(['git','add','--','.'],check=True)
+          tree=subprocess.check_output(['git','write-tree'],text=True).strip()
+          assert tree=='0cb6fc6d351950e2615a9c6bb9e01fddd28b7ccc',tree
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          PY
+          cargo fmt --all -- --check
+          python3 scripts/validate_project.py
+          python3 scripts/test_delivery.py
+      - name: Publish exact immutable tree, no source ref or issue changes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import json,subprocess,os
+          from pathlib import Path
+          repo='repos/makafeli/arbitrage-research'
+          def git(*args):return subprocess.check_output(['git',*args],text=True).strip()
+          def post(path,value):
+              r=subprocess.run(['gh','api','--method','POST',repo+path,'--input','-'],input=json.dumps(value),text=True,capture_output=True,check=True)
+              return json.loads(r.stdout)
+          paths=git('diff','--cached','--name-only').splitlines()
+          assert set(paths)=={'.github/workflows/pipeline-observations.yml','apps/control-api/src/lib.rs','apps/control-api/src/request_timing.rs','apps/research-worker/src/main.rs','apps/research-worker/src/pipeline_metrics.rs','apps/research-worker/src/stage_metrics.rs','apps/research-worker/tests/controlled_capture.rs'}
+          elements=[]
+          for path in paths:
+              blob=post('/git/blobs',{'encoding':'utf-8','content':Path(path).read_text()})['sha']
+              assert blob==git('hash-object',path)
+              elements.append({'path':path,'type':'blob','mode':'100644','sha':blob})
+          tree=post('/git/trees',{'base_tree':'a044116c6f6a0c88db57a2bd8c0c51fb316c8f48','tree':elements})['sha']
+          assert tree=='0cb6fc6d351950e2615a9c6bb9e01fddd28b7ccc'
+          print(json.dumps({'published_tree':tree,'source_ref_or_issue_changed':False}))
+          ref='/git/refs/heads/integrator/pr126-format-repair'
+          current=json.loads(subprocess.check_output(['gh','api',repo+ref],text=True))
+          assert current['object']['sha']==os.environ['GITHUB_SHA']
+          subprocess.run(['gh','api','--method','DELETE',repo+ref],check=True)
+          PY
