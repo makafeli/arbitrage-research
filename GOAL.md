@@ -29,6 +29,23 @@ Root integration owns shared manifests, lockfiles, CI, publication and final acc
 
 ## Current delivery checkpoint
 
+### Repository reconciliation, 15 September 2026
+
+Main `ff61b29e75fe4f368eab521a1c9dfdd8c2d90cb8` includes the reviewed PR #126
+pipeline measurements and the accepted platform-task registration. Native GitHub
+and all 68 task records agree: 14 completed, 14 implemented pending acceptance,
+eight in progress and 32 planned. The repository has 62 open issues: 54 original
+tasks, seven epics and the separate native Codex-startup task. Pull requests are
+not counted as task issues.
+
+The [repository maintenance record](docs/REPOSITORY-HYGIENE.md) documents the
+verified reduction from 40 to two working branches, preserved historical commits,
+25 corrected native status summaries and the current continuation point. The
+remaining feature branch belongs to PR #127; its two isolation tests currently
+reject a single-pool test configuration before the intended process experiment.
+That failure is not proof of a runtime isolation defect, and the PR is not merged
+or accepted. Resume there without rebuilding the completed platform contracts.
+
 ### EPIC-02: seven original tasks accepted
 
 Configuration #23 and the durable journal #24 closed on 14 September; worker
@@ -63,8 +80,10 @@ The 14 September continuation reconciled main at
 `b24ed4c4a9d76aadbdef1522f2c6dc1858e2191a` before dispatch. That baseline includes
 the capture audit/export work (#105/#109), descriptive comparisons (#106),
 foundation evidence and four original closeouts (#110/#111), and initial
-registry observations (#112). Seven of the original 68 tickets are accepted;
-merged implementation slices do not automatically accept the other 61.
+registry observations (#112). At that historical checkpoint, seven of the original
+68 tickets were accepted;
+those were not the current counts. See the current checkpoint above and the
+native issue register for subsequent acceptances.
 
 Five actual ChatGPT collaboration children ran concurrently with distinct
 acknowledged branches/worktrees/private indices and then performed cross-reviews.
@@ -90,18 +109,21 @@ The Railway web/API/PostgreSQL foundation was already deployed through PR #95;
 PRs #94, #99 and #102 subsequently delivered evidence and authentication/export fixes.
 No fresh Railway rollout/health probe is claimed for this source checkpoint.
 
-The merged [local capture dependency audit](docs/23-CAPTURE-DEPENDENCY-AUDIT.md)
+At the earlier checkpoint, the merged [local capture dependency audit](docs/23-CAPTURE-DEPENDENCY-AUDIT.md)
 and [frozen-export binding](docs/25-EXPORT-CAPTURE-AUDIT.md) separate byte
 integrity, expiry and declared completeness without rewriting historical results
-or asserting replay/market eligibility. Original ARB-014/#28 and export/recovery
-release gates remain open. Initial registry evidence includes two observed
-Solana pool identities, but Base returned HTTP403 before state verification;
+or asserting replay/market eligibility. ARB-014/#28 was still open then; it has
+since been accepted through the platform
+contract review. Export and operational recovery release gates remain separate.
+The initial registry record contained two observed Solana pool identities and a
+Base HTTP403 before state verification. That historical access failure was
+superseded by the successful owner-supplied Base run and completed EPIC-01;
 [the registry record](docs/27-INITIAL-REGISTRY-VERIFICATION.md) keeps observations,
 code corrections and actual qualification distinct.
 
 ### Historical chain-time checkpoint
 
-PR [#93](https://github.com/makafeli/arbitrage-research/pull/93) was merged on 13 September 2026 at `be061b7078e063c98f33b79384506c1b48961370`, adding optional captured-chain-time assessment and authenticated adapter diagnostics. Its exact final head `421a516d2172a3f27938754f8a82b71dd039c22f` and the merge commit both passed all four CI jobs; six retained screenshots were reviewed. The [main validation run](https://github.com/makafeli/arbitrage-research/actions/runs/34752684136) records the accepted baseline for this continuation: 294 Rust tests including 61 PostgreSQL tests, 52 Chromium scenarios and 39 Node tests.
+PR [#93](https://github.com/makafeli/arbitrage-research/pull/93) was merged on 13 September 2026 at `be061b7078e063c98f33b79384506c1b48961370`, adding optional captured-chain-time assessment and authenticated startup adapter diagnostics. Its exact final head `421a516d2172a3f27938754f8a82b71dd039c22f` and the merge commit both passed all four CI jobs; six retained screenshots were reviewed. The [main validation run](https://github.com/makafeli/arbitrage-research/actions/runs/34752684136) records the accepted baseline for this continuation: 294 Rust tests including 61 PostgreSQL tests, 52 Chromium scenarios and 39 Node tests.
 
 The preceding PR [#92](https://github.com/makafeli/arbitrage-research/pull/92) adds common-anchor pool-set acquisition, original-batch replay and immutable manual cost assessments to the collection/export baseline from PR [#90](https://github.com/makafeli/arbitrage-research/pull/90). The platform connects same-network captured route evaluation, durable decision queries, offline economic replay and immutable virtual accounts to the dashboard. Base V3 and Solana Whirlpool calculations use exact amounts; unsupported state and inconsistent capture contexts fail closed. Both OBSERVE and PAPER workers recover stopped and require an explicit START. The paper ledger supports reservations and reconciled outcomes internally, but the worker does not automatically convert quotes into virtual fills.
 
