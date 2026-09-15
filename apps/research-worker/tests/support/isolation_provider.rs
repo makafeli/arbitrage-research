@@ -7,7 +7,10 @@ use std::{
     io::{BufRead, BufReader, Read, Write},
     net::TcpListener,
     process::Child,
-    sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant},
 };
 
@@ -43,7 +46,10 @@ fn read_line(reader: &mut impl BufRead, line: &mut String, shutdown: &Shutdown) 
     match reader.read_line(line) {
         Ok(n) if n > 0 => true,
         other => {
-            assert!(shutdown.0.load(Ordering::SeqCst), "unexpected live request EOF/read error: {other:?}");
+            assert!(
+                shutdown.0.load(Ordering::SeqCst),
+                "unexpected live request EOF/read error: {other:?}"
+            );
             false
         }
     }
@@ -55,12 +61,22 @@ pub struct IsolatedRpc {
     server: Option<std::thread::JoinHandle<()>>,
 }
 impl IsolatedRpc {
-    pub fn start(network: NetworkId, blocked: bool, handshake: Arc<Handshake>,
-        database: sqlx::PgPool, session: String) -> Self {
+    pub fn start(
+        network: NetworkId,
+        blocked: bool,
+        handshake: Arc<Handshake>,
+        database: sqlx::PgPool,
+        session: String,
+    ) -> Self {
         let records: Vec<RpcRecord> = serde_json::from_str(match network {
-            NetworkId::BaseMainnet => include_str!("../../../../crates/arb-evm/tests/fixtures/batch-rpc.json"),
-            NetworkId::SolanaMainnet => include_str!("../../../../crates/arb-solana/tests/fixtures/batch-rpc.json"),
-        }).unwrap();
+            NetworkId::BaseMainnet => {
+                include_str!("../../../../crates/arb-evm/tests/fixtures/batch-rpc.json")
+            }
+            NetworkId::SolanaMainnet => {
+                include_str!("../../../../crates/arb-solana/tests/fixtures/batch-rpc.json")
+            }
+        })
+        .unwrap();
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         listener.set_nonblocking(true).unwrap();
         let endpoint = format!("http://{}", listener.local_addr().unwrap());
@@ -75,22 +91,33 @@ impl IsolatedRpc {
                     std::thread::sleep(Duration::from_millis(2));
                     continue;
                 };
-                stream.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
-                stream.set_write_timeout(Some(Duration::from_secs(2))).unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(2)))
+                    .unwrap();
+                stream
+                    .set_write_timeout(Some(Duration::from_secs(2)))
+                    .unwrap();
                 let mut reader = BufReader::new(stream.try_clone().unwrap());
                 let mut line = String::new();
-                if !read_line(&mut reader, &mut line, &finished) { return; }
+                if !read_line(&mut reader, &mut line, &finished) {
+                    return;
+                }
                 assert!(line.starts_with("POST "));
                 let mut length = None;
                 let mut header_bytes = line.len();
                 loop {
                     line.clear();
-                    if !read_line(&mut reader, &mut line, &finished) { return; }
+                    if !read_line(&mut reader, &mut line, &finished) {
+                        return;
+                    }
                     header_bytes += line.len();
                     assert!(header_bytes <= 16_384);
-                    if line == "\r\n" { break; }
+                    if line == "\r\n" {
+                        break;
+                    }
                     if let Some((key, value)) = line.split_once(':')
-                        && key.eq_ignore_ascii_case("content-length") {
+                        && key.eq_ignore_ascii_case("content-length")
+                    {
                         assert!(length.is_none());
                         length = Some(value.trim().parse::<usize>().unwrap());
                     }
@@ -99,7 +126,10 @@ impl IsolatedRpc {
                 assert!(length <= 65_536);
                 let mut body = vec![0; length];
                 if let Err(error) = reader.read_exact(&mut body) {
-                    assert!(finished.0.load(Ordering::SeqCst), "unexpected live body read error: {error}");
+                    assert!(
+                        finished.0.load(Ordering::SeqCst),
+                        "unexpected live body read error: {error}"
+                    );
                     return;
                 }
                 let request: Value = serde_json::from_slice(&body).unwrap();
@@ -117,7 +147,11 @@ impl IsolatedRpc {
                                 .bind(&session).fetch_all(&database)
                         ).await.unwrap().unwrap()
                     });
-                    assert_eq!(pending.len(), 1, "request must have exactly one durable pending attempt");
+                    assert_eq!(
+                        pending.len(),
+                        1,
+                        "request must have exactly one durable pending attempt"
+                    );
                     let (attempt, purpose) = &pending[0];
                     if purpose == "RESEARCH" {
                         research_handled = true;
@@ -125,16 +159,26 @@ impl IsolatedRpc {
                             let started = Instant::now();
                             *handshake.held.lock().unwrap() = Some((attempt.clone(), started));
                             handshake.entered.store(true, Ordering::SeqCst);
-                            while !handshake.release.load(Ordering::SeqCst) && !finished.0.load(Ordering::SeqCst) {
-                                assert!(started.elapsed() < HOLD_LIMIT, "held experiment exceeded four seconds, below the real five-second RPC timeout");
+                            while !handshake.release.load(Ordering::SeqCst)
+                                && !finished.0.load(Ordering::SeqCst)
+                            {
+                                assert!(
+                                    started.elapsed() < HOLD_LIMIT,
+                                    "held experiment exceeded four seconds, below the real five-second RPC timeout"
+                                );
                                 std::thread::sleep(Duration::from_millis(2));
                             }
                         } else {
                             // Make the active decision causally later than the held
                             // RESEARCH request. Never count an earlier readiness result.
                             let deadline = Instant::now() + Duration::from_secs(3);
-                            while !handshake.entered.load(Ordering::SeqCst) && !finished.0.load(Ordering::SeqCst) {
-                                assert!(Instant::now() < deadline, "other research request did not reach the handshake");
+                            while !handshake.entered.load(Ordering::SeqCst)
+                                && !finished.0.load(Ordering::SeqCst)
+                            {
+                                assert!(
+                                    Instant::now() < deadline,
+                                    "other research request did not reach the handshake"
+                                );
                                 std::thread::sleep(Duration::from_millis(2));
                             }
                             *handshake.active.lock().unwrap() = Some(attempt.clone());
@@ -143,24 +187,40 @@ impl IsolatedRpc {
                         assert_eq!(purpose, "READINESS");
                     }
                 }
-                if finished.0.load(Ordering::SeqCst) { break; }
-                let response = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", record.response.len(), record.response);
+                if finished.0.load(Ordering::SeqCst) {
+                    break;
+                }
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    record.response.len(),
+                    record.response
+                );
                 if let Err(error) = stream.write_all(response.as_bytes()) {
-                    assert!(finished.0.load(Ordering::SeqCst), "unexpected live provider disconnect: {error}");
+                    assert!(
+                        finished.0.load(Ordering::SeqCst),
+                        "unexpected live provider disconnect: {error}"
+                    );
                     break;
                 }
                 cursor = (cursor + 1) % records.len();
             }
         });
-        Self { endpoint, shutdown, server: Some(server) }
+        Self {
+            endpoint,
+            shutdown,
+            server: Some(server),
+        }
     }
 }
 impl Drop for IsolatedRpc {
     fn drop(&mut self) {
         self.shutdown.0.store(true, Ordering::SeqCst);
         if let Some(server) = self.server.take() {
-            if std::thread::panicking() { let _ = server.join(); }
-            else { server.join().unwrap(); }
+            if std::thread::panicking() {
+                let _ = server.join();
+            } else {
+                server.join().unwrap();
+            }
         }
     }
 }
@@ -168,16 +228,26 @@ impl Drop for IsolatedRpc {
 #[test]
 fn eof_is_expected_only_after_explicit_shutdown() {
     let stopped = Shutdown(AtomicBool::new(true));
-    assert!(!read_line(&mut std::io::Cursor::new(b""), &mut String::new(), &stopped));
+    assert!(!read_line(
+        &mut std::io::Cursor::new(b""),
+        &mut String::new(),
+        &stopped
+    ));
     let live = Shutdown::default();
-    assert!(std::panic::catch_unwind(|| {
-        read_line(&mut std::io::Cursor::new(b""), &mut String::new(), &live);
-    }).is_err());
+    assert!(
+        std::panic::catch_unwind(|| {
+            read_line(&mut std::io::Cursor::new(b""), &mut String::new(), &live);
+        })
+        .is_err()
+    );
     let mut request = std::io::Cursor::new(b"POST / HTTP/1.1\r\n");
     let mut line = String::new();
     assert!(read_line(&mut request, &mut line, &live));
-    assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        read_line(&mut request, &mut String::new(), &live);
-    })).is_err());
+    assert!(
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            read_line(&mut request, &mut String::new(), &live);
+        }))
+        .is_err()
+    );
     assert!(!read_line(&mut request, &mut String::new(), &stopped));
 }

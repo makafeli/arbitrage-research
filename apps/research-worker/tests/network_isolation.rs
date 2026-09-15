@@ -2,18 +2,15 @@
 //! Deliberately constructed inputs prove control isolation, not market coverage.
 #[path = "support/isolation_provider.rs"]
 mod isolation_provider;
-use isolation_provider::{ASSERTION_WINDOW, ChildGuard, Handshake, IsolatedRpc};
 use arb_capture::digest;
 use arb_config::ValidatedConfig;
 use arb_storage::{NewCommand, NewSession, Store};
+use isolation_provider::{ASSERTION_WINDOW, ChildGuard, Handshake, IsolatedRpc};
 use serde_json::{Value, json};
 use std::{
     fs,
     process::{Command, Stdio},
-    sync::{
-        Arc,
-        atomic::Ordering,
-    },
+    sync::{Arc, atomic::Ordering},
     time::{Duration, Instant},
 };
 use uuid::Uuid;
@@ -214,7 +211,13 @@ async fn either_blocked_provider_leaves_the_other_worker_evaluating_and_both_con
                 )
                 .await
                 .unwrap();
-            let provider = IsolatedRpc::start(network, network == blocked, Arc::clone(&handshake), observer.clone(), session.session_id.clone());
+            let provider = IsolatedRpc::start(
+                network,
+                network == blocked,
+                Arc::clone(&handshake),
+                observer.clone(),
+                session.session_id.clone(),
+            );
             let log = fs::File::create(directory.join("worker.log")).unwrap();
             let worker = ChildGuard {
                 process: Command::new(env!("CARGO_BIN_EXE_research-worker"))
@@ -287,12 +290,13 @@ async fn either_blocked_provider_leaves_the_other_worker_evaluating_and_both_con
         }
         let blocked_index = usize::from(blocked == NetworkId::SolanaMainnet);
         let active_index = 1 - blocked_index;
-        wait_until(
-            async || handshake.entered.load(Ordering::SeqCst),
-            10,
-        )
-        .await;
-        let (held_attempt, held_since) = handshake.held.lock().unwrap().clone().expect("handshake has exact attempt");
+        wait_until(async || handshake.entered.load(Ordering::SeqCst), 10).await;
+        let (held_attempt, held_since) = handshake
+            .held
+            .lock()
+            .unwrap()
+            .clone()
+            .expect("handshake has exact attempt");
         let receipts = tokio::time::timeout_at(
             tokio::time::Instant::from_std(held_since + ASSERTION_WINDOW), async {
         let active = &sessions[active_index];
@@ -383,7 +387,12 @@ async fn either_blocked_provider_leaves_the_other_worker_evaluating_and_both_con
         }, 8).await;
         // A timed-out earlier attempt or a later retry cannot satisfy this check:
         // the socket's exact held attempt must finish a complete two-pool capture.
-        let active_attempt = handshake.active.lock().unwrap().clone().expect("active research handshake");
+        let active_attempt = handshake
+            .active
+            .lock()
+            .unwrap()
+            .clone()
+            .expect("active research handshake");
         let active_completed: i64 = sqlx::query_scalar("SELECT count(*) FROM collection_attempts WHERE attempt_id=$1 AND session_id=$2 AND outcome='DECISIONS_RECORDED'")
             .bind(&active_attempt).bind(&sessions[active_index].session_id).fetch_one(&observer).await.unwrap();
         assert_eq!(active_completed, 1);
