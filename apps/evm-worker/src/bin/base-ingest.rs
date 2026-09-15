@@ -1,4 +1,7 @@
 //! Explicit bounded finalized polling. No signer, quote generation or deployment.
+#[path = "base_ingest/shutdown.rs"]
+mod shutdown;
+
 use arb_adapter_api::{EndpointKind, HttpReadRpc, ReadMethod, ReadRpc, endpoint_kind};
 use arb_evm::{
     PoolRegistry, SOURCE_COMMIT, UNISWAP_V3_FACTORY,
@@ -242,12 +245,7 @@ async fn run(action: String) -> Result<()> {
         }
     }
     let cancelled = Arc::new(AtomicBool::new(false));
-    let signal = cancelled.clone();
-    let listener = tokio::spawn(async move {
-        if tokio::signal::ctrl_c().await.is_ok() {
-            signal.store(true, Ordering::SeqCst);
-        }
-    });
+    let listener = shutdown::install(cancelled.clone())?;
     let outcome = async {
         if action == "--initialize" {
             // Do not even probe a provider to reseed an already-existing stream.

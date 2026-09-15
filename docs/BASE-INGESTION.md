@@ -74,8 +74,12 @@ at or before initialization is claimed. Initializing an existing stream refuses
 before any provider request. Later starts require the same registry and input
 origin. Status reads need the database/operator/stream only and make no RPC call.
 
-Ctrl+C cancels admission, waits for the bounded current RPC to return, and rejects
-its result before publishing a batch. A complete database COMMIT already in flight
+Ctrl+C and, on Unix, SIGTERM cancel admission, wait for the bounded current RPC
+to return, and reject its result before publishing a batch. Unix signal handlers
+are installed before provider work; registration failure refuses startup. A stop
+between polls is checked in the existing short waits, not only at the next poll.
+SIGKILL or a host crash cannot be handled; the atomic database checkpoint remains
+the restart boundary. A complete database COMMIT already in flight
 cannot be recalled; an uncertain response requires rereading the durable cursor.
 This standalone ingestion process is not a research control-API session, and its
 ACTIVE state means the stream is resumable, not that a process is currently running.
@@ -115,8 +119,13 @@ failure *after* batch insertion and cursor update proves both are rolled back.
 `apps/evm-worker/tests/ingestion.rs` runs the real executable against a bounded
 loopback RPC server and PostgreSQL: initialization, two separate process runs,
 exact persisted events, repeated no-change polls, changed-registry refusal,
-canonical-history halt and actual SIGINT during a held network request. Fixtures
-remain MANUALLY_CONSTRUCTED; no test claims genuine market capture.
+canonical-history halt and actual SIGINT during a held network request. The Unix
+shutdown cases also send actual SIGTERM during a held RPC and between polls. They
+require the same explicit CANCELLED outcome, no new provider admission or partial
+batch, unchanged committed data, and a successful explicit process restart. Both
+SIGTERM regressions failed against the preceding source, which exited by signal
+rather than through its cancellation fence. Fixtures remain MANUALLY_CONSTRUCTED;
+no test claims genuine market capture or a production stop-latency guarantee.
 
 ```sh
 cargo test --locked -p arb-storage --test ingestion
