@@ -89,6 +89,6 @@ jobs:
         if: always()
         with:
           name: pipeline-process-evidence
-          path: ${{ github.workspace }}/pipeline-evidence/
+          path: ${{ env.ARB_TEST_STAGE_EVIDENCE_DIR }}/
           retention-days: 30
           if-no-files-found: error
