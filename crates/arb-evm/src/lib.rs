@@ -1,4 +1,6 @@
 //! Bounded Base Uniswap V3 acquisition and candidate-only exact quote math.
+pub mod backfill;
+pub mod events;
 pub mod math;
 use arb_adapter_api::{AdapterError, ReadMethod, ReadRpc, Result, SnapshotQuality, StateContext};
 use serde::{Deserialize, Serialize};
