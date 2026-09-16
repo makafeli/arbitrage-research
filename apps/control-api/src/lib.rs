@@ -230,12 +230,8 @@ fn validate_origin(origin: &str, insecure: bool) -> Result<(), String> {
 
 #[async_trait]
 trait ControlStore: ResearchStore + Send + Sync {
-    async fn operator_account(&self) -> Result<Option<arb_storage::OperatorAccount>, StoreError> {
-        Ok(None)
-    }
-    async fn operator_auth_version(&self) -> Result<i64, StoreError> {
-        Ok(0)
-    }
+    async fn operator_account(&self) -> Result<Option<arb_storage::OperatorAccount>, StoreError>;
+    async fn operator_auth_version(&self) -> Result<i64, StoreError>;
     async fn redeem_operator_invitation(
         &self,
         _token: &[u8],
@@ -381,8 +377,7 @@ struct Inner {
 #[derive(Default)]
 struct AuthState {
     sessions: HashMap<[u8; 32], AuthSession>,
-    login_window: u64,
-    login_attempts: u32,
+    attempts: account::AttemptLimits,
 }
 #[derive(Clone)]
 struct AuthSession {
@@ -597,6 +592,8 @@ async fn security(State(state): State<AppState>, mut request: Request, next: Nex
         now(),
         state.0.sequence.fetch_add(1, Ordering::Relaxed)
     ));
+    let client = account::rate_client(&request);
+    request.extensions_mut().insert(client);
     request.extensions_mut().insert(id.clone());
     let result = authorize(&state, &mut request, &id).and_then(|()| {
         // Try the read sub-budget first: refused reads cannot occupy a global
@@ -766,9 +763,16 @@ fn auth_response(identity: Identity) -> AuthResponse {
 async fn login(
     State(state): State<AppState>,
     Extension(id): Extension<RequestId>,
+    Extension(client): Extension<account::RateClient>,
     body: Result<Json<Login>, JsonRejection>,
 ) -> Result<Response, ApiError> {
-    account::limit_attempt(&state, &id)?;
+    account::limit_attempt(
+        &state,
+        &id,
+        account::AuthFlow::Legacy,
+        client,
+        hash("legacy"),
+    )?;
     let Json(input) = body.map_err(|_| ApiError::invalid(&id))?;
     if state
         .0

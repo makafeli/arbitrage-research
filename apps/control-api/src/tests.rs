@@ -52,6 +52,13 @@ fn record() -> SessionRecord {
 }
 #[async_trait]
 impl ControlStore for MockStore {
+    async fn operator_account(&self) -> Result<Option<arb_storage::OperatorAccount>, StoreError> {
+        Ok(None)
+    }
+    async fn operator_auth_version(&self) -> Result<i64, StoreError> {
+        Ok(0)
+    }
+
     async fn replay_session_creation(
         &self,
         _: &str,
@@ -394,7 +401,7 @@ async fn origin_and_csrf_rejections_cannot_mutate() {
 }
 
 #[tokio::test]
-async fn login_has_global_bounded_rate_limit_and_redacts_submitted_secret() {
+async fn legacy_login_has_bounded_peer_rate_limit_and_redacts_submitted_secret() {
     let (app, _) = setup();
     for attempt in 0..11 {
         let response = call(

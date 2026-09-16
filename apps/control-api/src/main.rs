@@ -39,9 +39,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let state = AppState::new(store, settings);
     let listener = tokio::net::TcpListener::bind(address).await?;
     eprintln!("Research control API listening on {address}; live execution unavailable");
-    axum::serve(listener, router(state))
-        .with_graceful_shutdown(shutdown())
-        .await?;
+    axum::serve(
+        listener,
+        router(state).into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown())
+    .await?;
     Ok(())
 }
 

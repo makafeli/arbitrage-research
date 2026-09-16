@@ -15,6 +15,7 @@ export function AccountAccess({ api, checking, light, onToggleTheme }: { api: Co
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [help, setHelp] = useState(false);
+  const [recoveryHint, setRecoveryHint] = useState(false);
   const alive = useRef(true);
   useEffect(() => {
     alive.current = true;
@@ -24,7 +25,7 @@ export function AccountAccess({ api, checking, light, onToggleTheme }: { api: Co
   }, []);
   async function submit(event: FormEvent) {
     event.preventDefault(); if (busy || checking) return;
-    setError(''); setMessage('');
+    setError(''); setMessage(''); setRecoveryHint(false);
     if (token && password !== confirmation) { setError('The passwords do not match.'); return; }
     setBusy(true); const entered = password; setPassword(''); setConfirmation('');
     try {
@@ -32,7 +33,7 @@ export function AccountAccess({ api, checking, light, onToggleTheme }: { api: Co
         await api.activateAccount(email, entered, token);
         if (alive.current) { setToken(''); setMessage('Your password is saved. Sign in to continue.'); }
       } else await api.signIn(email, entered);
-    } catch (failure) { if (alive.current) setError(errorMessage(failure)); }
+    } catch (failure) { if (alive.current) { setError(errorMessage(failure)); setRecoveryHint(Boolean(token)); } }
     finally { if (alive.current) setBusy(false); }
   }
   return <main className="account-screen">
@@ -41,7 +42,7 @@ export function AccountAccess({ api, checking, light, onToggleTheme }: { api: Co
       <p className="eyebrow">Your trading workspace</p>
       <h1 id="login-title">{token ? 'Set your password' : 'Sign in'}</h1>
       <p className="muted">{token ? 'Activate or recover your private account with your one-time access link.' : 'Use your email address and password to access Paper trading and Real trading.'}</p>
-      {error && <p className="notice error-notice" role="alert">{error}{token && ' If a previous request was interrupted, try signing in with the password you chose.'}</p>}
+      {error && <p className="notice error-notice" role="alert">{error}{recoveryHint && ' If a previous request was interrupted, try signing in with the password you chose.'}</p>}
       {message && <p className="notice" role="status">{message}</p>}
       <form className="connected-form" onSubmit={event => { void submit(event); }}>
         <label htmlFor="account-email">Email address</label><input id="account-email" type="email" autoComplete="username" value={email} maxLength={254} onChange={e => setEmail(e.target.value)} required disabled={busy || checking} />

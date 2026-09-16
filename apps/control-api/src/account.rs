@@ -15,19 +15,78 @@ pub(super) fn unauthorized(id: &RequestId) -> ApiError {
         id,
     )
 }
-pub(super) fn limit_attempt(state: &AppState, id: &RequestId) -> Result<(), ApiError> {
-    let mut auth = state.0.auth.lock().map_err(|_| ApiError::unavailable(id))?;
-    let window = now() / 60;
-    if auth.login_window != window {
-        auth.login_window = window;
-        auth.login_attempts = 0;
+// Only the actual TCP peer may identify a public client. Forwarding headers are
+// not trusted here. Proxy/NAT users with the same subject may share a bucket.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub(super) struct RateClient(pub Option<IpAddr>);
+#[derive(Clone, Copy, Debug)]
+pub(super) enum AuthFlow {
+    SignIn,
+    Activation,
+    Legacy,
+    Password,
+}
+const MAX_ATTEMPT_BUCKETS_PER_FLOW: usize = 1024;
+const ATTEMPT_WINDOW: Duration = Duration::from_secs(60);
+type AttemptKey = (RateClient, [u8; 32]);
+type AttemptWindow = (Instant, u32);
+#[derive(Default)]
+pub(super) struct AttemptLimits {
+    buckets: [HashMap<AttemptKey, AttemptWindow>; 4],
+}
+impl AttemptLimits {
+    fn admit(
+        &mut self,
+        flow: AuthFlow,
+        client: RateClient,
+        subject: [u8; 32],
+        at: Instant,
+    ) -> bool {
+        let buckets = &mut self.buckets[flow as usize];
+        buckets.retain(|_, (started, _)| at.saturating_duration_since(*started) < ATTEMPT_WINDOW);
+        let key = (client, subject);
+        if !buckets.contains_key(&key) && buckets.len() >= MAX_ATTEMPT_BUCKETS_PER_FLOW {
+            return false;
+        }
+        let (_, count) = buckets.entry(key).or_insert((at, 0));
+        if *count >= LOGIN_ATTEMPTS_PER_MINUTE {
+            return false;
+        }
+        *count += 1;
+        true
     }
-    auth.login_attempts = auth.login_attempts.saturating_add(1);
-    if auth.login_attempts > LOGIN_ATTEMPTS_PER_MINUTE {
+}
+pub(super) fn rate_client(request: &Request) -> RateClient {
+    RateClient(
+        request
+            .extensions()
+            .get::<axum::extract::ConnectInfo<SocketAddr>>()
+            .map(|peer| peer.0.ip().to_canonical()),
+    )
+}
+pub(super) fn limit_attempt(
+    state: &AppState,
+    id: &RequestId,
+    flow: AuthFlow,
+    client: RateClient,
+    subject: [u8; 32],
+) -> Result<(), ApiError> {
+    limit_attempt_at(state, id, flow, client, subject, Instant::now())
+}
+pub(super) fn limit_attempt_at(
+    state: &AppState,
+    id: &RequestId,
+    flow: AuthFlow,
+    client: RateClient,
+    subject: [u8; 32],
+    at: Instant,
+) -> Result<(), ApiError> {
+    let mut auth = state.0.auth.lock().map_err(|_| ApiError::unavailable(id))?;
+    if !auth.attempts.admit(flow, client, subject, at) {
         return Err(ApiError::new(
             StatusCode::TOO_MANY_REQUESTS,
             "RATE_LIMITED",
-            "Too many sign-in attempts. Please try again in a minute.",
+            "Too many attempts for this sign-in flow. Please try again in a minute.",
             id,
         ));
     }
@@ -141,9 +200,15 @@ pub(super) struct SignIn {
 pub(super) async fn sign_in(
     State(state): State<AppState>,
     Extension(id): Extension<RequestId>,
+    Extension(client): Extension<RateClient>,
     body: Result<Json<SignIn>, JsonRejection>,
 ) -> Result<Response, ApiError> {
-    limit_attempt(&state, &id)?;
+    let subject = body
+        .as_ref()
+        .ok()
+        .and_then(|v| email(&v.email))
+        .unwrap_or_default();
+    limit_attempt(&state, &id, AuthFlow::SignIn, client, hash(&subject))?;
     let Json(input) = body.map_err(|_| ApiError::invalid(&id))?;
     let email = email(&input.email).ok_or_else(|| unauthorized(&id))?;
     if !input_password_valid(&input.password) {
@@ -170,9 +235,11 @@ pub(super) struct Activate {
 pub(super) async fn activate(
     State(state): State<AppState>,
     Extension(id): Extension<RequestId>,
+    Extension(client): Extension<RateClient>,
     body: Result<Json<Activate>, JsonRejection>,
 ) -> Result<Response, ApiError> {
-    limit_attempt(&state, &id)?;
+    let subject = body.as_ref().ok().map(|v| v.token.as_str()).unwrap_or("");
+    limit_attempt(&state, &id, AuthFlow::Activation, client, hash(subject))?;
     let Json(input) = body.map_err(|_| ApiError::invalid(&id))?;
     let email = email(&input.email).ok_or_else(|| ApiError::invalid(&id))?;
     if !new_password_valid(&input.password) {
@@ -218,9 +285,10 @@ pub(super) async fn change_password(
     State(state): State<AppState>,
     Extension(id): Extension<RequestId>,
     Extension(identity): Extension<Identity>,
+    Extension(client): Extension<RateClient>,
     body: Result<Json<ChangePassword>, JsonRejection>,
 ) -> Result<Response, ApiError> {
-    limit_attempt(&state, &id)?;
+    limit_attempt(&state, &id, AuthFlow::Password, client, identity.token_hash)?;
     let Json(input) = body.map_err(|_| ApiError::invalid(&id))?;
     if !input_password_valid(&input.current_password) || !new_password_valid(&input.new_password) {
         return Err(ApiError::new(
@@ -279,6 +347,20 @@ pub async fn create_owner_invitation(
 /// Load public, origin-bound first-owner verification metadata, never a password.
 /// A missing file is an unprovisioned private deployment, not open registration.
 pub async fn seed_owner_bootstrap(store: &Store, origin: &str) -> Result<(), &'static str> {
+    let path = std::env::var("ARB_OWNER_BOOTSTRAP_FILE")
+        .unwrap_or_else(|_| "config/owner-bootstrap.json".into());
+    let bytes = match std::fs::read(path) {
+        Ok(b) if b.len() <= 2048 => b,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        _ => return Err("Owner bootstrap metadata unavailable"),
+    };
+    seed_owner_bootstrap_bytes(store, origin, &bytes).await
+}
+pub(super) async fn seed_owner_bootstrap_bytes(
+    store: &Store,
+    origin: &str,
+    bytes: &[u8],
+) -> Result<(), &'static str> {
     #[derive(Deserialize)]
     #[serde(deny_unknown_fields)]
     struct Bootstrap {
@@ -287,15 +369,8 @@ pub async fn seed_owner_bootstrap(store: &Store, origin: &str) -> Result<(), &'s
         token_sha256: String,
         expires_at: String,
     }
-    let path = std::env::var("ARB_OWNER_BOOTSTRAP_FILE")
-        .unwrap_or_else(|_| "config/owner-bootstrap.json".into());
-    let bytes = match std::fs::read(path) {
-        Ok(b) if b.len() <= 2048 => b,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        _ => return Err("Owner bootstrap metadata unavailable"),
-    };
     let value: Bootstrap =
-        serde_json::from_slice(&bytes).map_err(|_| "Owner bootstrap metadata invalid")?;
+        serde_json::from_slice(bytes).map_err(|_| "Owner bootstrap metadata invalid")?;
     if value.origin != origin {
         return Ok(());
     }
@@ -310,10 +385,20 @@ pub async fn seed_owner_bootstrap(store: &Store, origin: &str) -> Result<(), &'s
         .map(|i| u8::from_str_radix(&value.token_sha256[i..i + 2], 16))
         .collect::<Result<_, _>>()
         .map_err(|_| "Owner bootstrap verifier invalid")?;
-    store
+    let inserted = store
         .seed_operator_invitation(&digest, &value.expires_at)
         .await
         .map_err(|_| "Owner bootstrap could not be stored")?;
+    if !inserted
+        && !store
+            .operator_access_ready()
+            .await
+            .map_err(|_| "Owner account readiness unavailable")?
+    {
+        return Err(
+            "Owner setup invitation is unavailable or expired; issue a private owner invitation",
+        );
+    }
     Ok(())
 }
 
@@ -359,6 +444,70 @@ mod tests {
                 &result
             )
             .is_err()
+        );
+    }
+    #[test]
+    fn attempts_are_exactly_ten_per_client_subject_flow_and_window() {
+        let mut limits = AttemptLimits::default();
+        let at = Instant::now();
+        let client = RateClient(Some("192.0.2.1".parse().unwrap()));
+        let other = RateClient(Some("192.0.2.2".parse().unwrap()));
+        for _ in 0..10 {
+            assert!(limits.admit(AuthFlow::SignIn, client, hash("owner"), at));
+        }
+        assert!(!limits.admit(AuthFlow::SignIn, client, hash("owner"), at));
+        assert!(limits.admit(AuthFlow::SignIn, other, hash("owner"), at));
+        assert!(limits.admit(AuthFlow::SignIn, client, hash("other"), at));
+        for flow in [AuthFlow::Activation, AuthFlow::Legacy, AuthFlow::Password] {
+            assert!(limits.admit(flow, client, hash("owner"), at));
+        }
+        assert!(!limits.admit(
+            AuthFlow::SignIn,
+            client,
+            hash("owner"),
+            at + Duration::from_secs(59)
+        ));
+        assert!(limits.admit(
+            AuthFlow::SignIn,
+            client,
+            hash("owner"),
+            at + Duration::from_secs(60)
+        ));
+    }
+    #[test]
+    fn limiter_capacity_is_bounded_and_does_not_consume_other_flows() {
+        let mut limits = AttemptLimits::default();
+        let at = Instant::now();
+        let client = RateClient(None);
+        for i in 0..MAX_ATTEMPT_BUCKETS_PER_FLOW {
+            assert!(limits.admit(AuthFlow::SignIn, client, hash(&i.to_string()), at));
+        }
+        assert!(!limits.admit(AuthFlow::SignIn, client, hash("excess"), at));
+        assert_eq!(limits.buckets[0].len(), MAX_ATTEMPT_BUCKETS_PER_FLOW);
+        assert!(limits.admit(AuthFlow::Password, client, hash("active-session"), at));
+        assert!(limits.admit(AuthFlow::Activation, client, hash("private-invitation"), at));
+        assert!(limits.admit(
+            AuthFlow::SignIn,
+            client,
+            hash("new-window"),
+            at + ATTEMPT_WINDOW
+        ));
+        assert_eq!(limits.buckets[0].len(), 1);
+    }
+    #[test]
+    fn forwarding_headers_cannot_spoof_the_trusted_peer() {
+        let mut request = Request::builder()
+            .header("x-forwarded-for", "203.0.113.9")
+            .header("x-real-ip", "203.0.113.10")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        assert_eq!(rate_client(&request), RateClient(None));
+        request.extensions_mut().insert(axum::extract::ConnectInfo(
+            "192.0.2.4:12345".parse::<SocketAddr>().unwrap(),
+        ));
+        assert_eq!(
+            rate_client(&request),
+            RateClient(Some("192.0.2.4".parse().unwrap()))
         );
     }
 }

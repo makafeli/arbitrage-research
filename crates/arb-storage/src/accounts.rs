@@ -49,6 +49,13 @@ impl Store {
         tx.commit().await?;
         Ok(result.rows_affected() == 1)
     }
+    /// True only when an account exists or a current, unexpired invitation can
+    /// provision it. This public readiness fact never exposes credential material.
+    pub async fn operator_access_ready(&self) -> Result<bool, StoreError> {
+        Ok(sqlx::query_scalar(
+            "SELECT auth_version > 0 OR EXISTS(SELECT 1 FROM operator_account_invitation i WHERE i.singleton AND i.account_version=a.auth_version AND i.expires_at>clock_timestamp()) FROM operator_account a WHERE a.singleton"
+        ).fetch_one(&self.pool).await?)
+    }
     pub async fn operator_account(&self) -> Result<Option<OperatorAccount>, StoreError> {
         let row = sqlx::query("SELECT email,password_salt,password_hash,auth_version FROM operator_account WHERE singleton")
             .fetch_one(&self.pool).await?;
