@@ -1,6 +1,7 @@
 name: Delivery review
 on:
   pull_request:
+    types: [opened, synchronize, reopened, edited]
   push:
     branches: [main]
   workflow_dispatch:
@@ -25,9 +26,13 @@ jobs:
         run: |
           python scripts/test_delivery.py -v
           python scripts/test_delivery_workflow.py -v
+          python scripts/test_issue_closure_text.py -v
           python scripts/validate_project.py
           mkdir -p delivery-artifacts
           python scripts/delivery.py plan --capacity 25 > delivery-artifacts/work-plan.json
+      - name: Preserve explicit issue acceptance before merging
+        if: github.event_name == 'pull_request'
+        run: python scripts/check_issue_closure_text.py
       - name: Audit current GitHub ticket states without mutations
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
