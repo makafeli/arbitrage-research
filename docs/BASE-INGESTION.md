@@ -33,6 +33,38 @@ an explicit reviewed continuation policy; do not hide the gap by silently seedin
 a replacement at the latest block. Process interruption before a complete
 recovery leaves an active cursor unchanged and can be resumed explicitly.
 
+## Bounded transient reconnects
+
+`ARB_INGEST_MAX_RECONNECTS` defaults to `0`; canonical values `0` through `3`
+explicitly opt into a total invocation-wide reconnect budget. Success does not
+reset it. Both `--run` and `--follow` support the budget. Only transport failures,
+response-read failures and HTTP 5xx server failures are retried. HTTP 429 is not
+retried until Retry-After is represented; access refusal (401/403), malformed
+JSON-RPC, arbitrary JSON-RPC errors, wrong chain/code, changed history and resource
+limits still terminate explicitly. This is not account-wide throughput control.
+
+A reconnect first closes every known filter, then waits 1, 2 or 4 seconds according
+to the consumed budget. The wait checks cancellation at most 100 ms apart. The
+same durable cursor/binding must still match before another provider request.
+Filters are recreated rather than reused. Recovery rereads the whole missing
+finalized range from that checkpoint; it never admits a failed prefix or replaces
+the checkpoint with the current tip. An unchanged block/log limit can reject the
+larger gap caused by downtime. A cleanup failure prevents reconnect.
+
+`RECONNECT_SCHEDULED` records the retry count, delay and unchanged checkpoint;
+it is process diagnostic output, not a durable collection-attempt journal or proof
+that a request subsequently succeeded. Unknown filter IDs after a lost allocation
+response remain subject to node expiry. Each reconnect adds at most one bounded
+acquisition attempt and two known-filter cleanup requests. Total acquisition
+attempts cannot exceed `MAX_POLLS + MAX_RECONNECTS`; all existing per-attempt
+request/byte/time limits remain unchanged. This extra total budget is opt-in.
+
+Exhaustion retains the existing terminal HALTED behavior. A new invocation never
+rearms a persisted HALTED stream, even with a reconnect budget. SIGINT/SIGTERM
+during backoff returns CANCELLED without a new request, fake provider halt or
+checkpoint change. Ordinary explicitly restarted ACTIVE streams still resume
+from their saved position. No production setting is changed by this code.
+
 ## Optional HTTP filter following
 
 `--follow` adds bounded node block/log filters around this same durable recovery.
@@ -59,6 +91,7 @@ Do not put credentials in source, arguments, logs, issues or chat.
 | `ARB_INGEST_REGISTRY_FILE` | A reviewed array of the existing `PoolRegistry` configuration records, maximum 64 KiB and eight pools. The identity-only inventory is not this runtime configuration. |
 | `ARB_BASE_RPC_URL` | Existing Base HTTPS endpoint, or loopback only for explicit synthetic validation. |
 | `ARB_RPC_MIN_INTERVAL_MS` | An explicit canonical value 75–1000 is required for HTTPS. Loopback tests may use zero. This is per-transport spacing, not an account-wide CU quota. |
+| `ARB_INGEST_MAX_RECONNECTS` | Default `0`; explicit `0`–`3` additional transient acquisition attempts per entire invocation. |
 | `ARB_INGEST_MAX_POLLS` | 1 by default; explicitly 1–100. No unlimited or background daemon mode. |
 | `ARB_INGEST_POLL_MS` | 2000 by default; explicitly 1000–60000. |
 
@@ -111,7 +144,7 @@ The event journal is not a raw-capture archive or receipt-root completeness proo
 No network request is sent by compiling, ordinary CI, default invocation or merge.
 
 These changes are a tested restartable finalized polling path. They are **not** a
-WebSocket subscription client, live quote feed, automatic reconnect policy,
+WebSocket subscription client, live quote feed, unlimited reconnect policy,
 rollback invalidation of existing decisions, current hosted deployment, or genuine
 market-event qualification. #30 and #29 keep their original remaining criteria.
 
@@ -139,6 +172,14 @@ cargo test --locked -p arb-storage --test ingestion
 cargo test --locked -p evm-worker --test ingestion
 cargo clippy --locked -p arb-storage -p evm-worker --all-targets -- -D warnings
 ```
+
+`ingestion/reconnect.rs` runs seven additional real-process cases, including
+503 recovery across every missing block, filter cleanup/recreation, exhausted
+budgets, terminal-halt refusal, 429/401/403 refusal, changed history, invalid bounds
+and SIGTERM during backoff followed by explicit successful resume. Four unit
+cases cover the canonical budget, transport allowlist and cancellation. All use
+synthetic inputs, not genuine provider qualification. The successful transient
+recovery test fails against the preceding executable with RECOVERY_GAP.
 
 See the PR for exact source and executed results. Full project CI, existing
 PostgreSQL/recovery/browser tests and source review remain integration gates.

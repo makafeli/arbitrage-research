@@ -100,3 +100,14 @@ false gap, no extra poll, retained atomic state and explicit restart. These use
 synthetic loopback inputs and disposable PostgreSQL, not provider qualification.
 Ordinary write errors are covered; blocking output sinks, arbitrary panics,
 SIGKILL and lost unknown allocation IDs remain outside this cleanup guarantee.
+
+## Opt-in transient reconnect continuation
+
+The outer ingestion process now accepts `ARB_INGEST_MAX_RECONNECTS=0..3`, default
+zero. [The ingestion contract](BASE-INGESTION.md#bounded-transient-reconnects)
+defines its invocation-wide budget, classified failures and cancellation. A failed
+pair is closed before creating a replacement; hints never advance the durable
+cursor. PoolFilters itself still does not retry or spawn tasks. Existing terminal
+HALTED streams, malformed/expired JSON-RPC responses, credentials and throttling
+are not automatically rearmed. This supersedes only the earlier blanket statement
+that no outer reconnect policy exists, not any finality/qualification limitation.
