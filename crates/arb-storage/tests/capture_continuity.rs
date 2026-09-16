@@ -1,6 +1,8 @@
 //! PostgreSQL publication-boundary tests. All inputs are synthetic database
 //! fixtures, not market captures or full engine/quote qualification.
-use arb_storage::{IngestionBinding, IngestionCursor, IngestionHalt, IngestionHead, NewSession, Store};
+use arb_storage::{
+    IngestionBinding, IngestionCursor, IngestionHalt, IngestionHead, NewSession, Store,
+};
 use serde_json::{Value, json};
 use sqlx::{PgPool, Postgres, Transaction};
 use uuid::Uuid;
@@ -39,7 +41,11 @@ async fn fixture() -> Fixture {
     store.migrate().await.unwrap();
     let operator = format!("capture-link-{}", Uuid::new_v4());
     store
-        .save_configuration(&operator, "synthetic:configuration", json!({"synthetic":true}))
+        .save_configuration(
+            &operator,
+            "synthetic:configuration",
+            json!({"synthetic":true}),
+        )
         .await
         .unwrap();
     let session = store
@@ -209,8 +215,13 @@ async fn terminal_source_blocks_new_quotes_but_preserves_historical_evidence() {
     assert_eq!(status(&f, "first").await, "INVALIDATED");
     code(check(&f, "first").await.unwrap_err(), "55000");
     code(publish(&f, "second", &value).await.unwrap_err(), "55000");
-    let original: Value = sqlx::query_scalar("SELECT payload FROM decision_traces WHERE session_id=$1 AND observation_id='first'")
-        .bind(&f.session).fetch_one(&f.pool).await.unwrap();
+    let original: Value = sqlx::query_scalar(
+        "SELECT payload FROM decision_traces WHERE session_id=$1 AND observation_id='first'",
+    )
+    .bind(&f.session)
+    .fetch_one(&f.pool)
+    .await
+    .unwrap();
     assert_eq!(original, value);
     let mut diagnostic = value;
     diagnostic["result"]["status"] = json!("DATA_UNAVAILABLE");
@@ -246,7 +257,10 @@ async fn every_capture_and_exact_manifest_must_be_bound_in_opted_in_sessions() {
     code(publish(&f, "wrong", &wrong).await.unwrap_err(), "55000");
     wrong = both;
     wrong["generation"] = json!("1");
-    code(publish(&f, "generation", &wrong).await.unwrap_err(), "55000");
+    code(
+        publish(&f, "generation", &wrong).await.unwrap_err(),
+        "55000",
+    );
     code(
         publish(&f, "duplicate", &payload(&f, &["one", "one"]))
             .await
@@ -264,8 +278,18 @@ async fn binding_validates_admission_exact_snapshot_and_checkpoint() {
     let f = fixture().await;
     capture(&f, "capture").await;
     for (manifest_digest, snapshot_digest, checkpoint, expected) in [
-        ("sha256:bad".to_string(), f.digest.clone(), json!(head(101)), "22023"),
-        (manifest(), format!("sha256:{}", "d".repeat(64)), json!(head(101)), "22023"),
+        (
+            "sha256:bad".to_string(),
+            f.digest.clone(),
+            json!(head(101)),
+            "22023",
+        ),
+        (
+            manifest(),
+            format!("sha256:{}", "d".repeat(64)),
+            json!(head(101)),
+            "22023",
+        ),
         (manifest(), f.digest.clone(), json!(head(102)), "22023"),
     ] {
         let error = sqlx::query(LINK)
@@ -303,9 +327,7 @@ async fn operator_and_session_scope_cannot_borrow_another_capture() {
         .await
         .unwrap_err();
     code(error, "P0002");
-    publish(&f, "first", &payload(&f, &["same"]))
-        .await
-        .unwrap();
+    publish(&f, "first", &payload(&f, &["same"])).await.unwrap();
     publish(&other, "first", &payload(&other, &["same"]))
         .await
         .unwrap();
@@ -329,15 +351,26 @@ async fn associations_are_immutable_and_rollback_leaves_no_partial_binding() {
     let mut tx = f.pool.begin().await.unwrap();
     link_in_tx(&f, "rolled-back", &mut tx).await.unwrap();
     tx.rollback().await.unwrap();
-    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM capture_ingestion_dependencies WHERE session_id=$1")
-        .bind(&f.session).fetch_one(&f.pool).await.unwrap();
+    let count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM capture_ingestion_dependencies WHERE session_id=$1",
+    )
+    .bind(&f.session)
+    .fetch_one(&f.pool)
+    .await
+    .unwrap();
     assert_eq!(count, 0);
     link(&f, "rolled-back").await.unwrap();
     for sql in [
         "UPDATE capture_ingestion_dependencies SET stream_id='replacement' WHERE session_id=$1",
         "DELETE FROM capture_ingestion_dependencies WHERE session_id=$1",
     ] {
-        assert!(sqlx::query(sql).bind(&f.session).execute(&f.pool).await.is_err());
+        assert!(
+            sqlx::query(sql)
+                .bind(&f.session)
+                .execute(&f.pool)
+                .await
+                .is_err()
+        );
     }
 }
 
