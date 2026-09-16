@@ -1,0 +1,57 @@
+name: Remove only verified PR140 working refs
+on:
+  push:
+    branches: [integrator/pr140-verified-cleanup]
+permissions:
+  contents: write
+  pull-requests: read
+jobs:
+  cleanup:
+    if: github.repository == 'makafeli/arbitrage-research' && github.actor == 'makafeli'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Check exact integration, archive helper and remove owned refs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          repo='repos/makafeli/arbitrage-research'
+          merge='bc8a2106b1ce412f61cda8c78f37581534da342f'
+          head='6bfad60aa96f86d497b2db818abd9397d76b8dae'
+          tree='310dc936b4aebbd431c224300158711baf344ee8'
+          feature='feat/ARB-018-capture-continuity'
+          helper='integrator/pr140-verified-cleanup'
+          archive='refs/tags/archive/pr140-cleanup-2026-09-16'
+          def get(path):
+              return json.loads(subprocess.check_output(['gh','api',repo+path],text=True,timeout=20))
+          def post(path,data):
+              result=subprocess.run(['gh','api','--method','POST',repo+path,'--input','-'],input=json.dumps(data),text=True,capture_output=True,check=True,timeout=20)
+              return json.loads(result.stdout)
+          def delete(path):
+              subprocess.run(['gh','api','--method','DELETE',repo+path],check=True,timeout=20)
+          assert os.environ['GITHUB_REF']=='refs/heads/'+helper
+          assert get('/git/ref/heads/'+helper)['object']['sha']==os.environ['GITHUB_SHA']
+          assert get('/git/ref/heads/main')['object']['sha']==merge
+          pr=get('/pulls/140')
+          assert pr['state']=='closed' and pr['merged'] is True
+          assert pr['head']['sha']==head and pr['head']['ref']==feature
+          assert pr['merge_commit_sha']==merge
+          assert get('/git/commits/'+merge)['tree']['sha']==tree
+          assert get('/git/commits/'+head)['tree']['sha']==tree
+          assert get('/git/ref/heads/'+feature)['object']['sha']==head
+          assert not get('/pulls?state=open&head=makafeli:'+feature)
+          assert not get('/pulls?state=open&head=makafeli:'+helper)
+          saved=post('/git/refs',{'ref':archive,'sha':os.environ['GITHUB_SHA']})
+          assert saved['object']['sha']==os.environ['GITHUB_SHA']
+          # Recheck immediately before each scoped deletion. Never touch main.
+          assert get('/git/ref/heads/'+feature)['object']['sha']==head
+          delete('/git/refs/heads/'+feature)
+          assert get('/git/ref/heads/'+helper)['object']['sha']==os.environ['GITHUB_SHA']
+          delete('/git/refs/heads/'+helper)
+          report={'merged_commit':merge,'deleted_branches':[feature,helper],'preserved_helper':archive,'issues_changed':False,'main_changed':False}
+          Path(os.environ['GITHUB_STEP_SUMMARY']).write_text(json.dumps(report,indent=2)+'\n')
+          print(json.dumps(report))
+          PY
