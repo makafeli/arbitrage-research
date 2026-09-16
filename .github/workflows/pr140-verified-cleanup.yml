@@ -1,4 +1,4 @@
-name: Remove only verified PR140 working refs
+name: Finish verified PR140 helper cleanup
 on:
   push:
     branches: [integrator/pr140-verified-cleanup]
@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
-      - name: Check exact integration, archive helper and remove owned refs
+      - name: Verify absent merged branch, archive helper and remove only its own ref
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -30,8 +30,6 @@ jobs:
           def post(path,data):
               result=subprocess.run(['gh','api','--method','POST',repo+path,'--input','-'],input=json.dumps(data),text=True,capture_output=True,check=True,timeout=20)
               return json.loads(result.stdout)
-          def delete(path):
-              subprocess.run(['gh','api','--method','DELETE',repo+path],check=True,timeout=20)
           assert os.environ['GITHUB_REF']=='refs/heads/'+helper
           assert get('/git/ref/heads/'+helper)['object']['sha']==os.environ['GITHUB_SHA']
           assert get('/git/ref/heads/main')['object']['sha']==merge
@@ -41,17 +39,16 @@ jobs:
           assert pr['merge_commit_sha']==merge
           assert get('/git/commits/'+merge)['tree']['sha']==tree
           assert get('/git/commits/'+head)['tree']['sha']==tree
-          assert get('/git/ref/heads/'+feature)['object']['sha']==head
+          refs=get('/git/matching-refs/heads/'+feature)
+          assert isinstance(refs,list)
+          assert all(item['ref']!='refs/heads/'+feature for item in refs)
           assert not get('/pulls?state=open&head=makafeli:'+feature)
           assert not get('/pulls?state=open&head=makafeli:'+helper)
           saved=post('/git/refs',{'ref':archive,'sha':os.environ['GITHUB_SHA']})
           assert saved['object']['sha']==os.environ['GITHUB_SHA']
-          # Recheck immediately before each scoped deletion. Never touch main.
-          assert get('/git/ref/heads/'+feature)['object']['sha']==head
-          delete('/git/refs/heads/'+feature)
           assert get('/git/ref/heads/'+helper)['object']['sha']==os.environ['GITHUB_SHA']
-          delete('/git/refs/heads/'+helper)
-          report={'merged_commit':merge,'deleted_branches':[feature,helper],'preserved_helper':archive,'issues_changed':False,'main_changed':False}
+          subprocess.run(['gh','api','--method','DELETE',repo+'/git/refs/heads/'+helper],check=True,timeout=20)
+          report={'merged_commit':merge,'already_absent_feature':feature,'deleted_branches':[helper],'preserved_helper':archive,'issues_changed':False,'main_changed':False}
           Path(os.environ['GITHUB_STEP_SUMMARY']).write_text(json.dumps(report,indent=2)+'\n')
           print(json.dumps(report))
           PY
