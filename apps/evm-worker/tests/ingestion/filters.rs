@@ -209,3 +209,140 @@ async fn sigterm_between_follow_polls_cleans_filters_and_preserves_committed_cur
     let resumed = rows(f.run("--follow"));
     assert_eq!(resumed[1]["revision"], "2");
 }
+
+/// Wait with a real process deadline and kill/wait on a failed assertion.
+#[cfg(unix)]
+async fn finished_after_output_loss(child: std::process::Child) -> Output {
+    struct Guard(Option<std::process::Child>);
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            if let Some(child) = &mut self.0 {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+        }
+    }
+    let mut guard = Guard(Some(child));
+    let deadline = std::time::Instant::now() + Duration::from_secs(8);
+    while guard.0.as_mut().unwrap().try_wait().unwrap().is_none() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "output-loss cleanup exceeded bound"
+        );
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    guard.0.take().unwrap().wait_with_output().unwrap()
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn closed_stdout_before_recovery_cleans_both_filters_without_a_false_gap() {
+    use std::process::Stdio;
+    let f = Fixture::new();
+    f.success("--migrate");
+    f.success("--initialize");
+    f.tip.store(101, Ordering::SeqCst);
+    let mut child = f
+        .command("--follow")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    // The first write happens only after filter allocation and polling.
+    drop(child.stdout.take());
+    let output = finished_after_output_loss(child).await;
+    assert_eq!(
+        count(&f, "eth_uninstallFilter"),
+        2,
+        "known filters leaked on stdout failure"
+    );
+    assert_eq!(count(&f, "eth_getLogs"), 0);
+    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(
+        serde_json::from_slice::<Value>(&output.stderr).unwrap()["reason"],
+        "OUTPUT_UNAVAILABLE"
+    );
+    let status = f.success("--status");
+    assert_eq!(status["state"], "ACTIVE");
+    assert_eq!(status["revision"], "0");
+    assert_eq!(status["checkpoint"]["number"], 100);
+    f.success("--run");
+    assert_eq!(f.success("--status")["checkpoint"]["number"], 101);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn closed_stdout_after_hints_preserves_committed_batch_and_cleans_filters() {
+    use std::process::{Child, Stdio};
+    struct Guard(Option<Child>);
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            if let Some(child) = &mut self.0 {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+        }
+    }
+    let f = Fixture::new();
+    f.success("--migrate");
+    f.success("--initialize");
+    f.tip.store(101, Ordering::SeqCst);
+    // Stop the first canonical log response until stdout is definitely closed.
+    // FILTER_HINTS must have been written successfully to reach this request.
+    f.recovery_stalled.store(true, Ordering::SeqCst);
+    let mut child = Guard(Some(
+        f.command("--follow")
+            .env("ARB_INGEST_MAX_POLLS", "2")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap(),
+    ));
+    let deadline = std::time::Instant::now() + Duration::from_secs(4);
+    while count(&f, "eth_getLogs") == 0 {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "recovery did not reach its held response"
+        );
+        assert!(child.0.as_mut().unwrap().try_wait().unwrap().is_none());
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    drop(child.0.as_mut().unwrap().stdout.take());
+    f.recovery_stalled.store(false, Ordering::SeqCst);
+    let output = finished_after_output_loss(child.0.take().unwrap()).await;
+    assert_eq!(
+        count(&f, "eth_uninstallFilter"),
+        2,
+        "committed output failure bypassed cleanup"
+    );
+    assert_eq!(
+        count(&f, "eth_getFilterChanges"),
+        2,
+        "output failure must prevent another poll"
+    );
+    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(
+        serde_json::from_slice::<Value>(&output.stderr).unwrap()["reason"],
+        "OUTPUT_UNAVAILABLE"
+    );
+    let store = Store::connect(&std::env::var("TEST_DATABASE_URL").unwrap())
+        .await
+        .unwrap();
+    let cursor = store.ingestion_cursor(&f.operator, "stream").await.unwrap();
+    assert_eq!(cursor.state, "ACTIVE");
+    assert_eq!(cursor.revision, 1);
+    assert_eq!(cursor.checkpoint.number, 101);
+    assert_eq!(
+        store
+            .ingestion_batches(&f.operator, "stream", 0, 16)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+    // An uncertain output is not permission to repeat an already committed batch.
+    f.tip.store(102, Ordering::SeqCst);
+    let resumed = rows(f.run("--follow"));
+    assert_eq!(resumed[1]["revision"], "2");
+    assert_eq!(resumed[1]["checkpoint"]["number"], 102);
+}

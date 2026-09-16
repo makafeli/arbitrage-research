@@ -31,6 +31,7 @@ struct Fixture {
     filter_logs: Arc<Mutex<Value>>,
     reorg: Arc<AtomicBool>,
     stalled: Arc<AtomicBool>,
+    recovery_stalled: Arc<AtomicBool>,
     done: Arc<AtomicBool>,
     thread: Option<thread::JoinHandle<()>>,
 }
@@ -62,6 +63,8 @@ impl Fixture {
         let done = Arc::new(AtomicBool::new(false));
         let stalled = Arc::new(AtomicBool::new(false));
         let stall = stalled.clone();
+        let recovery_stalled = Arc::new(AtomicBool::new(false));
+        let recovery_stall = recovery_stalled.clone();
         let observed = Arc::new(Mutex::new(Vec::new()));
         let filter_logs = Arc::new(Mutex::new(json!([])));
         let (o, notifications) = (observed.clone(), filter_logs.clone());
@@ -108,7 +111,8 @@ impl Fixture {
                 c.fetch_add(1, Ordering::SeqCst);
                 o.lock().unwrap().push(req.clone());
                 let limit = std::time::Instant::now() + Duration::from_secs(6);
-                while stall.load(Ordering::SeqCst)
+                while (stall.load(Ordering::SeqCst)
+                    || (req["method"] == "eth_getLogs" && recovery_stall.load(Ordering::SeqCst)))
                     && !d.load(Ordering::SeqCst)
                     && std::time::Instant::now() < limit
                 {
@@ -175,6 +179,7 @@ impl Fixture {
             filter_logs,
             reorg,
             stalled,
+            recovery_stalled,
             done,
             thread: Some(handle),
         }

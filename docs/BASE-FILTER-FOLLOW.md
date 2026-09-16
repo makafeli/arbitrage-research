@@ -82,3 +82,21 @@ These tests do not prove actual provider completeness, current deployment, low-l
 quotes, automatic reconnect, derived snapshot invalidation or paper settlement.
 #30 and the original #29 dependency gates remain open until all original criteria
 are met. The source adds no API endpoint, migration, dependency version or permission.
+
+## Output failures preserve cleanup ownership
+
+Structured stdout writes are fallible. A closed output pipe produces the fixed
+`OUTPUT_UNAVAILABLE` error instead of a panic that drops the node filter IDs.
+The blocking recovery operation returns ownership before the caller handles its
+error, and failures in later status output also return through explicit cleanup.
+Both known filters are still removed once under the existing two-request budget.
+A local output failure does not fabricate a provider gap or halt a valid cursor.
+When output fails after a complete database commit, that batch and checkpoint
+remain committed; read the stored state before any explicit retry.
+
+Two actual-process regressions close stdout before recovery and after the first
+hint while a canonical log response is held. They verify filter removal, no
+false gap, no extra poll, retained atomic state and explicit restart. These use
+synthetic loopback inputs and disposable PostgreSQL, not provider qualification.
+Ordinary write errors are covered; blocking output sinks, arbitrary panics,
+SIGKILL and lost unknown allocation IDs remain outside this cleanup guarantee.
