@@ -1,0 +1,36 @@
+name: One-shot locked frontend validation tools
+on:
+  push:
+    branches: [integrator/account-web-tools]
+permissions:
+  contents: read
+jobs:
+  prepare:
+    if: github.repository == 'makafeli/arbitrage-research' && github.actor == 'makafeli'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 814de63d9c9223cfd248794f269d8a28dface0ac
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '24'
+      - name: Install existing public locked frontend dependencies only
+        working-directory: apps/web
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Package public tools without credentials or user data
+        run: |
+          mkdir -p "$RUNNER_TEMP/web-tools"
+          cp "$(command -v node)" "$RUNNER_TEMP/web-tools/node"
+          cp apps/web/package-lock.json "$RUNNER_TEMP/web-tools/package-lock.json"
+          tar -czf "$RUNNER_TEMP/web-tools/node_modules.tar.gz" -C apps/web node_modules
+          cd "$RUNNER_TEMP/web-tools"
+          sha256sum node package-lock.json node_modules.tar.gz > SHA256SUMS
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: locked-account-web-tools
+          path: ${{ runner.temp }}/web-tools/
+          retention-days: 1
+          if-no-files-found: error
