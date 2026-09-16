@@ -24,15 +24,18 @@ jobs:
       - name: Verify delivery coordination and original acceptance contracts
         run: |
           python scripts/test_delivery.py -v
+          python scripts/test_delivery_workflow.py -v
           python scripts/validate_project.py
           mkdir -p delivery-artifacts
           python scripts/delivery.py plan --capacity 25 > delivery-artifacts/work-plan.json
       - name: Audit current GitHub ticket states without mutations
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
         run: |
+          set -euo pipefail
           python scripts/delivery.py snapshot > delivery-artifacts/github-issues.json
-          python scripts/delivery.py audit --input delivery-artifacts/github-issues.json > delivery-artifacts/issue-audit.json
+          python scripts/delivery.py audit --input delivery-artifacts/github-issues.json | tee delivery-artifacts/issue-audit.json
       - name: Archive only the committed review source
         if: always()
         run: |
