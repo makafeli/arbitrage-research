@@ -60,9 +60,13 @@ A node returning false to uninstall indicates an already-absent filter and is a
 valid response. Malformed cleanup responses and cleanup transport failures are
 errors; a cleanup failure after a completed atomic batch does not undo that batch.
 The original acquisition error takes precedence when both collection and cleanup
-fail. No automatic filter recreation, provider retry, rearm of HALTED streams or
-infinite catch-up is attempted. An expired filter remains an explicit failure
-requiring diagnosis, not permission to skip the gap.
+fail. `PoolFilters` itself never recreates a failed pair or retries requests.
+The outer ingestion process may reconnect for eligible transient transport/5xx
+failures only within the explicitly configured invocation-wide budget below.
+Known filters must first be cleaned up, and the durable cursor must still match.
+No HALTED stream is automatically rearmed, and no infinite catch-up is attempted.
+An expired filter remains an explicit failure requiring diagnosis, not permission
+to skip the gap.
 
 Existing SIGINT/SIGTERM cancellation, immutable binding, atomic cursor persistence,
 16-block default recovery range, 4096-batch/64-MiB retention and STOPPED/error
@@ -78,8 +82,11 @@ Actual executable/PostgreSQL tests cover quiet notifications with finalized adva
 filter reuse, process restart, rejection without cursor advance and refusal before
 allocation for a missing/halted stream. Inputs are synthetic and labelled as such.
 
-These tests do not prove actual provider completeness, current deployment, low-latency
-quotes, automatic reconnect, derived snapshot invalidation or paper settlement.
+Synthetic executable/PostgreSQL tests also cover the opt-in bounded outer reconnect
+policy, complete catch-up after a transient failure, budget exhaustion, nonretryable
+failures and cancellation during backoff. They do not establish unlimited retries,
+provider-qualified reconnect behavior, actual provider completeness, current
+deployment, low-latency quotes, derived snapshot invalidation or paper settlement.
 #30 and the original #29 dependency gates remain open until all original criteria
 are met. The source adds no API endpoint, migration, dependency version or permission.
 
@@ -109,5 +116,5 @@ defines its invocation-wide budget, classified failures and cancellation. A fail
 pair is closed before creating a replacement; hints never advance the durable
 cursor. PoolFilters itself still does not retry or spawn tasks. Existing terminal
 HALTED streams, malformed/expired JSON-RPC responses, credentials and throttling
-are not automatically rearmed. This supersedes only the earlier blanket statement
-that no outer reconnect policy exists, not any finality/qualification limitation.
+are not automatically rearmed. The bounded outer policy does not change any
+finality or qualification limitation.
