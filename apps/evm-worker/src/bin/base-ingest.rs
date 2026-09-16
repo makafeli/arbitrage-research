@@ -7,6 +7,7 @@ use arb_evm::{
     PoolRegistry, SOURCE_COMMIT, UNISWAP_V3_FACTORY,
     backfill::{BackfillLimits, GapReason, recover_logs},
     events::BlockHeader,
+    filters::{FilterError, PoolFilters},
 };
 use arb_storage::{IngestionBinding, IngestionCursor, IngestionHalt, IngestionHead, Store};
 use serde_json::json;
@@ -246,6 +247,8 @@ async fn run(action: String) -> Result<()> {
     }
     let cancelled = Arc::new(AtomicBool::new(false));
     let listener = shutdown::install(cancelled.clone())?;
+    let mut filters: Option<PoolFilters> = None;
+    let following = action == "--follow";
     let outcome = async {
         if action == "--initialize" {
             // Do not even probe a provider to reseed an already-existing stream.
@@ -255,6 +258,7 @@ async fn run(action: String) -> Result<()> {
                 Err(e) => return Err(e),
             }
             let cancelled_copy = cancelled.clone();
+            let endpoint = endpoint.clone();
             let seed =
                 tokio::task::spawn_blocking(move || initial(&endpoint, &pools, &cancelled_copy))
                     .await
@@ -285,19 +289,52 @@ async fn run(action: String) -> Result<()> {
             let pools = pools.clone();
             let checkpoint = head(&cursor.checkpoint);
             let cancel = cancelled.clone();
-            let recovered = tokio::task::spawn_blocking(move || {
-                let mut rpc = rpc(&endpoint).map_err(|_| GapReason::InvalidInput)?;
-                recover_logs(
-                    &mut rpc,
-                    &pools,
-                    &checkpoint,
-                    BackfillLimits::default(),
-                    || cancel.load(Ordering::SeqCst),
-                )
-                .map_err(|e| e.reason)
+            let mut active = filters.take();
+            let (returned_filters, recovered) = tokio::task::spawn_blocking(move || {
+                let recovered = (|| {
+                    let mut rpc = rpc(&endpoint).map_err(|_| GapReason::InvalidInput)?;
+                    if following {
+                        let failure = |error| match error {
+                            FilterError::Cancelled => GapReason::Cancelled,
+                            FilterError::Provider => GapReason::ProviderFailure,
+                            FilterError::LimitExceeded => GapReason::LogLimitExceeded,
+                            _ => GapReason::InvalidInput,
+                        };
+                        if active.is_none() {
+                            active = Some(
+                                PoolFilters::open(&mut rpc, &pools, &cancel).map_err(failure)?,
+                            );
+                        }
+                        let hints = active
+                            .as_mut()
+                            .expect("opened filters")
+                            .poll(&mut rpc, &cancel)
+                            .map_err(failure)?;
+                        println!(
+                            "{}",
+                            json!({"status":"FILTER_HINTS",
+                            "block_notifications":hints.block_hashes.len(),
+                            "pool_notifications":hints.logs.len(),
+                            "removed_notifications":hints.logs.iter().filter(|l| l.removed).count(),
+                            "authoritative":false})
+                        );
+                    }
+                    // Quiet, lost or non-final notifications can never skip the
+                    // authoritative finalized reconciliation from the saved cursor.
+                    recover_logs(
+                        &mut rpc,
+                        &pools,
+                        &checkpoint,
+                        BackfillLimits::default(),
+                        || cancel.load(Ordering::SeqCst),
+                    )
+                    .map_err(|e| e.reason)
+                })();
+                (active, recovered)
             })
             .await
             .map_err(|_| "RECOVERY_TASK_FAILED")?;
+            filters = returned_filters;
             if cancelled.load(Ordering::SeqCst) {
                 return Err("CANCELLED");
             }
@@ -339,9 +376,25 @@ async fn run(action: String) -> Result<()> {
         Ok(())
     }
     .await;
+    // Explicit node-resource cleanup only, including after cancellation. Its
+    // independent budget admits at most two one-second calls, no capture/retry.
+    let cleanup = if let Some(mut active) = filters {
+        tokio::task::spawn_blocking(move || {
+            let mut rpc = HttpReadRpc::new(&endpoint, Duration::from_secs(1), 1024, 2)
+                .map_err(|_| "FILTER_CLEANUP_FAILED")?;
+            active.close(&mut rpc).map_err(|_| "FILTER_CLEANUP_FAILED")
+        })
+        .await
+        .map_err(|_| "FILTER_CLEANUP_FAILED")
+        .and_then(|result| result)
+    } else {
+        Ok(())
+    };
     listener.abort();
     let _ = listener.await;
-    outcome
+    // Never turn an acquisition failure into success. A cleanup error after an
+    // accepted batch is reported without invalidating that atomic commit.
+    outcome.and(cleanup)
 }
 fn main() -> std::process::ExitCode {
     let args: Vec<_> = std::env::args().skip(1).collect();
@@ -349,14 +402,14 @@ fn main() -> std::process::ExitCode {
         println!(
             "{}",
             json!({"status":"NOT_STARTED","provider_requests":0,
-            "actions":["--migrate","--initialize","--run","--status"],"execution_authorized":false})
+            "actions":["--migrate","--initialize","--run","--follow","--status"],"execution_authorized":false})
         );
         return std::process::ExitCode::SUCCESS;
     }
     if args.len() != 1
         || !matches!(
             args[0].as_str(),
-            "--migrate" | "--initialize" | "--run" | "--status"
+            "--migrate" | "--initialize" | "--run" | "--follow" | "--status"
         )
     {
         eprintln!("INVALID_ARGUMENTS");

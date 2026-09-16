@@ -29,6 +29,19 @@ Root integration owns shared manifests, lockfiles, CI, publication and final acc
 
 ## Current delivery checkpoint
 
+### HTTP filter follow continuation, 16 September 2026
+
+Main `06667c0b170e391bdd5b551eb37f08d75e02a0cb` already contains atomic Base
+ingestion/checkpoint persistence (PR132) and SIGINT/SIGTERM shutdown (PR133).
+The current #30 change adds explicit node block/log filter following around that
+same finalized recovery; [its contract](docs/BASE-FILTER-FOLLOW.md) keeps hints
+separate from accepted state. Quiet notifications do not skip reconciliation.
+No new task issue, original acceptance change, deployed worker or completed epic
+is implied. Provider reconnect, snapshot invalidation and quote qualification
+remain original acceptance gates; existing successful Base evidence is retained.
+
+The following source-specific checkpoints are historical.
+
 ### Durable ingestion continuation after PR131
 
 Main `4317636f9687302d4677719ee2f04988b555acfb` includes the successful recorded

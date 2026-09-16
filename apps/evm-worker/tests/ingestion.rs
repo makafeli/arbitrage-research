@@ -8,7 +8,7 @@ use std::{
     path::PathBuf,
     process::{Command, Output},
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
     },
     thread,
@@ -27,6 +27,8 @@ struct Fixture {
     operator: String,
     tip: Arc<AtomicU64>,
     calls: Arc<AtomicUsize>,
+    observed: Arc<Mutex<Vec<Value>>>,
+    filter_logs: Arc<Mutex<Value>>,
     reorg: Arc<AtomicBool>,
     stalled: Arc<AtomicBool>,
     done: Arc<AtomicBool>,
@@ -60,6 +62,9 @@ impl Fixture {
         let done = Arc::new(AtomicBool::new(false));
         let stalled = Arc::new(AtomicBool::new(false));
         let stall = stalled.clone();
+        let observed = Arc::new(Mutex::new(Vec::new()));
+        let filter_logs = Arc::new(Mutex::new(json!([])));
+        let (o, notifications) = (observed.clone(), filter_logs.clone());
         let (t, c, r, d) = (tip.clone(), calls.clone(), reorg.clone(), done.clone());
         let handle = thread::spawn(move || {
             while !d.load(Ordering::SeqCst) {
@@ -101,6 +106,7 @@ impl Fixture {
                 }
                 let req: Value = serde_json::from_slice(&bytes[split..split + length]).unwrap();
                 c.fetch_add(1, Ordering::SeqCst);
+                o.lock().unwrap().push(req.clone());
                 let limit = std::time::Instant::now() + Duration::from_secs(6);
                 while stall.load(Ordering::SeqCst)
                     && !d.load(Ordering::SeqCst)
@@ -110,6 +116,16 @@ impl Fixture {
                 }
                 let result = match req["method"].as_str().unwrap() {
                     "eth_chainId" => json!("0x2105"),
+                    "eth_newBlockFilter" => json!("0x1"),
+                    "eth_newFilter" => json!("0x2"),
+                    "eth_getFilterChanges" => {
+                        if req["params"][0] == "0x1" {
+                            json!([])
+                        } else {
+                            notifications.lock().unwrap().clone()
+                        }
+                    }
+                    "eth_uninstallFilter" => json!(true),
                     "eth_getCode" => json!("0x6000"),
                     "eth_getBlockByNumber" => {
                         let selector = req["params"][0].as_str().unwrap();
@@ -155,6 +171,8 @@ impl Fixture {
             operator: format!("executable-{unique}"),
             tip,
             calls,
+            observed,
+            filter_logs,
             reorg,
             stalled,
             done,
@@ -361,3 +379,6 @@ async fn interrupt_during_an_actual_rpc_prevents_checkpoint_publication() {
 #[cfg(unix)]
 #[path = "ingestion/shutdown.rs"]
 mod shutdown;
+
+#[path = "ingestion/filters.rs"]
+mod filter_tests;
