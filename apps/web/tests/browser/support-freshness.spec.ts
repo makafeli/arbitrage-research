@@ -32,7 +32,7 @@ async function stub(page: Page, override?: (route: Route, url: URL) => Promise<b
       execution_accounting_available: false, collection_completeness: 'UNKNOWN', coverage_window_start_ms: 1789214400000, coverage_window_end_ms: 1789214400000 };
     await route.fulfill({ status: data ? 200 : 404, json: data ?? { code: 'NOT_FOUND', message: 'Unknown fixture endpoint' } });
   });
-  await page.goto('/'); await page.getByRole('button', { name: 'Connect API', exact: true }).click(); await expect(page.getByText('API CONNECTED', { exact: true })).toBeVisible();
+  await page.goto('/');  await expect(page.getByText('API CONNECTED', { exact: true })).toBeVisible();
 }
 async function navigate(page: Page, name: string) { await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name, exact: true }).click(); }
 async function openDecision(page: Page, name: string) {

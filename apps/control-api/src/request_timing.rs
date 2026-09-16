@@ -8,6 +8,7 @@ async fn request_timing_is_correlated_bounded_and_does_not_change_authentication
     let database = std::env::var("TEST_DATABASE_URL")
         .expect("TEST_DATABASE_URL is required for API timing acceptance");
     let store = Store::connect(&database).await.unwrap();
+    store.migrate().await.unwrap();
     let secret = "synthetic-timing-password-at-least-32-bytes";
     let origin = "http://127.0.0.1:5173";
     let app = router(AppState::new(

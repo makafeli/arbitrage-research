@@ -1,6 +1,6 @@
 # Arbitrage Research dashboard
 
-React and TypeScript implementation of the approved [dashboard reference](../../design/dashboard-wireframe.html), using the [design system](../../design/DESIGN-SYSTEM.md). The default **Demo** contains labelled fictional data. **Connected** displays authenticated, persisted API evidence. Connection errors never substitute demo records.
+React and TypeScript implementation of the approved [dashboard reference](../../design/dashboard-wireframe.html), using the [design system](../../design/DESIGN-SYSTEM.md). The production entry is account sign-in. **Paper trading** displays authenticated persisted research data and hypothetical accounting; **Real trading** is a separate visibly unavailable execution workspace. No demo is imported by the production App. See [account access](../../docs/ACCOUNT-ACCESS.md) for private activation and recovery.
 
 ## Local and production setup
 

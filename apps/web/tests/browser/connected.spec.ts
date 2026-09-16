@@ -16,7 +16,7 @@ async function stub(page: Page, override?: (route: Route, path: string) => Promi
     await route.fulfill({ status: data ? 200 : 404, json: data ?? { code: 'NOT_FOUND', message: 'Unknown stub endpoint' } });
   });
   await page.goto('/');
-  await page.getByRole('button', { name: 'Connect API', exact: true }).click();
+
 }
 
 test('connected mode shows unsupported capture, rejects synthetic substitution and retains last known records on outage', async ({ page }) => {
@@ -177,14 +177,14 @@ test('login clears password and does not save credentials in browser storage', a
   let loggedIn = false;
   await stub(page, async (route, path) => {
     if (path === '/v1/auth/session' && !loggedIn) { await route.fulfill({ status: 401, json: { code: 'AUTH_REQUIRED', message: 'Sign in required' } }); return true; }
-    if (path === '/v1/auth/login') { expect(route.request().postDataJSON()).toEqual({ operator_secret: 'browser-only-password' }); loggedIn = true; await route.fulfill({ json: auth }); return true; }
+    if (path === '/v1/auth/sign-in') { expect(route.request().postDataJSON()).toEqual({ email: 'owner@example.test', password: 'browser-only-password' }); loggedIn = true; await route.fulfill({ json: auth }); return true; }
     return false;
   });
-  await page.getByLabel('Operator secret', { exact: true }).fill('browser-only-password');
+  await page.getByLabel('Email address', { exact: true }).fill('owner@example.test'); await page.getByLabel('Password', { exact: true }).fill('browser-only-password');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByText('API CONNECTED', { exact: true })).toBeVisible();
   expect(await page.evaluate(() => [localStorage.length, sessionStorage.length])).toEqual([0, 0]);
-  await expect(page.getByLabel('Operator secret', { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel('Password', { exact: true })).toHaveCount(0);
 });
 
 for (const width of [320, 390, 1440]) {

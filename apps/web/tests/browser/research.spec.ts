@@ -34,7 +34,7 @@ async function stub(page: Page, override?: (route: Route, url: URL) => Promise<b
     await route.fulfill({ status: data ? 200 : 404, json: data ?? { code: 'NOT_FOUND', message: 'Unknown contract fixture endpoint' } });
   });
   await page.goto('/');
-  await page.getByRole('button', { name: 'Connect API', exact: true }).click();
+
   await expect(page.getByText('API CONNECTED', { exact: true })).toBeVisible();
 }
 async function openDecisions(page: Page) {
@@ -158,7 +158,7 @@ test('uncertain paper creation locks immutable scope and retries exact request a
   await page.getByRole('button', { name: 'Create hypothetical paper run', exact: true }).click();
   await expect(page.getByText(/Creation delivery is uncertain/)).toBeVisible();
   await expect(page.getByLabel('Paper session', { exact: true })).toBeDisabled();
-  await expect(page.getByRole('button', { name: 'Open demo', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Real trading', exact: true })).toBeDisabled();
   await expect(page.getByLabel('Initial token principal · exact minor units', { exact: true })).toBeDisabled();
   await page.getByRole('button', { name: 'Refresh', exact: true }).click();
   await expect(page.getByText('No sessions in this view', { exact: true })).toBeVisible();
@@ -171,7 +171,7 @@ test('uncertain paper creation locks immutable scope and retries exact request a
   await expect(page.getByLabel('Paper session', { exact: true })).toBeDisabled();
   await page.getByRole('button', { name: 'Retry same paper creation', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Paper run created', exact: true })).toBeDisabled();
-  await expect(page.getByRole('button', { name: 'Open demo', exact: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Real trading', exact: true })).toBeEnabled();
   expect(requests).toHaveLength(3); expect(requests[0]).toEqual(requests[1]); expect(requests[1]).toEqual(requests[2]);
   await expect(page.getByRole('button', { name: 'Inspect paper run run-original', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Inspect paper run run-created', exact: true })).toBeVisible();

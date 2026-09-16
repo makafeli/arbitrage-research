@@ -286,3 +286,25 @@ button {touch-action:manipulation;}
 .support-scope li {overflow-wrap:anywhere}.support-config>p{overflow-wrap:anywhere}
 @media(max-width:700px){.freshness-sources,.support-networks{grid-template-columns:minmax(0,1fr)}}
 @media(max-width:540px){.freshness-source,.support-card,.support-config{padding:14px}.support-capabilities{gap:10px}.support-capabilities dd{max-width:110px}}
+
+/* Authentication and the two production trading workspaces. */
+[hidden] { display: none !important; }
+.account-screen { min-height: 100vh; padding: 28px; display: flex; flex-direction: column; gap: 48px; }
+.account-top { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.account-top a { color: inherit; text-decoration: none; }
+.account-card { width: min(100%, 460px); margin: auto; padding: 36px; }
+.account-card h1 { font-size: 32px; margin: 12px 0 16px; }
+.account-card form { margin-top: 24px; }
+.account-card input, .account-settings input { width: 100%; min-width: 0; }
+.account-settings { max-width: 640px; margin-bottom: 24px; }
+.trading-modes { display: grid; gap: 8px; margin: 24px 0; }
+.trading-modes button { text-align: left; padding: 12px 16px; }
+.trading-modes button[aria-pressed="true"] { border-color: var(--accent); }
+.real-trading-panel { max-width: 800px; padding: 32px; }
+.real-trading-panel h1 { margin: 16px 0; }
+@media (max-width: 600px) {
+  .account-screen { padding: 16px; gap: 24px; }
+  .account-card { padding: 24px 18px; }
+  .trading-modes { grid-template-columns: 1fr 1fr; margin: 12px 0; }
+  .trading-modes button { padding: 10px; text-align: center; }
+}

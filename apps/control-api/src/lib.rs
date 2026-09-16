@@ -28,6 +28,8 @@ use std::{
 use subtle::ConstantTimeEq;
 use tokio::sync::Semaphore;
 
+mod account;
+pub use account::{create_owner_invitation, seed_owner_bootstrap};
 mod research;
 mod support;
 use research::{PaperAssetChoice, ResearchStore};
@@ -228,6 +230,30 @@ fn validate_origin(origin: &str, insecure: bool) -> Result<(), String> {
 
 #[async_trait]
 trait ControlStore: ResearchStore + Send + Sync {
+    async fn operator_account(&self) -> Result<Option<arb_storage::OperatorAccount>, StoreError> {
+        Ok(None)
+    }
+    async fn operator_auth_version(&self) -> Result<i64, StoreError> {
+        Ok(0)
+    }
+    async fn redeem_operator_invitation(
+        &self,
+        _token: &[u8],
+        _email: &str,
+        _salt: &[u8],
+        _password: &[u8],
+    ) -> Result<i64, StoreError> {
+        Err(StoreError::CapabilityUnavailable)
+    }
+    async fn change_operator_password(
+        &self,
+        _version: i64,
+        _salt: &[u8],
+        _password: &[u8],
+    ) -> Result<(), StoreError> {
+        Err(StoreError::CapabilityUnavailable)
+    }
+
     async fn replay_session_creation(
         &self,
         operator: &str,
@@ -264,6 +290,30 @@ trait ControlStore: ResearchStore + Send + Sync {
 }
 #[async_trait]
 impl ControlStore for Store {
+    async fn operator_account(&self) -> Result<Option<arb_storage::OperatorAccount>, StoreError> {
+        Store::operator_account(self).await
+    }
+    async fn operator_auth_version(&self) -> Result<i64, StoreError> {
+        Store::operator_auth_version(self).await
+    }
+    async fn redeem_operator_invitation(
+        &self,
+        token: &[u8],
+        email: &str,
+        salt: &[u8],
+        password: &[u8],
+    ) -> Result<i64, StoreError> {
+        Store::redeem_operator_invitation(self, token, email, salt, password).await
+    }
+    async fn change_operator_password(
+        &self,
+        version: i64,
+        salt: &[u8],
+        password: &[u8],
+    ) -> Result<(), StoreError> {
+        Store::change_operator_password(self, version, salt, password).await
+    }
+
     async fn replay_session_creation(
         &self,
         operator: &str,
@@ -326,6 +376,7 @@ struct Inner {
     inflight: Arc<Semaphore>,
     reads: Arc<Semaphore>,
     exports: Semaphore,
+    password_work: Arc<Semaphore>,
 }
 #[derive(Default)]
 struct AuthState {
@@ -335,6 +386,7 @@ struct AuthState {
 }
 #[derive(Clone)]
 struct AuthSession {
+    auth_version: i64,
     csrf: String,
     expires_at: u64,
     request_window: u64,
@@ -343,6 +395,7 @@ struct AuthSession {
 }
 #[derive(Clone)]
 struct Identity {
+    auth_version: i64,
     token_hash: [u8; 32],
     csrf: String,
     expires_at: u64,
@@ -362,6 +415,7 @@ impl AppState {
             inflight: Arc::new(Semaphore::new(MAX_INFLIGHT_REQUESTS)),
             reads: Arc::new(Semaphore::new(MAX_INFLIGHT_READS)),
             exports: Semaphore::new(2),
+            password_work: Arc::new(Semaphore::new(2)),
         }))
     }
 }
@@ -370,6 +424,9 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/healthz", get(|| async { Json(serde_json::json!({"status":"OK","service":"control-api","trading_available":false})) }))
         .route("/v1/auth/login", post(login))
+        .route("/v1/auth/sign-in", post(account::sign_in))
+        .route("/v1/auth/activate", post(account::activate))
+        .route("/v1/auth/password", post(account::change_password))
         .route("/v1/auth/session", get(auth_session))
         .route("/v1/auth/logout", post(logout))
         .route("/v1/health", get(health))
@@ -568,7 +625,16 @@ async fn security(State(state): State<AppState>, mut request: Request, next: Nex
     });
     let mut response = match result {
         Ok((_global, _read)) => match tokio::time::timeout(
-            Duration::from_secs(REQUEST_TIMEOUT_SECONDS), next.run(request),
+            Duration::from_secs(REQUEST_TIMEOUT_SECONDS), async {
+                if let Some(identity) = request.extensions().get::<Identity>() {
+                    match state.0.store.operator_auth_version().await {
+                        Ok(version) if version == identity.auth_version => (),
+                        Ok(_) => return account::unauthorized(&id).into_response(),
+                        Err(_) => return ApiError::unavailable(&id).into_response(),
+                    }
+                }
+                next.run(request).await
+            },
         ).await {
             Ok(response) => response,
             Err(_) => ApiError::new(StatusCode::GATEWAY_TIMEOUT, "REQUEST_TIMEOUT", "Request completion is uncertain; retry mutations with the same idempotency key and payload", &id).into_response(),
@@ -611,7 +677,11 @@ fn authorize(state: &AppState, request: &mut Request, id: &RequestId) -> Result<
             id,
         ));
     }
-    if request.uri().path() == "/v1/auth/login" && request.method() == Method::POST {
+    if matches!(
+        request.uri().path(),
+        "/v1/auth/login" | "/v1/auth/sign-in" | "/v1/auth/activate"
+    ) && request.method() == Method::POST
+    {
         return Ok(());
     }
     let token = cookie(request.headers()).ok_or_else(|| {
@@ -667,6 +737,7 @@ fn authorize(state: &AppState, request: &mut Request, id: &RequestId) -> Result<
         ));
     }
     request.extensions_mut().insert(Identity {
+        auth_version: session.auth_version,
         token_hash,
         csrf: session.csrf.clone(),
         expires_at: session.expires_at,
@@ -697,29 +768,16 @@ async fn login(
     Extension(id): Extension<RequestId>,
     body: Result<Json<Login>, JsonRejection>,
 ) -> Result<Response, ApiError> {
-    let time = now();
-    {
-        let mut auth = state
-            .0
-            .auth
-            .lock()
-            .map_err(|_| ApiError::unavailable(&id))?;
-        if auth.login_window != time / 60 {
-            auth.login_window = time / 60;
-            auth.login_attempts = 0;
-        }
-        auth.login_attempts = auth.login_attempts.saturating_add(1);
-        if auth.login_attempts > LOGIN_ATTEMPTS_PER_MINUTE {
-            return Err(ApiError::new(
-                StatusCode::TOO_MANY_REQUESTS,
-                "RATE_LIMITED",
-                "Login rate limit exceeded; retry after a minute",
-                &id,
-            ));
-        }
-    }
+    account::limit_attempt(&state, &id)?;
     let Json(input) = body.map_err(|_| ApiError::invalid(&id))?;
-    if input.operator_secret.len() > 1024
+    if state
+        .0
+        .store
+        .operator_auth_version()
+        .await
+        .map_err(|_| ApiError::unavailable(&id))?
+        != 0
+        || input.operator_secret.len() > 1024
         || !bool::from(hash(&input.operator_secret).ct_eq(&state.0.config.operator_secret_hash))
     {
         return Err(ApiError::new(
@@ -729,27 +787,32 @@ async fn login(
             &id,
         ));
     }
-    let token = random_token(&id)?;
-    let csrf = random_token(&id)?;
+    new_auth_session(&state, &id, 0)
+}
+fn new_auth_session(
+    state: &AppState,
+    id: &RequestId,
+    auth_version: i64,
+) -> Result<Response, ApiError> {
+    let time = now();
+    let token = random_token(id)?;
+    let csrf = random_token(id)?;
     let expires_at = time + SESSION_TTL_SECONDS;
     {
-        let mut auth = state
-            .0
-            .auth
-            .lock()
-            .map_err(|_| ApiError::unavailable(&id))?;
+        let mut auth = state.0.auth.lock().map_err(|_| ApiError::unavailable(id))?;
         auth.sessions.retain(|_, session| session.expires_at > time);
         if auth.sessions.len() >= MAX_SESSIONS {
             return Err(ApiError::new(
                 StatusCode::TOO_MANY_REQUESTS,
                 "SESSION_LIMIT",
                 "Operator session limit reached",
-                &id,
+                id,
             ));
         }
         auth.sessions.insert(
             hash(&token),
             AuthSession {
+                auth_version,
                 csrf: csrf.clone(),
                 expires_at,
                 request_window: time / 60,
@@ -767,6 +830,7 @@ async fn login(
         "arb_session={token}; Path=/; HttpOnly; SameSite=Strict; Max-Age={SESSION_TTL_SECONDS}{secure}"
     );
     let mut response = Json(auth_response(Identity {
+        auth_version,
         token_hash: hash(&token),
         csrf,
         expires_at,
@@ -774,7 +838,7 @@ async fn login(
     .into_response();
     response.headers_mut().insert(
         header::SET_COOKIE,
-        HeaderValue::from_str(&value).map_err(|_| ApiError::unavailable(&id))?,
+        HeaderValue::from_str(&value).map_err(|_| ApiError::unavailable(id))?,
     );
     Ok(response)
 }
@@ -1061,3 +1125,6 @@ async fn fallback(Extension(id): Extension<RequestId>) -> ApiError {
 mod request_timing;
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod account_tests;
