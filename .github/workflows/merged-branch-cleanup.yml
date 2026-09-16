@@ -1,0 +1,43 @@
+name: Verified merged branch cleanup
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/cleanup_merged_branches.py'
+      - 'scripts/test_cleanup_merged_branches.py'
+      - 'docs/BRANCH-CLEANUP.md'
+      - '.github/workflows/merged-branch-cleanup.yml'
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: verified-branch-cleanup-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  test-policy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Test preservation policy and actual local Git deletion leases
+        run: python3 -m unittest discover -s scripts -p test_cleanup_merged_branches.py -v
+  cleanup:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'makafeli/arbitrage-research'
+    needs: test-policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Remove only verified merged and unchanged ARB work branches
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/cleanup_merged_branches.py --apply
