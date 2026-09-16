@@ -29,6 +29,8 @@ struct Fixture {
     calls: Arc<AtomicUsize>,
     observed: Arc<Mutex<Vec<Value>>>,
     filter_logs: Arc<Mutex<Value>>,
+    failure_status: Arc<AtomicU64>,
+    failures: Arc<AtomicUsize>,
     reorg: Arc<AtomicBool>,
     stalled: Arc<AtomicBool>,
     recovery_stalled: Arc<AtomicBool>,
@@ -56,6 +58,9 @@ impl Fixture {
             pool["factory_runtime_sha256"] = json!(code);
         }
         std::fs::write(root.join("registries.json"), pools.to_string()).unwrap();
+        let failures = Arc::new(AtomicUsize::new(0));
+        let failure_status = Arc::new(AtomicU64::new(503));
+        let (fail, status) = (failures.clone(), failure_status.clone());
         let pool = pools[0]["pool"].as_str().unwrap().to_owned();
         let tip = Arc::new(AtomicU64::new(100));
         let calls = Arc::new(AtomicUsize::new(0));
@@ -118,6 +123,21 @@ impl Fixture {
                 {
                     thread::sleep(Duration::from_millis(2));
                 }
+                if req["method"] == "eth_getLogs"
+                    && fail
+                        .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+                        .is_ok()
+                {
+                    let body = "PRIVATE_PROVIDER_ERROR_DO_NOT_EXPORT";
+                    let _ = write!(
+                        socket,
+                        "HTTP/1.1 {} Error\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        status.load(Ordering::SeqCst),
+                        body.len(),
+                        body
+                    );
+                    continue;
+                }
                 let result = match req["method"].as_str().unwrap() {
                     "eth_chainId" => json!("0x2105"),
                     "eth_newBlockFilter" => json!("0x1"),
@@ -177,6 +197,8 @@ impl Fixture {
             calls,
             observed,
             filter_logs,
+            failure_status,
+            failures,
             reorg,
             stalled,
             recovery_stalled,
@@ -199,6 +221,7 @@ impl Fixture {
                 self.root.join("registries.json"),
             )
             .env("ARB_BASE_RPC_URL", &self.endpoint)
+            .env("ARB_INGEST_MAX_RECONNECTS", "0")
             .env("ARB_INGEST_MAX_POLLS", "1")
             .env("ARB_INGEST_POLL_MS", "1000")
             .env("ARB_RPC_MIN_INTERVAL_MS", "0");
@@ -387,3 +410,6 @@ mod shutdown;
 
 #[path = "ingestion/filters.rs"]
 mod filter_tests;
+
+#[path = "ingestion/reconnect.rs"]
+mod reconnect_tests;

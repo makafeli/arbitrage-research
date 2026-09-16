@@ -12,7 +12,7 @@ The user authorized parallel implementation and GitHub delivery on 12 September 
 | Storage and control | PostgreSQL migrations, scoped sessions, idempotency, worker fences | ARB-010, ARB-011 |
 | Control API | Authentication, CSRF, session/command endpoints, capabilities | ARB-012 |
 | Acquisition | Read-only Base/Solana adapters, capture integrity and provenance | ARB-014, ARB-016, ARB-017, ARB-018 |
-| Dashboard | Explicit demo/connected modes, server data, command acknowledgements | ARB-037, ARB-038, ARB-039 |
+| Dashboard | Account login, Paper/Real workspaces, server data, command acknowledgements | ARB-037, ARB-038, ARB-039 |
 | Integration | Workspace, CI, cross-component review and acceptance evidence | ARB-007, subsequent integration gates |
 
 Root integration owns shared manifests, lockfiles, CI, publication and final acceptance. Component authors coordinate interfaces without sharing the git index. Dependency ordering governs integration even when implementation proceeds in parallel.
@@ -28,6 +28,17 @@ Root integration owns shared manifests, lockfiles, CI, publication and final acc
 5. Record incomplete criteria and external prerequisites explicitly. Continue independent work while awaiting them.
 
 ## Current delivery checkpoint
+
+### Bounded reconnect continuation, 16 September 2026
+
+Base source `7494574e` already includes the deployed account login and Paper/Real
+navigation; the owner confirmed successful activation/sign-in. Existing #30 now
+adds opt-in transient reconnects around the durable finalized ingestion path,
+without rearming HALTED streams or relaxing identity/range/retention checks.
+[The ingestion contract](docs/BASE-INGESTION.md#bounded-transient-reconnects)
+records exact limits and tests. This does not deploy a market worker, settle paper
+trades or accept an entire ticket. Current PR/issue evidence governs integration.
+No new task issues or changes to the owner's credentials are needed.
 
 ### Owner-requested account and trading navigation, 16 September 2026
 
