@@ -31,6 +31,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
     control_api::seed_owner_bootstrap(&store, &settings.public_origin).await?;
+    control_api::require_owner_access(&store, &settings).await?;
     settings
         .register_configurations(&store)
         .await

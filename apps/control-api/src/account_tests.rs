@@ -600,3 +600,121 @@ async fn bootstrap_reports_expiry_but_preserves_current_invitation_and_activated
     })
     .await;
 }
+
+#[tokio::test]
+async fn sign_in_enforces_peer_and_subject_dimensions_before_password_work() {
+    with_isolated(|store, _pool| async move {
+        // Separate router states isolate the two dimensions without sleeping.
+        let peer_case = app(store.clone());
+        let subject_case = app(store);
+        for i in 0..11u8 {
+            for (api, peer, entered_email) in [
+                (
+                    &peer_case,
+                    "192.0.2.25:1234".parse::<SocketAddr>().unwrap(),
+                    format!("unknown-{i}@example.test"),
+                ),
+                (
+                    &subject_case,
+                    SocketAddr::new(IpAddr::V4(std::net::Ipv4Addr::new(192, 0, 2, i)), 1234),
+                    EMAIL.to_owned(),
+                ),
+            ] {
+                let mut request = axum::http::Request::builder()
+                    .method("POST")
+                    .uri("/v1/auth/sign-in")
+                    .header("origin", ORIGIN)
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({"email":entered_email,"password":""}).to_string(),
+                    ))
+                    .unwrap();
+                request
+                    .extensions_mut()
+                    .insert(axum::extract::ConnectInfo(peer));
+                let response = api.clone().oneshot(request).await.unwrap();
+                assert_eq!(
+                    response.status(),
+                    if i < 10 {
+                        StatusCode::UNAUTHORIZED
+                    } else {
+                        StatusCode::TOO_MANY_REQUESTS
+                    }
+                );
+                if i == 10 {
+                    assert_eq!(response.headers()[header::RETRY_AFTER], "60");
+                }
+            }
+        }
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn production_readiness_is_required_without_applicable_bootstrap_metadata() {
+    with_isolated(|store, _pool| async move {
+        let mut settings = ServerConfig {
+            listen_address: "0.0.0.0:8080".parse().unwrap(),
+            public_origin: "https://service.example.test".into(),
+            allow_insecure_loopback: false,
+            operator_secret_hash: hash(SECRET),
+            configurations: vec![],
+            adapter_support: support::AdapterSupport::empty(),
+        };
+        // Missing initial metadata cannot satisfy the independent startup gate.
+        assert!(
+            account::require_owner_access(&store, &settings)
+                .await
+                .is_err()
+        );
+        let metadata = json!({"schema_version":1,"origin":"https://other.example.test",
+                              "token_sha256":"a".repeat(64),"expires_at":"2099-01-01T00:00:00Z"});
+        account::seed_owner_bootstrap_bytes(
+            &store,
+            &settings.public_origin,
+            &serde_json::to_vec(&metadata).unwrap(),
+        )
+        .await
+        .unwrap();
+        assert!(
+            account::require_owner_access(&store, &settings)
+                .await
+                .is_err()
+        );
+        // The compatibility exception requires explicit permission AND a local
+        // listener AND a loopback HTTP origin, not simply a forged mode flag.
+        settings.allow_insecure_loopback = true;
+        assert!(
+            account::require_owner_access(&store, &settings)
+                .await
+                .is_err()
+        );
+        settings.public_origin = ORIGIN.into();
+        assert!(
+            account::require_owner_access(&store, &settings)
+                .await
+                .is_err()
+        );
+        settings.listen_address = "127.0.0.1:8080".parse().unwrap();
+        account::require_owner_access(&store, &settings)
+            .await
+            .unwrap();
+        settings.allow_insecure_loopback = false;
+        settings.public_origin = "https://service.example.test".into();
+        assert!(
+            account::require_owner_access(&store, &settings)
+                .await
+                .is_err()
+        );
+        // An independently issued live private invitation permits production
+        // startup even with no bundled bootstrap file. No account is invented.
+        create_owner_invitation(&store, &settings.public_origin, EMAIL)
+            .await
+            .unwrap();
+        account::require_owner_access(&store, &settings)
+            .await
+            .unwrap();
+        assert!(store.operator_account().await.unwrap().is_none());
+    })
+    .await;
+}

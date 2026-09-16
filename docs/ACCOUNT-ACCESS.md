@@ -23,9 +23,13 @@ startup inserts the invitation only for the unactivated singleton and only if
 none exists. An expired link is not renewed by restarting/redeploying. Activation
 atomically installs the account and consumes the link; no later restart can
 reopen registration. Another deployment origin does not seed this verifier.
-Startup explicitly reports expired/unavailable initial setup rather than
-silently accepting an ownerless deployment. An existing valid invitation or
-activated owner is not replaced. This initial delivery link expires at its
+Before registering configurations or listening, production independently requires
+an activated owner or valid private invitation, even when the bundled bootstrap
+file is absent or belongs to a different origin. Missing, expired or unavailable
+initial access is an explicit provisioning failure. Only an explicitly enabled
+loopback HTTP development harness bound to a loopback listener may retain legacy
+test access; a production/public listener cannot use that exception. An existing
+valid invitation or activated owner is not replaced. This initial delivery link expires at its
 committed absolute timestamp. It is
 not a permanent recovery credential. Redeem it privately and then use normal login.
 
@@ -35,14 +39,22 @@ Passwords use ring's PBKDF2-HMAC-SHA256 with 600,000 iterations, a fresh random
 32-byte salt and 32-byte verifier. ring is already in the locked dependency tree;
 this adds a direct dependency without changing its version. KDF work runs outside
 the asynchronous request runtime with at most two concurrent computations. Separate bounded attempt buckets cover sign-in, activation, legacy access and
-authenticated password changes. Each trusted TCP peer/subject/flow allows ten
-attempts per monotonic sixty-second window. Email, invitation verifier and
-authenticated session respectively supply flow subjects. Arbitrary forwarding
-headers cannot change the trusted peer. Behind a proxy or NAT, users sharing
-both the peer and account may share a bucket; no per-end-user-IP guarantee or
-distributed multi-instance limiter is claimed. Each flow holds at most 1,024
-live buckets, independently, so a public login flood cannot consume the
-activation or authenticated password-change bucket table.
+authenticated password changes. Each flow independently checks three ten-attempt
+budgets per monotonic sixty-second window: TCP peer, hashed subject, and their
+pair. Rotating email inputs does not bypass the peer budget, and rotating peers
+does not bypass the subject budget. All checks precede account lookup/password
+work and occur before adding new keys. Email, invitation verifier and authenticated
+session respectively supply subjects. Arbitrary forwarding headers cannot change
+the trusted peer. Proxy/NAT users can share the peer budget; no per-end-user-IP
+guarantee or distributed multi-instance limiter is claimed.
+
+Each of the three tables holds at most 1,024 entries per flow. After expiration
+pruning, oldest-window replacement admits unseen keys without a full-table blanket
+lockout. A single peer can add at most ten sign-in subjects during its window.
+Cache eviction under sufficiently broad distributed churn can weaken historical
+rate accounting; this bounded process-local mechanism is not a complete edge
+denial-of-service defense. Sign-in cannot consume the activation or authenticated
+password-change tables. In-flight and KDF limits remain separate safeguards.
 Unknown emails perform the same bounded KDF as wrong passwords. This does not
 claim FIPS certification or a deployment load test.
 

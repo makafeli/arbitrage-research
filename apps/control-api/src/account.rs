@@ -31,8 +31,41 @@ const ATTEMPT_WINDOW: Duration = Duration::from_secs(60);
 type AttemptKey = (RateClient, [u8; 32]);
 type AttemptWindow = (Instant, u32);
 #[derive(Default)]
+struct FlowLimits {
+    pairs: HashMap<AttemptKey, AttemptWindow>,
+    peers: HashMap<RateClient, AttemptWindow>,
+    subjects: HashMap<[u8; 32], AttemptWindow>,
+}
+#[derive(Default)]
 pub(super) struct AttemptLimits {
-    buckets: [HashMap<AttemptKey, AttemptWindow>; 4],
+    flows: [FlowLimits; 4],
+}
+/// Expire windows before checking capacity. No credential is stored in a key.
+fn prune<K>(buckets: &mut HashMap<K, AttemptWindow>, at: Instant) {
+    buckets.retain(|_, (started, _)| at.saturating_duration_since(*started) < ATTEMPT_WINDOW);
+}
+fn available<K: Eq + std::hash::Hash>(buckets: &HashMap<K, AttemptWindow>, key: &K) -> bool {
+    buckets
+        .get(key)
+        .is_none_or(|(_, count)| *count < LOGIN_ATTEMPTS_PER_MINUTE)
+}
+/// Bound each table without turning capacity exhaustion into a blanket lockout.
+/// This process-local cache is not an edge or distributed-abuse defense.
+fn record<K: Copy + Eq + std::hash::Hash>(
+    buckets: &mut HashMap<K, AttemptWindow>,
+    key: K,
+    at: Instant,
+) {
+    if !buckets.contains_key(&key) && buckets.len() >= MAX_ATTEMPT_BUCKETS_PER_FLOW {
+        let oldest = buckets
+            .iter()
+            .min_by_key(|(_, (started, _))| *started)
+            .map(|(key, _)| *key)
+            .expect("capacity implies nonempty table");
+        buckets.remove(&oldest);
+    }
+    let (_, count) = buckets.entry(key).or_insert((at, 0));
+    *count += 1;
 }
 impl AttemptLimits {
     fn admit(
@@ -42,17 +75,22 @@ impl AttemptLimits {
         subject: [u8; 32],
         at: Instant,
     ) -> bool {
-        let buckets = &mut self.buckets[flow as usize];
-        buckets.retain(|_, (started, _)| at.saturating_duration_since(*started) < ATTEMPT_WINDOW);
-        let key = (client, subject);
-        if !buckets.contains_key(&key) && buckets.len() >= MAX_ATTEMPT_BUCKETS_PER_FLOW {
+        let limits = &mut self.flows[flow as usize];
+        prune(&mut limits.pairs, at);
+        prune(&mut limits.peers, at);
+        prune(&mut limits.subjects, at);
+        let pair = (client, subject);
+        // Test all dimensions before inserting any new keys. Rotating subjects
+        // cannot bypass a peer budget; rotating peers cannot bypass a subject.
+        if !available(&limits.pairs, &pair)
+            || !available(&limits.peers, &client)
+            || !available(&limits.subjects, &subject)
+        {
             return false;
         }
-        let (_, count) = buckets.entry(key).or_insert((at, 0));
-        if *count >= LOGIN_ATTEMPTS_PER_MINUTE {
-            return false;
-        }
-        *count += 1;
+        record(&mut limits.pairs, pair, at);
+        record(&mut limits.peers, client, at);
+        record(&mut limits.subjects, subject, at);
         true
     }
 }
@@ -346,6 +384,31 @@ pub async fn create_owner_invitation(
 
 /// Load public, origin-bound first-owner verification metadata, never a password.
 /// A missing file is an unprovisioned private deployment, not open registration.
+/// Account readiness is required even when bootstrap metadata is absent.
+/// Only the explicit, loopback-bound development harness may use legacy access.
+pub async fn require_owner_access(
+    store: &Store,
+    settings: &ServerConfig,
+) -> Result<(), &'static str> {
+    if settings.allow_insecure_loopback
+        && settings.listen_address.ip().is_loopback()
+        && validate_origin(&settings.public_origin, true).is_ok()
+        && (settings.public_origin.starts_with("http://127.0.0.1:")
+            || settings.public_origin.starts_with("http://localhost:")
+            || settings.public_origin.starts_with("http://[::1]:"))
+    {
+        return Ok(());
+    }
+    if store
+        .operator_access_ready()
+        .await
+        .map_err(|_| "Owner account readiness unavailable")?
+    {
+        return Ok(());
+    }
+    Err("Owner setup invitation is unavailable or expired; issue a private owner invitation")
+}
+
 pub async fn seed_owner_bootstrap(store: &Store, origin: &str) -> Result<(), &'static str> {
     let path = std::env::var("ARB_OWNER_BOOTSTRAP_FILE")
         .unwrap_or_else(|_| "config/owner-bootstrap.json".into());
@@ -447,7 +510,7 @@ mod tests {
         );
     }
     #[test]
-    fn attempts_are_exactly_ten_per_client_subject_flow_and_window() {
+    fn attempts_are_exactly_ten_and_aggregate_limits_preserve_flow_and_expiry() {
         let mut limits = AttemptLimits::default();
         let at = Instant::now();
         let client = RateClient(Some("192.0.2.1".parse().unwrap()));
@@ -456,8 +519,8 @@ mod tests {
             assert!(limits.admit(AuthFlow::SignIn, client, hash("owner"), at));
         }
         assert!(!limits.admit(AuthFlow::SignIn, client, hash("owner"), at));
-        assert!(limits.admit(AuthFlow::SignIn, other, hash("owner"), at));
-        assert!(limits.admit(AuthFlow::SignIn, client, hash("other"), at));
+        assert!(!limits.admit(AuthFlow::SignIn, other, hash("owner"), at));
+        assert!(!limits.admit(AuthFlow::SignIn, client, hash("other"), at));
         for flow in [AuthFlow::Activation, AuthFlow::Legacy, AuthFlow::Password] {
             assert!(limits.admit(flow, client, hash("owner"), at));
         }
@@ -475,24 +538,69 @@ mod tests {
         ));
     }
     #[test]
-    fn limiter_capacity_is_bounded_and_does_not_consume_other_flows() {
+    fn one_peer_cannot_fill_a_table_by_rotating_subjects() {
         let mut limits = AttemptLimits::default();
         let at = Instant::now();
         let client = RateClient(None);
-        for i in 0..MAX_ATTEMPT_BUCKETS_PER_FLOW {
+        for i in 0..10 {
             assert!(limits.admit(AuthFlow::SignIn, client, hash(&i.to_string()), at));
         }
-        assert!(!limits.admit(AuthFlow::SignIn, client, hash("excess"), at));
-        assert_eq!(limits.buckets[0].len(), MAX_ATTEMPT_BUCKETS_PER_FLOW);
+        for i in 10..2048 {
+            assert!(!limits.admit(AuthFlow::SignIn, client, hash(&i.to_string()), at));
+        }
+        assert_eq!(limits.flows[0].pairs.len(), 10);
+        assert_eq!(limits.flows[0].subjects.len(), 10);
+        assert_eq!(limits.flows[0].peers.len(), 1);
         assert!(limits.admit(AuthFlow::Password, client, hash("active-session"), at));
         assert!(limits.admit(AuthFlow::Activation, client, hash("private-invitation"), at));
+    }
+    #[test]
+    fn one_subject_cannot_bypass_its_budget_by_rotating_peers() {
+        let mut limits = AttemptLimits::default();
+        let at = Instant::now();
+        for i in 0..20u8 {
+            let client = RateClient(Some(IpAddr::V4(std::net::Ipv4Addr::new(192, 0, 2, i))));
+            assert_eq!(
+                limits.admit(AuthFlow::SignIn, client, hash("owner"), at),
+                i < 10
+            );
+        }
+        assert_eq!(limits.flows[0].pairs.len(), 10);
+        assert_eq!(limits.flows[0].peers.len(), 10);
+        assert_eq!(limits.flows[0].subjects.len(), 1);
+    }
+    #[test]
+    fn full_tables_remain_bounded_without_rejecting_every_new_client() {
+        let mut limits = AttemptLimits::default();
+        let at = Instant::now();
+        for i in 0..(MAX_ATTEMPT_BUCKETS_PER_FLOW + 100) {
+            let client = RateClient(Some(IpAddr::V6(std::net::Ipv6Addr::from(i as u128 + 1))));
+            assert!(limits.admit(
+                AuthFlow::SignIn,
+                client,
+                hash(&i.to_string()),
+                at + Duration::from_nanos(i as u64)
+            ));
+            assert!(limits.flows[0].pairs.len() <= MAX_ATTEMPT_BUCKETS_PER_FLOW);
+            assert!(limits.flows[0].peers.len() <= MAX_ATTEMPT_BUCKETS_PER_FLOW);
+            assert!(limits.flows[0].subjects.len() <= MAX_ATTEMPT_BUCKETS_PER_FLOW);
+        }
+        assert_eq!(limits.flows[0].pairs.len(), MAX_ATTEMPT_BUCKETS_PER_FLOW);
+        let fresh = RateClient(Some("203.0.113.250".parse().unwrap()));
         assert!(limits.admit(
             AuthFlow::SignIn,
-            client,
-            hash("new-window"),
-            at + ATTEMPT_WINDOW
+            fresh,
+            hash("legitimate-new"),
+            at + Duration::from_secs(1)
         ));
-        assert_eq!(limits.buckets[0].len(), 1);
+        assert_eq!(limits.flows[0].pairs.len(), MAX_ATTEMPT_BUCKETS_PER_FLOW);
+        assert!(limits.admit(
+            AuthFlow::SignIn,
+            fresh,
+            hash("new-window"),
+            at + Duration::from_secs(61)
+        ));
+        assert_eq!(limits.flows[0].pairs.len(), 1);
     }
     #[test]
     fn forwarding_headers_cannot_spoof_the_trusted_peer() {

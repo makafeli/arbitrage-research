@@ -29,7 +29,7 @@ use subtle::ConstantTimeEq;
 use tokio::sync::Semaphore;
 
 mod account;
-pub use account::{create_owner_invitation, seed_owner_bootstrap};
+pub use account::{create_owner_invitation, require_owner_access, seed_owner_bootstrap};
 mod research;
 mod support;
 use research::{PaperAssetChoice, ResearchStore};
