@@ -7,12 +7,13 @@ use arb_evm::{
     PoolRegistry, SOURCE_COMMIT, UNISWAP_V3_FACTORY,
     backfill::{BackfillLimits, GapReason, recover_logs},
     events::BlockHeader,
+    filters::{FilterError, PoolFilters},
 };
 use arb_storage::{IngestionBinding, IngestionCursor, IngestionHalt, IngestionHead, Store};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::{
-    io::Read,
+    io::{Read, Write},
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -191,13 +192,32 @@ fn gap(reason: GapReason) -> IngestionHalt {
         _ => IngestionHalt::ContinuityLost,
     }
 }
-fn emit(status: &str, cursor: &IngestionCursor) {
-    println!(
-        "{}",
-        json!({"status":status,"checkpoint":cursor.checkpoint,"revision":cursor.revision.to_string(),
+/// Output is diagnostic, not a provider result. Return write failures through
+/// the normal outcome path so owned filters always reach explicit cleanup.
+fn write_record(value: &serde_json::Value) -> Result<()> {
+    let mut stdout = std::io::stdout().lock();
+    writeln!(stdout, "{value}")
+        .and_then(|()| stdout.flush())
+        .map_err(|_| "OUTPUT_UNAVAILABLE")
+}
+
+/// Preserve a local output error separately from chain/provider gap evidence.
+enum RecoveryFailure {
+    Gap(GapReason),
+    Output,
+}
+impl From<GapReason> for RecoveryFailure {
+    fn from(reason: GapReason) -> Self {
+        Self::Gap(reason)
+    }
+}
+
+fn emit(status: &str, cursor: &IngestionCursor) -> Result<()> {
+    write_record(
+        &json!({"status":status,"checkpoint":cursor.checkpoint,"revision":cursor.revision.to_string(),
         "state":cursor.state,"halt_reason":cursor.halt_reason,"dataset_origin":cursor.binding.dataset_origin,
-        "registry_digest":cursor.binding.registry_digest,"execution_authorized":false,"quote_qualified":false})
-    );
+        "registry_digest":cursor.binding.registry_digest,"execution_authorized":false,"quote_qualified":false}),
+    )
 }
 async fn database<T>(
     operation: impl std::future::Future<Output = std::result::Result<T, arb_storage::StoreError>>,
@@ -219,15 +239,13 @@ async fn run(action: String) -> Result<()> {
     // Schema changes are explicit, not a side effect of every poll or status read.
     if action == "--migrate" {
         database(store.migrate()).await?;
-        println!("{}", json!({"status":"MIGRATED"}));
-        return Ok(());
+        return write_record(&json!({"status":"MIGRATED"}));
     }
     if action == "--status" {
-        emit(
+        return emit(
             "STATUS",
             &database(store.ingestion_cursor(&operator, &stream)).await?,
         );
-        return Ok(());
     }
     let polls = positive_setting("ARB_INGEST_MAX_POLLS", 1, 1, 100)?;
     let interval = positive_setting("ARB_INGEST_POLL_MS", 2000, 1000, 60_000)?;
@@ -246,6 +264,8 @@ async fn run(action: String) -> Result<()> {
     }
     let cancelled = Arc::new(AtomicBool::new(false));
     let listener = shutdown::install(cancelled.clone())?;
+    let mut filters: Option<PoolFilters> = None;
+    let following = action == "--follow";
     let outcome = async {
         if action == "--initialize" {
             // Do not even probe a provider to reseed an already-existing stream.
@@ -255,6 +275,7 @@ async fn run(action: String) -> Result<()> {
                 Err(e) => return Err(e),
             }
             let cancelled_copy = cancelled.clone();
+            let endpoint = endpoint.clone();
             let seed =
                 tokio::task::spawn_blocking(move || initial(&endpoint, &pools, &cancelled_copy))
                     .await
@@ -266,7 +287,7 @@ async fn run(action: String) -> Result<()> {
                 "INITIALIZED_NO_PRIOR_COVERAGE",
                 &database(store.create_ingestion(&operator, &stream, &expected_binding, &seed))
                     .await?,
-            );
+            )?;
             return Ok(());
         }
         for iteration in 0..polls {
@@ -278,26 +299,57 @@ async fn run(action: String) -> Result<()> {
                 return Err("REGISTRY_OR_ORIGIN_CHANGED");
             }
             if cursor.state != "ACTIVE" {
-                emit("HALTED_REQUIRES_REVIEW", &cursor);
+                emit("HALTED_REQUIRES_REVIEW", &cursor)?;
                 return Err("STREAM_HALTED");
             }
             let endpoint = endpoint.clone();
             let pools = pools.clone();
             let checkpoint = head(&cursor.checkpoint);
             let cancel = cancelled.clone();
-            let recovered = tokio::task::spawn_blocking(move || {
-                let mut rpc = rpc(&endpoint).map_err(|_| GapReason::InvalidInput)?;
-                recover_logs(
-                    &mut rpc,
-                    &pools,
-                    &checkpoint,
-                    BackfillLimits::default(),
-                    || cancel.load(Ordering::SeqCst),
-                )
-                .map_err(|e| e.reason)
+            let mut active = filters.take();
+            let (returned_filters, recovered) = tokio::task::spawn_blocking(move || {
+                let recovered = (|| {
+                    let mut rpc = rpc(&endpoint).map_err(|_| GapReason::InvalidInput)?;
+                    if following {
+                        let failure = |error| match error {
+                            FilterError::Cancelled => GapReason::Cancelled,
+                            FilterError::Provider => GapReason::ProviderFailure,
+                            FilterError::LimitExceeded => GapReason::LogLimitExceeded,
+                            _ => GapReason::InvalidInput,
+                        };
+                        if active.is_none() {
+                            active = Some(
+                                PoolFilters::open(&mut rpc, &pools, &cancel).map_err(failure)?,
+                            );
+                        }
+                        let hints = active
+                            .as_mut()
+                            .expect("opened filters")
+                            .poll(&mut rpc, &cancel)
+                            .map_err(failure)?;
+                        write_record(&json!({"status":"FILTER_HINTS",
+                            "block_notifications":hints.block_hashes.len(),
+                            "pool_notifications":hints.logs.len(),
+                            "removed_notifications":hints.logs.iter().filter(|l| l.removed).count(),
+                            "authoritative":false}))
+                        .map_err(|_| RecoveryFailure::Output)?;
+                    }
+                    // Quiet, lost or non-final notifications can never skip the
+                    // authoritative finalized reconciliation from the saved cursor.
+                    recover_logs(
+                        &mut rpc,
+                        &pools,
+                        &checkpoint,
+                        BackfillLimits::default(),
+                        || cancel.load(Ordering::SeqCst),
+                    )
+                    .map_err(|e| RecoveryFailure::Gap(e.reason))
+                })();
+                (active, recovered)
             })
             .await
             .map_err(|_| "RECOVERY_TASK_FAILED")?;
+            filters = returned_filters;
             if cancelled.load(Ordering::SeqCst) {
                 return Err("CANCELLED");
             }
@@ -315,14 +367,15 @@ async fn run(action: String) -> Result<()> {
                             "BATCH_COMMITTED"
                         },
                         &committed,
-                    );
+                    )?;
                 }
-                Err(GapReason::Cancelled) => return Err("CANCELLED"),
-                Err(reason) => {
+                Err(RecoveryFailure::Output) => return Err("OUTPUT_UNAVAILABLE"),
+                Err(RecoveryFailure::Gap(GapReason::Cancelled)) => return Err("CANCELLED"),
+                Err(RecoveryFailure::Gap(reason)) => {
                     let halted =
                         database(store.halt_ingestion(&operator, &stream, &cursor, gap(reason)))
                             .await?;
-                    emit("GAP_REQUIRES_REVIEW", &halted);
+                    emit("GAP_REQUIRES_REVIEW", &halted)?;
                     return Err("RECOVERY_GAP");
                 }
             }
@@ -339,27 +392,43 @@ async fn run(action: String) -> Result<()> {
         Ok(())
     }
     .await;
+    // Explicit node-resource cleanup only, including after cancellation. Its
+    // independent budget admits at most two one-second calls, no capture/retry.
+    let cleanup = if let Some(mut active) = filters {
+        tokio::task::spawn_blocking(move || {
+            let mut rpc = HttpReadRpc::new(&endpoint, Duration::from_secs(1), 1024, 2)
+                .map_err(|_| "FILTER_CLEANUP_FAILED")?;
+            active.close(&mut rpc).map_err(|_| "FILTER_CLEANUP_FAILED")
+        })
+        .await
+        .map_err(|_| "FILTER_CLEANUP_FAILED")
+        .and_then(|result| result)
+    } else {
+        Ok(())
+    };
     listener.abort();
     let _ = listener.await;
-    outcome
+    // Never turn an acquisition failure into success. A cleanup error after an
+    // accepted batch is reported without invalidating that atomic commit.
+    outcome.and(cleanup)
 }
 fn main() -> std::process::ExitCode {
     let args: Vec<_> = std::env::args().skip(1).collect();
     if args.is_empty() || args == ["--help"] || args == ["--check"] {
-        println!(
-            "{}",
-            json!({"status":"NOT_STARTED","provider_requests":0,
-            "actions":["--migrate","--initialize","--run","--status"],"execution_authorized":false})
-        );
-        return std::process::ExitCode::SUCCESS;
+        return if write_record(&json!({"status":"NOT_STARTED","provider_requests":0,
+            "actions":["--migrate","--initialize","--run","--follow","--status"],"execution_authorized":false})).is_ok() {
+            std::process::ExitCode::SUCCESS
+        } else {
+            std::process::ExitCode::from(2)
+        };
     }
     if args.len() != 1
         || !matches!(
             args[0].as_str(),
-            "--migrate" | "--initialize" | "--run" | "--status"
+            "--migrate" | "--initialize" | "--run" | "--follow" | "--status"
         )
     {
-        eprintln!("INVALID_ARGUMENTS");
+        let _ = writeln!(std::io::stderr().lock(), "INVALID_ARGUMENTS");
         return std::process::ExitCode::from(2);
     }
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -373,7 +442,8 @@ fn main() -> std::process::ExitCode {
     match result {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(reason) => {
-            eprintln!(
+            let _ = writeln!(
+                std::io::stderr().lock(),
                 "{}",
                 json!({"status":"STOPPED_WITH_ERROR","reason":reason,"execution_authorized":false})
             );

@@ -184,3 +184,27 @@ fn block_hash_log_request_uses_the_read_only_transport_and_replays_exactly() {
     );
     replay.finish().unwrap();
 }
+
+#[test]
+fn node_filter_methods_use_existing_bounded_http_and_exact_transcripts() {
+    for (method, params, result) in [
+        (ReadMethod::EthNewBlockFilter, json!([]), json!("0x1")),
+        (
+            ReadMethod::EthNewFilter,
+            json!([{"address":["0x0000000000000000000000000000000000000001"]}]),
+            json!("0x2"),
+        ),
+        (ReadMethod::EthGetFilterChanges, json!(["0x2"]), json!([])),
+        (ReadMethod::EthUninstallFilter, json!(["0x2"]), json!(true)),
+    ] {
+        let body = json!({"jsonrpc":"2.0","id":0,"result":result}).to_string();
+        let (endpoint, server) = server("200 OK", body, "");
+        let mut rpc = HttpReadRpc::new(&endpoint, Duration::from_secs(2), 4096, 1).unwrap();
+        assert_eq!(rpc.call(method, params.clone()).unwrap(), result);
+        let request = server.join().unwrap();
+        assert!(request.contains(method.wire_name()));
+        let mut replay = arb_adapter_api::TranscriptRpc::new(rpc.into_records());
+        assert_eq!(replay.call(method, params).unwrap(), result);
+        replay.finish().unwrap();
+    }
+}

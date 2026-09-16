@@ -33,6 +33,13 @@ an explicit reviewed continuation policy; do not hide the gap by silently seedin
 a replacement at the latest block. Process interruption before a complete
 recovery leaves an active cursor unchanged and can be resumed explicitly.
 
+## Optional HTTP filter following
+
+`--follow` adds bounded node block/log filters around this same durable recovery.
+It reconciles finalized state even when no notification is returned. The ordinary
+`--run` path is unchanged. See [filter following](BASE-FILTER-FOLLOW.md) for exact
+semantics, resource cleanup and remaining reconnect/qualification limitations.
+
 ## Explicit local operation
 
 The default and `--check`/`--help` do not read configuration or start services:
@@ -104,7 +111,7 @@ The event journal is not a raw-capture archive or receipt-root completeness proo
 No network request is sent by compiling, ordinary CI, default invocation or merge.
 
 These changes are a tested restartable finalized polling path. They are **not** a
-WebSocket/filter subscription client, live quote feed, automatic reconnect policy,
+WebSocket subscription client, live quote feed, automatic reconnect policy,
 rollback invalidation of existing decisions, current hosted deployment, or genuine
 market-event qualification. #30 and #29 keep their original remaining criteria.
 
