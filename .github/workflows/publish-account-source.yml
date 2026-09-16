@@ -1,0 +1,80 @@
+name: One-shot exact account-workspace source publication
+on:
+  push:
+    branches: [integrator/account-source-publication]
+permissions:
+  contents: write
+jobs:
+  publish:
+    if: github.repository == 'makafeli/arbitrage-research' && github.actor == 'makafeli'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Reconstruct only the exact tested source; never collect private input
+        run: |
+          python3 - <<'PY'
+          import gzip,hashlib,io,json,os,subprocess
+          from pathlib import Path
+          base='814de63d9c9223cfd248794f269d8a28dface0ac'
+          tree='3a06b01a04d1be0ceebd5eaaabf6311aba5c9bf2'
+          def git(*a):return subprocess.check_output(['git',*a],text=True).strip()
+          assert git('rev-parse','HEAD^')==base
+          names=[f'p1-{i}' for i in range(7)]+['p2']+[f'p3-{i}' for i in range(7)]
+          parts=[]
+          for name in names:
+              data=(Path('.github/account-source')/name).read_bytes()
+              if name=='p1-5':
+                  assert hashlib.sha1(b'blob 2000\0'+data).hexdigest()=='a5092af6f440f1c22257be1e39a7ea619900ed48'
+                  data=bytearray(data);assert data[873]==165;data[873]=181;data=bytes(data)
+                  assert hashlib.sha1(b'blob 2000\0'+data).hexdigest()=='4aaabf6a8462b82efbaa1517db1c7c35900424ba'
+              parts.append(data)
+          compressed=b''.join(parts)
+          assert len(compressed)==41215 and hashlib.sha256(compressed).hexdigest()=='66bbda66993de4d7bbca4381a7afcbd16a17078bfb1d2fe6a3db0b2adbfff4c5'
+          with gzip.GzipFile(fileobj=io.BytesIO(compressed)) as f:patch=f.read(170550)
+          assert len(patch)==170549 and hashlib.sha256(patch).hexdigest()=='56a1ee4358dd22c1cb930aed1bc1f03f14c00335fc0dd566de6499cfd2965f1f'
+          subprocess.run(['git','rm','--','.github/account-source','.github/workflows/publish-account-source.yml'],check=True)
+          subprocess.run(['git','apply','--index','--binary','-'],input=patch,check=True)
+          assert git('write-tree')==tree
+          paths=git('diff','--cached','--name-only',base).splitlines()
+          assert len(paths)==33 and not git('diff','--name-only')
+          assert not any(p.startswith('.github/account-source') for p in paths)
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          subprocess.run(['python3','scripts/validate_project.py'],check=True)
+          subprocess.run(['python3','scripts/test_delivery.py'],check=True)
+          out=Path(os.environ['RUNNER_TEMP'])/'account-source';out.mkdir()
+          subprocess.run(['git','archive','--format=tar.gz','--output='+str(out/'source.tar.gz'),tree],check=True)
+          (out/'manifest.json').write_text(json.dumps({'base':base,'tree':tree,'paths':paths,'archive_sha256':hashlib.sha256((out/'source.tar.gz').read_bytes()).hexdigest(),'private_credentials_included':False,'ref_mutations':False,'issue_mutations':False},indent=2)+'\n')
+          PY
+      - name: Publish immutable source objects only
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import json,os,subprocess
+          from pathlib import Path
+          out=Path(os.environ['RUNNER_TEMP'])/'account-source';m=json.loads((out/'manifest.json').read_text())
+          def git(*a):return subprocess.check_output(['git',*a],text=True).strip()
+          def post(path,payload):
+              r=subprocess.run(['gh','api','--method','POST','repos/makafeli/arbitrage-research/'+path,'--input','-'],input=json.dumps(payload),text=True,capture_output=True,check=True)
+              return json.loads(r.stdout)
+          assert git('write-tree')==m['tree']
+          entries=[]
+          for path in m['paths']:
+              sha=post('git/blobs',{'encoding':'utf-8','content':Path(path).read_text()})['sha']
+              assert sha==git('hash-object',path)
+              entries.append({'path':path,'mode':'100644','type':'blob','sha':sha})
+          assert post('git/trees',{'base_tree':'0378ade32a2debdfac2b54c033411a7da66621cb','tree':entries})['sha']==m['tree']
+          m['files']=entries;(out/'manifest.json').write_text(json.dumps(m,indent=2)+'\n')
+          print(json.dumps({'published_tree':m['tree'],'private_credentials_included':False}))
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: account-workspace-source
+          path: ${{ runner.temp }}/account-source/
+          retention-days: 7
+          if-no-files-found: error
