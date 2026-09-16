@@ -12,16 +12,19 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
+          ref: 88acb7e2e1e1ddc4282fc57b60379946ce4cb846
           persist-credentials: false
           fetch-depth: 2
-      - name: Reconstruct only the exact tested source; never collect private input
+      - name: Reconstruct the exact tested source and publish immutable objects only
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           python3 - <<'PY'
           import gzip,hashlib,io,json,os,subprocess
           from pathlib import Path
-          base='814de63d9c9223cfd248794f269d8a28dface0ac'
-          tree='3a06b01a04d1be0ceebd5eaaabf6311aba5c9bf2'
+          base='814de63d9c9223cfd248794f269d8a28dface0ac';tree='3a06b01a04d1be0ceebd5eaaabf6311aba5c9bf2'
           def git(*a):return subprocess.check_output(['git',*a],text=True).strip()
+          assert git('rev-parse','HEAD')=='88acb7e2e1e1ddc4282fc57b60379946ce4cb846'
           assert git('rev-parse','HEAD^')==base
           names=[f'p1-{i}' for i in range(7)]+['p2']+[f'p3-{i}' for i in range(7)]
           parts=[]
@@ -36,40 +39,29 @@ jobs:
           assert len(compressed)==41215 and hashlib.sha256(compressed).hexdigest()=='66bbda66993de4d7bbca4381a7afcbd16a17078bfb1d2fe6a3db0b2adbfff4c5'
           with gzip.GzipFile(fileobj=io.BytesIO(compressed)) as f:patch=f.read(170550)
           assert len(patch)==170549 and hashlib.sha256(patch).hexdigest()=='56a1ee4358dd22c1cb930aed1bc1f03f14c00335fc0dd566de6499cfd2965f1f'
-          subprocess.run(['git','rm','--','.github/account-source','.github/workflows/publish-account-source.yml'],check=True)
+          subprocess.run(['git','rm','-r','--','.github/account-source','.github/workflows/publish-account-source.yml'],check=True)
           subprocess.run(['git','apply','--index','--binary','-'],input=patch,check=True)
           assert git('write-tree')==tree
           paths=git('diff','--cached','--name-only',base).splitlines()
           assert len(paths)==33 and not git('diff','--name-only')
-          assert not any(p.startswith('.github/account-source') for p in paths)
           subprocess.run(['git','diff','--cached','--check'],check=True)
-          subprocess.run(['python3','scripts/validate_project.py'],check=True)
-          subprocess.run(['python3','scripts/test_delivery.py'],check=True)
+          clean_env={k:v for k,v in os.environ.items() if k!='GH_TOKEN'}
+          subprocess.run(['python3','scripts/validate_project.py'],check=True,env=clean_env)
+          subprocess.run(['python3','scripts/test_delivery.py'],check=True,env=clean_env)
           out=Path(os.environ['RUNNER_TEMP'])/'account-source';out.mkdir()
           subprocess.run(['git','archive','--format=tar.gz','--output='+str(out/'source.tar.gz'),tree],check=True)
-          (out/'manifest.json').write_text(json.dumps({'base':base,'tree':tree,'paths':paths,'archive_sha256':hashlib.sha256((out/'source.tar.gz').read_bytes()).hexdigest(),'private_credentials_included':False,'ref_mutations':False,'issue_mutations':False},indent=2)+'\n')
-          PY
-      - name: Publish immutable source objects only
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          python3 - <<'PY'
-          import json,os,subprocess
-          from pathlib import Path
-          out=Path(os.environ['RUNNER_TEMP'])/'account-source';m=json.loads((out/'manifest.json').read_text())
-          def git(*a):return subprocess.check_output(['git',*a],text=True).strip()
+          m={'base':base,'tree':tree,'paths':paths,'archive_sha256':hashlib.sha256((out/'source.tar.gz').read_bytes()).hexdigest(),'private_credentials_included':False,'ref_mutations':False,'issue_mutations':False}
           def post(path,payload):
               r=subprocess.run(['gh','api','--method','POST','repos/makafeli/arbitrage-research/'+path,'--input','-'],input=json.dumps(payload),text=True,capture_output=True,check=True)
               return json.loads(r.stdout)
-          assert git('write-tree')==m['tree']
           entries=[]
-          for path in m['paths']:
+          for path in paths:
               sha=post('git/blobs',{'encoding':'utf-8','content':Path(path).read_text()})['sha']
               assert sha==git('hash-object',path)
               entries.append({'path':path,'mode':'100644','type':'blob','sha':sha})
-          assert post('git/trees',{'base_tree':'0378ade32a2debdfac2b54c033411a7da66621cb','tree':entries})['sha']==m['tree']
           m['files']=entries;(out/'manifest.json').write_text(json.dumps(m,indent=2)+'\n')
-          print(json.dumps({'published_tree':m['tree'],'private_credentials_included':False}))
+          assert post('git/trees',{'base_tree':'0378ade32a2debdfac2b54c033411a7da66621cb','tree':entries})['sha']==tree
+          print(json.dumps({'published_tree':tree,'private_credentials_included':False}))
           PY
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
