@@ -29,6 +29,17 @@ Root integration owns shared manifests, lockfiles, CI, publication and final acc
 
 ## Current delivery checkpoint
 
+### Owner-requested account and trading navigation, 16 September 2026
+
+The owner explicitly replaces the public Demo/Connected chooser with normal
+account sign-in and two workspaces: Paper trading and Real trading. The work is
+tracked within existing #51. [Account access](docs/ACCOUNT-ACCESS.md) describes
+private activation, persisted password verification, session revocation and
+recovery. Real execution remains disabled. Existing research modes/provenance and
+all other original task gates remain unchanged; this user-approved UX update
+supersedes earlier demo-first entry requirements rather than weakening data rules.
+
+
 ### HTTP filter follow continuation, 16 September 2026
 
 Main `06667c0b170e391bdd5b551eb37f08d75e02a0cb` already contains atomic Base

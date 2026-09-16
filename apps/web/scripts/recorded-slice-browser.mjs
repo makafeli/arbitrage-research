@@ -23,9 +23,11 @@ try {
     catch { await new Promise(resolve => setTimeout(resolve, 200)); }
   }
   if (!loaded) throw new Error('Local dashboard unavailable');
-  await page.getByRole('button', { name: 'Connect API', exact: true }).click();
-  await page.getByLabel('Operator secret', { exact: true }).fill(secret);
-  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  const authenticated = await page.request.post('http://127.0.0.1:5173/v1/auth/login', {
+    headers: { Origin: 'http://127.0.0.1:5173' }, data: { operator_secret: secret },
+  });
+  if (!authenticated.ok()) throw new Error('Disposable automation authentication failed');
+  await page.reload();
   await expect(page.getByText('API CONNECTED', { exact: true })).toBeVisible({ timeout: 15000 });
   await expect(page.getByRole('region', { name: `Session ${session}`, exact: true })).toContainText('STOPPED');
   await expect(page.getByText('LOCAL SYNTHETIC DEMO', { exact: true })).toHaveCount(0);
@@ -55,7 +57,7 @@ try {
   if (apiMutations.some(path => path !== '/v1/auth/login')) throw new Error('Unexpected browser mutation');
   await page.screenshot({ path: join(output, 'recorded-decisions.png'), fullPage: true });
   await writeFile(join(output, 'browser.json'), JSON.stringify({
-    session_id: session, source: 'ACTUAL_LOCAL_AUTHENTICATED_API', http_mocks: false,
+    session_id: session, source: 'ACTUAL_LOCAL_AUTHENTICATED_API', http_mocks: false, authentication: 'EXISTING_DISPOSABLE_AUTOMATION_SESSION',
     received_observations: observed.items.map(row => row.trace.observation_id),
     dataset_origins: [...new Set(observed.items.map(row => row.trace.dataset_origin))],
     visible_inspected_observation: id, visible_configuration: observed.items[0].trace.configuration_digest,

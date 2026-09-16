@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 WORKDIR /app
 COPY --from=build /src/target/release/control-api /usr/local/bin/control-api
 COPY config/research.example.toml /app/config/research.example.toml
+COPY config/owner-bootstrap.json /app/config/owner-bootstrap.json
 USER 10001:10001
 ENV ARB_API_BIND_IP=:: ARB_API_PORT=8080
 EXPOSE 8080

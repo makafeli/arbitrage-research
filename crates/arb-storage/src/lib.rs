@@ -1,4 +1,6 @@
 //! Durable research sessions and revisioned operator intent. No signing or broadcast.
+mod accounts;
+pub use accounts::*;
 mod collection;
 mod ingestion;
 pub use ingestion::*;

@@ -1,6 +1,6 @@
 # Arbitrage Research dashboard
 
-React and TypeScript implementation of the approved [dashboard reference](../../design/dashboard-wireframe.html), using the [design system](../../design/DESIGN-SYSTEM.md). The default **Demo** contains labelled fictional data. **Connected** displays authenticated, persisted API evidence. Connection errors never substitute demo records.
+React and TypeScript implementation of the approved [dashboard reference](../../design/dashboard-wireframe.html), using the [design system](../../design/DESIGN-SYSTEM.md). The production entry is account sign-in. **Paper trading** displays authenticated persisted research data and hypothetical accounting; **Real trading** is a separate visibly unavailable execution workspace. No demo is imported by the production App. See [account access](../../docs/ACCOUNT-ACCESS.md) for private activation and recovery.
 
 ## Local and production setup
 
@@ -21,7 +21,7 @@ npx playwright install --with-deps chromium
 npm run test:browser
 ```
 
-Authentication uses /v1/auth/session and login/logout. CSRF tokens remain in memory. Operator credentials are never saved in browser storage. Closing the page, signing out or opening Demo does not stop workers.
+Authentication uses /v1/auth/session and login/logout. CSRF tokens remain in memory. Operator credentials are never saved in browser storage. Closing the page or signing out does not stop workers.
 
 ## Connected controls
 
@@ -80,8 +80,8 @@ The separate frozen session export uses API schema 1.1.0 and one database snapsh
 
 | Path | Responsibility |
 |---|---|
-| src/App.tsx | Explicit Demo/Connected selection |
-| src/DemoApp.tsx | Original fictional dashboard and local demonstration controls |
+| src/App.tsx | Login-first authenticated Paper/Real workspace shell |
+| src/DemoApp.tsx | Retained development-only reference; not imported by the production app |
 | src/ConnectedApp.tsx | Authentication, session control and configuration-based creation |
 | src/api/client.ts | Same-origin transport, CSRF, idempotency and scoped resource methods |
 | src/api/costs.ts | Exact cost contracts, source binding, arithmetic checks and canonical digest verification |

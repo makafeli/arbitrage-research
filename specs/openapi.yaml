@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Arbitrage Research Control API
-  version: 0.7.0
+  version: 0.8.0
   description: 'Implemented private research control boundary. Authentication, immutable configuration
     references, durable session intent, command receipts, admitted decision history and immutable virtual
     portfolios are supported. The API does not collect market data, sign or broadcast. Read results retain
@@ -612,6 +612,78 @@ paths:
   "/v1/sessions/{session_id}/cost-assessments": {"post":{"operationId":"createCostAssessment","description":"Persist an immutable manual hypothetical cost assessment for a stored QUOTED decision. The server derives the complete quote and identity binding; client totals are not accepted. Complete assumed costs remain CANDIDATE and never mutate the source opportunity, reserve capital or settle a paper account. Valuations are checked relative to historical decision time. An identical idempotent request returns the original record; changed inputs require a new key. Known costs distinguish explicit zero from omitted or missing values.","parameters":[{"in":"path","name":"session_id","required":true,"schema":{"type":"string","minLength":1,"maxLength":256}},{"$ref":"#/components/parameters/IdempotencyKey"},{"$ref":"#/components/parameters/CsrfToken"},{"$ref":"#/components/parameters/Origin"}],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/NewCostAssessment"}}}},"responses":{"201":{"description":"Immutable assessment created or identical prior result replayed.","content":{"application/json":{"schema":{"$ref":"#/components/schemas/StoredCostAssessment"}}},"headers":{"X-Request-ID":{"schema":{"type":"string"}}}},"400":{"description":"Malformed, unsupported or invalid historical scenario input.","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}},"headers":{"X-Request-ID":{"schema":{"type":"string"}}}},"401":{"description":"Authentication required.","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}},"headers":{"X-Request-ID":{"schema":{"type":"string"}}}},"404":{"description":"No matching resource in the authenticated operator and session scope.","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}},"headers":{"X-Request-ID":{"schema":{"type":"string"}}}},"429":{"description":"Request budget exhausted.","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}},"headers":{"X-Request-ID":{"schema":{"type":"string"}}}},"503":{"description":"Required storage is unavailable.","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}},"headers":{"X-Request-ID":{"schema":{"type":"string"}}}},"504":{"description":"Request deadline reached; mutation completion may be uncertain. Retry the same idempotency key and payload.","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}},"headers":{"X-Request-ID":{"schema":{"type":"string"}}}},"403":{"description":"Origin, CSRF or capability denied.","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}},"headers":{"X-Request-ID":{"schema":{"type":"string"}}}},"409":{"description":"Idempotency key already represents different inputs.","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}},"headers":{"X-Request-ID":{"schema":{"type":"string"}}}}}},"get":{"operationId":"listCostAssessments","description":"Immutable manual cost assessments for this session. Sorted by record ID, bounded live pagination; use the session export for a frozen snapshot.","parameters":[{"in":"path","name":"session_id","required":true,"schema":{"type":"string","minLength":1,"maxLength":256}},{"in":"query","name":"cursor","schema":{"type":"string","pattern":"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"}},{"in":"query","name":"limit","schema":{"type":"integer","minimum":1,"maximum":100,"default":50}}],"responses":{"200":{"description":"Scoped assessment page.","content":{"application/json":{"schema":{"$ref":"#/components/schemas/CostAssessmentPage"}}},"headers":{"X-Request-ID":{"schema":{"type":"string"}}}},"400":{"description":"Malformed, unsupported or invalid historical scenario input.","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}},"headers":{"X-Request-ID":{"schema":{"type":"string"}}}},"401":{"description":"Authentication required.","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}},"headers":{"X-Request-ID":{"schema":{"type":"string"}}}},"404":{"description":"No matching resource in the authenticated operator and session scope.","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}},"headers":{"X-Request-ID":{"schema":{"type":"string"}}}},"429":{"description":"Request budget exhausted.","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}},"headers":{"X-Request-ID":{"schema":{"type":"string"}}}},"503":{"description":"Required storage is unavailable.","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}},"headers":{"X-Request-ID":{"schema":{"type":"string"}}}},"504":{"description":"Request deadline reached; mutation completion may be uncertain. Retry the same idempotency key and payload.","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}},"headers":{"X-Request-ID":{"schema":{"type":"string"}}}}}}}
   "/v1/sessions/{session_id}/cost-assessments/{record_id}": {"get":{"operationId":"getCostAssessment","description":"Retrieve and revalidate the assessment against its retained immutable decision and scenario.","parameters":[{"in":"path","name":"session_id","required":true,"schema":{"type":"string","minLength":1,"maxLength":256}},{"in":"path","name":"record_id","required":true,"schema":{"type":"string","pattern":"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"}}],"responses":{"200":{"description":"Immutable assessment.","content":{"application/json":{"schema":{"$ref":"#/components/schemas/StoredCostAssessment"}}},"headers":{"X-Request-ID":{"schema":{"type":"string"}}}},"400":{"description":"Malformed, unsupported or invalid historical scenario input.","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}},"headers":{"X-Request-ID":{"schema":{"type":"string"}}}},"401":{"description":"Authentication required.","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}},"headers":{"X-Request-ID":{"schema":{"type":"string"}}}},"404":{"description":"No matching resource in the authenticated operator and session scope.","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}},"headers":{"X-Request-ID":{"schema":{"type":"string"}}}},"429":{"description":"Request budget exhausted.","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}},"headers":{"X-Request-ID":{"schema":{"type":"string"}}}},"503":{"description":"Required storage is unavailable.","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}},"headers":{"X-Request-ID":{"schema":{"type":"string"}}}},"504":{"description":"Request deadline reached; mutation completion may be uncertain. Retry the same idempotency key and payload.","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}},"headers":{"X-Request-ID":{"schema":{"type":"string"}}}}}}}
   /v1/adapter-support: {"get":{"operationId":"getAdapterSupport","description":"Authenticated immutable startup support catalog. No request-supplied file paths, registry data or qualification overrides are accepted. Registry files are loaded at startup only.","responses":{"200":{"description":"Bounded immutable code/configuration/loaded-registry catalog. No service health or market qualification claim.","content":{"application/json":{"schema":{"$ref":"#/components/schemas/AdapterSupportCatalog"}}}},"401":{"description":"Authentication required","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}},"headers":{"X-Request-ID":{"description":"Server-generated request correlation ID. Also present in error JSON.","schema":{"type":"string"}}}},"429":{"description":"Request rejected; stable redacted error with correlation ID","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}},"headers":{"X-Request-ID":{"description":"Server-generated request correlation ID. Also present in error JSON.","schema":{"type":"string"}}}},"503":{"description":"Request rejected; stable redacted error with correlation ID","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}},"headers":{"X-Request-ID":{"description":"Server-generated request correlation ID. Also present in error JSON.","schema":{"type":"string"}}}},"504":{"description":"Request deadline reached. Mutation completion may be uncertain; retry with the same idempotency key and payload.","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}},"headers":{"X-Request-ID":{"schema":{"type":"string"}}}}}}}
+  /v1/auth/sign-in:
+    post:
+      operationId: signInWithPassword
+      security: []
+      description: Email/password login for the private operator account. Returns the existing session-cookie and CSRF contract. No public registration.
+      parameters:
+      - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AccountSignIn'
+      responses:
+        '200':
+          description: Signed in, with HttpOnly SameSite=Strict session cookie.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSession'
+        '400': *id003
+        '401': *id002
+        '403': *id004
+        '429': *id001
+        '503': *id006
+        '504': *id001
+  /v1/auth/activate:
+    post:
+      operationId: activateOperatorAccount
+      security: []
+      description: Redeem a private, unexpired, single-use owner invitation and choose an account password. Invalid or consumed links never replace credentials. Sign in explicitly after success. No registration without an invitation.
+      parameters:
+      - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AccountActivation'
+      responses:
+        '204':
+          description: Password saved and all prior sessions revoked. On uncertain delivery try signing in with the selected password rather than assuming the token is unused.
+        '400': *id003
+        '401': *id002
+        '403': *id004
+        '422': *id001
+        '429': *id001
+        '503': *id006
+        '504': *id001
+  /v1/auth/password:
+    post:
+      operationId: changeOperatorPassword
+      description: Verify the current password and save a replacement. Requires an authenticated session and CSRF token. All prior account sessions are revoked; operator research ownership is unchanged.
+      parameters:
+      - $ref: '#/components/parameters/Origin'
+      - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AccountPasswordChange'
+      responses:
+        '204':
+          description: Password changed. Sign in again; an uncertain response requires reconciling with the new password.
+        '400': *id003
+        '401': *id002
+        '403': *id004
+        '422': *id001
+        '429': *id001
+        '503': *id006
+        '504': *id001
 components:
   securitySchemes:
     operatorSession:
@@ -652,6 +724,53 @@ components:
         type: string
       description: Must exactly match ARB_PUBLIC_ORIGIN; missing, duplicate and null origins are rejected.
   schemas:
+    AccountSignIn:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          minLength: 3
+          maxLength: 254
+        password:
+          type: string
+          minLength: 1
+          maxLength: 512
+          writeOnly: true
+    AccountActivation:
+      type: object
+      additionalProperties: false
+      required: [email, password, token]
+      properties:
+        email:
+          type: string
+          minLength: 3
+          maxLength: 254
+        password:
+          type: string
+          minLength: 15
+          maxLength: 128
+          writeOnly: true
+        token:
+          type: string
+          pattern: '^[a-fA-F0-9]{64}$'
+          writeOnly: true
+    AccountPasswordChange:
+      type: object
+      additionalProperties: false
+      required: [current_password, new_password]
+      properties:
+        current_password:
+          type: string
+          minLength: 1
+          maxLength: 512
+          writeOnly: true
+        new_password:
+          type: string
+          minLength: 15
+          maxLength: 128
+          writeOnly: true
     Error:
       type: object
       additionalProperties: false

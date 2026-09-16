@@ -1,173 +1,88 @@
-import { expect, test as base } from '@playwright/test';
-import type { Page } from '@playwright/test';
-import { resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { expect, test } from '@playwright/test';
+const auth = { operator_id: 'operator', csrf_token: 'account-fixture-csrf', expires_at: '2000000000' };
+const caps = { modes: ['OBSERVE', 'PAPER', 'REPLAY'], live_execution: false, market_data: false, opportunity_capture: false, registered_configurations: [] };
 
-// A runtime exception or an attempted external connection fails every scenario.
-// This checks the exercised dashboard flows; it is not an egress security audit.
-const test = base.extend<{ runtimeChecks: void }>({
-  runtimeChecks: [async ({ page, context }, use) => {
-    const errors: string[] = [];
-    const externalConnections: string[] = [];
-    page.on('pageerror', error => errors.push(error.message));
-    const inspectUrl = (raw: string) => {
-      const url = new URL(raw);
-      if (['http:', 'https:', 'ws:', 'wss:'].includes(url.protocol)
-          && !['127.0.0.1', 'localhost'].includes(url.hostname)) {
-        externalConnections.push(url.origin);
-      }
-    };
-    context.on('request', request => inspectUrl(request.url()));
-    page.on('websocket', socket => inspectUrl(socket.url()));
-    await use();
-    expect(errors, 'Uncaught browser errors').toEqual([]);
-    expect(externalConnections, 'Unexpected external connections').toEqual([]);
-  }, { auto: true }],
-});
-
-const pages = [
-  ['Overview', 'Research overview'],
-  ['Opportunities', 'Opportunity explorer'],
-  ['Experiments', 'Compare experiments'],
-  ['Runs', 'Runs and control'],
-  ['Strategies', 'Strategy workspace'],
-  ['System', 'System and data quality'],
-] as const;
-
-function controls(page: Page) {
-  return page.getByRole('region', { name: 'Local demo controls for both paper sessions' });
-}
-
-test('six views retain synthetic provenance and support both themes', async ({ page }) => {
+test('production opens on login with no demo, public registration or operator-secret field', async ({ page }) => {
+  const posts: string[] = []; const errors: string[] = [];
+  page.on('pageerror', e => errors.push(e.message));
+  await page.route('**/v1/**', route => { if (route.request().method() === 'POST') posts.push(route.request().url()); return route.fulfill({ status: 401, json: { code: 'AUTH_REQUIRED', message: 'Sign in' } }); });
   await page.goto('/');
-  for (const [navigation, heading] of pages) {
-    const button = page.getByRole('navigation').getByRole('button', { name: navigation, exact: true });
-    await button.click();
-    await expect(button).toHaveAttribute('aria-current', 'page');
-    await expect(page.getByRole('heading', { name: heading, level: 1 })).toBeVisible();
-    await expect(page.getByText('LOCAL SYNTHETIC DEMO', { exact: true })).toBeVisible();
-    await expect(controls(page)).toContainText('SYNTHETIC RUN GROUP');
-  }
-  await page.getByRole('button', { name: 'Switch to light theme' }).click();
-  await expect(page.locator('body')).toHaveClass(/light/);
-  await page.getByRole('button', { name: 'Switch to dark theme' }).click();
-  await expect(page.locator('body')).not.toHaveClass(/light/);
+  await expect(page.getByRole('heading', { name: 'Sign in', exact: true })).toBeVisible();
+  await expect(page.getByLabel('Email address', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Password', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: /demo|connect api|register/i })).toHaveCount(0);
+  await expect(page.getByLabel('Operator secret')).toHaveCount(0);
+  await expect(page.getByRole('navigation', { name: 'Trading mode' })).not.toBeVisible();
+  expect(posts).toEqual([]); expect(errors).toEqual([]);
 });
 
-test('a chain filter changes observations while both session scopes remain intact', async ({ page }) => {
-  await page.goto('/');
-  await page.getByRole('combobox', { name: 'View chain' }).selectOption('base');
-  await expect(page.getByRole('region', { name: 'Base synthetic observations' })).toBeVisible();
-  await expect(page.getByRole('region', { name: 'Solana synthetic observations' })).toHaveCount(0);
-  await expect(controls(page)).toContainText('Solana: STOPPED');
-  await expect(controls(page)).toContainText('Base: STOPPED');
-  await page.getByRole('button', { name: 'Start demo', exact: true }).click();
-  await expect(controls(page)).toContainText('Solana: RUNNING');
-  await expect(controls(page)).toContainText('Base: RUNNING');
-  await page.getByRole('navigation').getByRole('button', { name: 'Opportunities', exact: true }).click();
-  await expect(page.getByRole('combobox', { name: 'View chain' })).toHaveValue('base');
-  await expect(page.getByRole('button', { name: /Inspect synthetic opportunity BASE-/ })).toHaveCount(3);
-  await expect(page.getByRole('button', { name: /Inspect synthetic opportunity SOL-/ })).toHaveCount(0);
-});
-
-test('opportunity detail remains hypothetical and returns keyboard focus on Escape', async ({ page }) => {
-  await page.goto('/');
-  const inspect = page.getByRole('button', { name: 'Inspect synthetic opportunity SOL-001', exact: true });
-  await inspect.focus();
-  await page.keyboard.press('Enter');
-  const dialog = page.getByRole('dialog', { name: 'SOL-001 · Solana' });
-  await expect(dialog).toBeVisible();
-  await expect(dialog).toContainText('Not applicable — paper demo');
-  await expect(dialog).toContainText('No simulation artifacts are produced by this interface.');
-  await expect(dialog.getByRole('button', { name: 'Close opportunity detail' })).toBeFocused();
-  await page.keyboard.press('Tab');
-  await expect(dialog.getByRole('button', { name: 'Close opportunity detail' })).toBeFocused();
-  await page.keyboard.press('Shift+Tab');
-  await expect(dialog.getByRole('button', { name: 'Close opportunity detail' })).toBeFocused();
-  await page.keyboard.press('Escape');
-  await expect(dialog).not.toBeVisible();
-  await expect(inspect).toBeFocused();
-});
-
-test('stop stays pending until each separate session acknowledges its fence', async ({ page }) => {
-  // Install before navigation. Pause before the control interactions so CI
-  // scheduling cannot skip the intermediate one-chain-acknowledged state.
-  await page.clock.install({ time: new Date('2026-09-12T12:00:00Z') });
-  await page.goto('/');
-  await page.clock.pauseAt(new Date('2026-09-12T12:01:00Z'));
-  await page.getByRole('button', { name: 'Start demo', exact: true }).click();
-  await page.getByRole('button', { name: 'Pause demo', exact: true }).click();
-  await expect(controls(page)).toContainText('Solana: PAUSED · APPLIED');
-  await expect(controls(page)).toContainText('Base: PAUSED · APPLIED');
-  await page.getByRole('button', { name: 'Resume demo', exact: true }).click();
-  await page.getByRole('button', { name: 'Stop demo', exact: true }).click();
-  await expect(controls(page)).toContainText('Solana: PAUSING · PENDING');
-  await expect(controls(page)).toContainText('Base: PAUSING · PENDING');
-  await expect(page.getByRole('button', { name: 'Start demo', exact: true })).toBeDisabled();
-  await page.clock.runFor(700);
-  await expect(controls(page)).toContainText('Solana: STOPPED · APPLIED');
-  await expect(controls(page)).toContainText('Base: PAUSING · PENDING');
-  await expect(controls(page)).toContainText('Stop requested');
-  await page.clock.runFor(400);
-  await expect(controls(page)).toContainText('Base: STOPPED · APPLIED');
-  await expect(page.getByRole('button', { name: 'Start demo', exact: true })).toBeEnabled();
-  await expect(page.getByRole('button', { name: 'Stop demo', exact: true })).toBeDisabled();
-  await page.reload();
-  await expect(controls(page)).toContainText('Solana: STOPPED · NONE');
-  await expect(controls(page)).toContainText('Base: STOPPED · NONE');
-});
-
-test('an acknowledged stop with an unresolved illustrative outcome remains DRAINING', async ({ page }) => {
-  await page.goto('/');
-  await page.getByRole('navigation').getByRole('button', { name: 'Runs', exact: true }).click();
-  await page.getByRole('button', { name: 'Simulate pending outcome', exact: true }).click();
-  await expect(page.getByText(/Stop APPLIED: the worker admission fence/)).toContainText('State DRAINING');
-  await expect(page.getByText(/A separate illustration of a previously emitted live attempt/)).toBeVisible();
-  await expect(controls(page)).toContainText('Solana: STOPPED · NONE');
-  await expect(controls(page)).toContainText('Base: STOPPED · NONE');
-  await page.getByRole('button', { name: 'Resolve demo outcome', exact: true }).click();
-  await expect(page.getByText(/Outcome reconciled as no trade. Pending count zero/)).toContainText('STOPPED');
-  await expect(page.getByRole('button', { name: 'Resolve demo outcome', exact: true })).toBeDisabled();
-});
-
-for (const width of [320, 390, 768, 1440]) {
-  test(`all views fit a ${width}px viewport and preserve visible controls`, async ({ page }, testInfo) => {
-    await page.setViewportSize({ width, height: 1000 });
-    await page.goto('/');
-    for (const [navigation, heading] of pages) {
-      await page.getByRole('navigation').getByRole('button', { name: navigation, exact: true }).click();
-      await expect(page.getByRole('heading', { name: heading, level: 1 })).toBeVisible();
-      await expect(page.getByText('LOCAL SYNTHETIC DEMO', { exact: true })).toBeVisible();
-      await expect(page.getByRole('button', { name: 'Start demo', exact: true })).toBeVisible();
-      const overflow = await page.evaluate(() => Math.max(
-        document.documentElement.scrollWidth,
-        document.body.scrollWidth,
-      ) - document.documentElement.clientWidth);
-      expect(overflow, `${navigation} horizontal overflow at ${width}px`).toBeLessThanOrEqual(1);
-      const clippedCardContent = await page.evaluate(() => Array.from(
-        document.querySelectorAll<HTMLElement>('.tablewrap tr, .tablewrap .mobilelabel'),
-      ).filter(element => element.getClientRects().length > 0
-        && (element.matches('.mobilelabel') || getComputedStyle(element).display === 'grid'))
-        .map(element => ({
-          text: element.textContent?.trim().slice(0, 100),
-          overflow: element.scrollWidth - element.clientWidth,
-        }))
-        .filter(element => element.overflow > 1));
-      expect(clippedCardContent, `${navigation} clipped card content at ${width}px`).toEqual([]);
-    }
-    await page.getByRole('navigation').getByRole('button', { name: 'Overview', exact: true }).click();
-    await testInfo.attach(`overview-${width}-dark`, { body: await page.screenshot({ fullPage: true }), contentType: 'image/png' });
-    await page.getByRole('button', { name: 'Switch to light theme' }).click();
-    await testInfo.attach(`overview-${width}-light`, { body: await page.screenshot({ fullPage: true }), contentType: 'image/png' });
+test('invalid login stays private; successful email/password login restores the real application', async ({ page }) => {
+  let logged = false; let deny = true; const requests: unknown[] = [];
+  await page.route('**/v1/**', async route => {
+    const p = new URL(route.request().url()).pathname;
+    if (p === '/v1/auth/sign-in') { requests.push(route.request().postDataJSON()); if (deny) { await route.fulfill({ status: 401, json: { code: 'AUTHENTICATION_FAILED' } }); return; } logged = true; await route.fulfill({ json: auth }); return; }
+    if (!logged) { await route.fulfill({ status: 401, json: {} }); return; }
+    await route.fulfill({ json: p === '/v1/auth/session' ? auth : p === '/v1/capabilities' ? caps : { items: [], next_cursor: null } });
   });
-}
+  await page.goto('/');
+  await page.getByLabel('Email address', { exact: true }).fill('owner@example.test'); await page.getByLabel('Password', { exact: true }).fill('first-wrong-password');
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(page.getByRole('alert')).toBeVisible(); await expect(page.getByLabel('Password', { exact: true })).toHaveValue('');
+  deny = false; await page.getByLabel('Password', { exact: true }).fill('correct-long-password'); await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Paper trading overview' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Paper trading', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  expect(requests).toHaveLength(2); expect(await page.evaluate(() => [localStorage.length, sessionStorage.length])).toEqual([0, 0]);
+});
 
-test('capture the approved reference for visual comparison', async ({ page }, testInfo) => {
-  const reference = resolve(process.cwd(), '../../design/dashboard-wireframe.html');
-  await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.goto(pathToFileURL(reference).href);
-  await testInfo.attach('approved-reference-1440-dark', {
-    body: await page.screenshot({ fullPage: true }),
-    contentType: 'image/png',
+test('one-time activation token is removed from the address and never stored; password confirmation is enforced', async ({ page }) => {
+  const token = 'a'.repeat(64); const activations: unknown[] = [];
+  await page.route('**/v1/**', async route => {
+    if (route.request().url().endsWith('/auth/activate')) { activations.push(route.request().postDataJSON()); await route.fulfill({ status: 204 }); }
+    else await route.fulfill({ status: 401, json: {} });
   });
+  await page.goto('/#activate=' + token);
+  await expect(page.getByRole('heading', { name: 'Set your password' })).toBeVisible();
+  await expect(page).toHaveURL(/\/$/);
+  await page.getByLabel('Email address', { exact: true }).fill('owner@example.test');
+  await page.getByLabel('New password', { exact: true }).fill('a very good passphrase');
+  await page.getByLabel('Confirm password', { exact: true }).fill('a different passphrase');
+  await page.getByRole('button', { name: 'Save password' }).click();
+  await expect(page.getByRole('alert')).toHaveText('The passwords do not match.'); expect(activations).toHaveLength(0);
+  await page.getByLabel('Confirm password', { exact: true }).fill('a very good passphrase'); await page.getByRole('button', { name: 'Save password' }).click();
+  await expect(page.getByRole('heading', { name: 'Sign in', exact: true })).toBeVisible();
+  expect(activations).toEqual([{ email: 'owner@example.test', password: 'a very good passphrase', token }]);
+  expect(await page.evaluate(() => [localStorage.length, sessionStorage.length])).toEqual([0, 0]);
+});
+
+test('Real trading is a disabled execution workspace, never a mode mutation or fake live activity', async ({ page }) => {
+  const writes: string[] = [];
+  await page.route('**/v1/**', async route => {
+    if (route.request().method() !== 'GET') writes.push(route.request().url());
+    const p = new URL(route.request().url()).pathname;
+    await route.fulfill({ json: p === '/v1/auth/session' ? auth : p === '/v1/capabilities' ? caps : { items: [], next_cursor: null } });
+  });
+  await page.goto('/'); await expect(page.getByText('API CONNECTED', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Real trading', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Real trading is not available' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Start real trading' })).toBeDisabled();
+  await expect(page.getByRole('heading', { name: 'Paper trading overview' })).not.toBeVisible();
+  await page.getByRole('button', { name: 'Paper trading', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Paper trading overview' })).toBeVisible(); expect(writes).toEqual([]);
+});
+
+test('change password uses current password and CSRF, then requires a new sign in', async ({ page }) => {
+  let logged = true; let body: unknown; let csrf: string | undefined;
+  await page.route('**/v1/**', async route => {
+    const p = new URL(route.request().url()).pathname;
+    if (p === '/v1/auth/password') { body = route.request().postDataJSON(); csrf = route.request().headers()['x-csrf-token']; logged = false; await route.fulfill({ status: 204 }); return; }
+    if (!logged) { await route.fulfill({ status: 401, json: {} }); return; }
+    await route.fulfill({ json: p === '/v1/auth/session' ? auth : p === '/v1/capabilities' ? caps : { items: [], next_cursor: null } });
+  });
+  await page.goto('/'); await page.getByRole('button', { name: 'Change password', exact: true }).click();
+  await page.getByLabel('Current password', { exact: true }).fill('old-complete-password');
+  await page.getByLabel('New password', { exact: true }).fill('new-complete-password');
+  await page.getByLabel('Confirm new password', { exact: true }).fill('new-complete-password');
+  await page.getByRole('button', { name: 'Save password', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Sign in', exact: true })).toBeVisible();
+  expect(csrf).toBe(auth.csrf_token); expect(body).toEqual({ current_password: 'old-complete-password', new_password: 'new-complete-password' });
 });

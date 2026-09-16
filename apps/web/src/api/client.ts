@@ -184,7 +184,7 @@ export class ControlApi {
       void response.body?.cancel().catch(() => {});
       this.assertAuthVersion(epoch);
       this.clearAuth();
-      throw new ApiError(401, 'UNAUTHENTICATED', 'Your operator session is no longer authorized. Sign in again.');
+      throw new ApiError(401, 'UNAUTHENTICATED', path === '/auth/sign-in' ? 'Email or password is incorrect.' : path === '/auth/activate' ? 'This account link is invalid, expired or already used.' : 'Your operator session is no longer authorized. Sign in again.');
     }
     options.signal?.throwIfAborted();
     if (response.status === 204) return null;
@@ -231,6 +231,20 @@ export class ControlApi {
     const auth = parseAuth(await this.request('/auth/login', { method: 'POST', body: { operator_secret } }));
     this.assertAuthVersion(epoch);
     this.csrf = auth.csrf_token; this.notifyAuth(); return auth;
+  }
+  async signIn(email: string, password: string) {
+    this.clearAuth(); const epoch = this.authEpoch;
+    const auth = parseAuth(await this.request('/auth/sign-in', { method: 'POST', body: { email, password } }));
+    this.assertAuthVersion(epoch);
+    this.csrf = auth.csrf_token; this.notifyAuth(); return auth;
+  }
+  async activateAccount(email: string, password: string, token: string) {
+    await this.request('/auth/activate', { method: 'POST', body: { email, password, token } });
+    this.clearAuth();
+  }
+  async changePassword(current_password: string, new_password: string) {
+    await this.request('/auth/password', { method: 'POST', body: { current_password, new_password } });
+    this.clearAuth();
   }
   async logout() {
     const epoch = this.authEpoch;

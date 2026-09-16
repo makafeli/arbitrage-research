@@ -14,7 +14,7 @@ async function stub(page: Page, override?: (route: Route, url: URL) => Promise<b
     const url = new URL(route.request().url()), path = url.pathname;
     if (override && await override(route, url)) return;
     if (path === '/v1/auth/logout') { await route.fulfill({ status: 204 }); return; }
-    const data: unknown = path === '/v1/auth/session' || path === '/v1/auth/login' ? auth
+    const data: unknown = path === '/v1/auth/session' || path === '/v1/auth/sign-in' ? auth
       : path === '/v1/capabilities' ? capabilities
       : path === '/v1/sessions' ? { items: [session], next_cursor: null }
       : path === '/v1/opportunities' ? { items: [], next_cursor: null }
@@ -27,22 +27,22 @@ async function stub(page: Page, override?: (route: Route, url: URL) => Promise<b
       : null;
     await route.fulfill({ status: data ? 200 : 404, json: data ?? { code: 'NOT_FOUND', message: 'Fixture endpoint unavailable' } });
   });
-  await page.goto('/'); await page.getByRole('button', { name: 'Connect API', exact: true }).click();
+  await page.goto('/');
   await expect(page.getByText('API CONNECTED', { exact: true })).toBeVisible();
   await navigate(page, 'Opportunities');
   await page.getByLabel('Decision session', { exact: true }).selectOption(session.session_id);
   await expect(page.getByRole('button', { name: 'Inspect decision observation-fixture', exact: true })).toBeVisible();
 }
 async function navigate(page: Page, name: string) { await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name, exact: true }).click(); }
-const panel = (page: Page) => page.getByRole('region', { name: 'Frozen session export', exact: true });
+const panel = (page: Page) => page.getByRole('region', { name: 'Frozen session export', exact: true, includeHidden: true });
 async function prepare(page: Page) {
   await panel(page).getByRole('button', { name: 'Prepare frozen session export', exact: true }).click();
   await expect(panel(page).getByText('Frozen database snapshot verified', { exact: true })).toBeVisible();
 }
 async function revoked(page: Page) {
-  await expect(page.getByRole('heading', { name: 'Connect to your research service', exact: true })).toBeVisible();
-  await expect(panel(page).getByRole('button', { name: 'Download frozen JSON', exact: true })).toBeDisabled();
-  await expect(panel(page).getByRole('button', { name: 'Download frozen CSV', exact: true })).toBeDisabled();
+  await expect(page.getByRole('heading', { name: 'Sign in', exact: true })).toBeVisible();
+  await expect(panel(page).getByRole('button', { name: 'Download frozen JSON', exact: true, includeHidden: true })).toBeDisabled();
+  await expect(panel(page).getByRole('button', { name: 'Download frozen CSV', exact: true, includeHidden: true })).toBeDisabled();
   await expect(panel(page).getByText('Frozen database snapshot verified', { exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Sign out', exact: true })).toHaveCount(0);
 }
@@ -50,6 +50,10 @@ async function revoked(page: Page) {
 test('explicit logout clears the prepared frozen export without changing worker state', async ({ page }) => {
   await stub(page); await prepare(page);
   await page.getByRole('button', { name: 'Sign out', exact: true }).click(); await revoked(page);
+  await expect(page.getByRole('navigation', { name: 'Primary navigation' })).not.toBeVisible();
+  await page.getByLabel('Email address', { exact: true }).fill('owner@example.test');
+  await page.getByLabel('Password', { exact: true }).fill('fixture-password');
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await navigate(page, 'Overview');
   await expect(page.getByRole('region', { name: 'Session session-paper', exact: true }).getByText('RUNNING', { exact: true })).toBeVisible();
 });
@@ -80,7 +84,7 @@ test('a late frozen-export response cannot restore a bundle after a child 401', 
   // The browser can already have cancelled this interception. Either transport
   // cancellation or rejecting the late result is valid; neither may restore it.
   try { await (held as Route | null)!.fulfill({ json: frozenExportFixture() }); } catch { /* already cancelled by revocation */ }
-  await page.getByLabel('Operator secret', { exact: true }).fill('fixture-new-operator-secret-00000000');
+  await page.getByLabel('Email address', { exact: true }).fill('owner@example.test'); await page.getByLabel('Password', { exact: true }).fill('fixture-new-operator-secret-00000000');
   expired = false; await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Sign out', exact: true })).toBeVisible();
   await expect(panel(page).getByRole('button', { name: 'Download frozen JSON', exact: true })).toBeDisabled();
@@ -159,8 +163,8 @@ test('child authorization loss preserves uncertain command intent and the exact 
   await expect(card.getByRole('button', { name: 'Retry same request', exact: true })).toBeEnabled();
   await navigate(page, 'Opportunities'); expired = true;
   await page.getByRole('button', { name: 'Refresh evidence', exact: true }).click(); await revoked(page);
-  await expect(page.getByRole('button', { name: 'Open demo', exact: true })).toBeDisabled();
-  expired = false; await page.getByLabel('Operator secret', { exact: true }).fill('fixture-operator-secret-0000000000');
+  await expect(page.getByRole('button', { name: 'Real trading', exact: true })).not.toBeVisible();
+  expired = false; await page.getByLabel('Email address', { exact: true }).fill('owner@example.test'); await page.getByLabel('Password', { exact: true }).fill('fixture-operator-secret-0000000000');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Sign out', exact: true })).toBeVisible();
   await navigate(page, 'Overview');
@@ -265,7 +269,7 @@ test('logout invalidates a pending local file read and prevents its late result 
   await expect(auditPanel(page).getByText('Checking local report binding...', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Sign out', exact: true }).click(); await revoked(page);
   await page.evaluate(() => (window as unknown as { releaseAuditFile: () => void }).releaseAuditFile());
-  await page.getByLabel('Operator secret', { exact: true }).fill('fixture-operator-secret-0000000000');
+  await page.getByLabel('Email address', { exact: true }).fill('owner@example.test'); await page.getByLabel('Password', { exact: true }).fill('fixture-operator-secret-0000000000');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(panel(page).getByRole('button', { name: 'Download frozen JSON', exact: true })).toBeDisabled();
   await expect(auditPanel(page)).toHaveCount(0);

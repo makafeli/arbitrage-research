@@ -22,7 +22,7 @@ async function setup(page: Page, override?: (route: Route, url: URL) => Promise<
     if (path.endsWith('/export')) data = frozenExportFixture();
     await route.fulfill({ status: data ? 200 : 404, json: data ?? { code: 'NOT_FOUND', message: 'Unknown fixture endpoint' } });
   });
-  await page.goto('/'); await page.getByRole('button', { name: 'Connect API', exact: true }).click();
+  await page.goto('/');
   await expect(page.getByText('API CONNECTED', { exact: true })).toBeVisible();
   await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Opportunities', exact: true }).click();
   await page.getByLabel('Decision session', { exact: true }).selectOption('session-paper');
@@ -103,7 +103,7 @@ test('uncertain cost delivery locks scope through navigation and retries the ide
   });
   await basic(page); await reviewed(page); await page.getByRole('button', { name: 'Save hypothetical cost assessment', exact: true }).click();
   await expect(workspace(page).getByRole('alert')).toContainText('delivery is uncertain');
-  await expect(page.getByLabel('Decision session', { exact: true })).toBeDisabled(); await expect(page.getByRole('button', { name: 'Open demo', exact: true })).toBeDisabled();
+  await expect(page.getByLabel('Decision session', { exact: true })).toBeDisabled(); await expect(page.getByRole('button', { name: 'Real trading', exact: true })).toBeDisabled();
   await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Runs', exact: true }).click();
   await page.getByLabel('View chain', { exact: true }).selectOption('solana-mainnet');
   await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Opportunities', exact: true }).click();
@@ -113,7 +113,7 @@ test('uncertain cost delivery locks scope through navigation and retries the ide
   await page.getByRole('button', { name: 'Retry identical cost assessment', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Cost assessment saved', exact: true })).toBeDisabled();
   expect(requests).toHaveLength(3); expect(requests[0]).toEqual(requests[1]); expect(requests[1]).toEqual(requests[2]);
-  await expect(page.getByLabel('Decision session', { exact: true })).toBeEnabled(); await expect(page.getByRole('button', { name: 'Open demo', exact: true })).toBeEnabled();
+  await expect(page.getByLabel('Decision session', { exact: true })).toBeEnabled(); await expect(page.getByRole('button', { name: 'Real trading', exact: true })).toBeEnabled();
 });
 
 test('cost history rejects cross-session data and retains the prior received snapshot during outage', async ({ page }) => {
