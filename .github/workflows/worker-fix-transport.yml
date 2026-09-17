@@ -1,0 +1,33 @@
+name: Publish reviewed worker deployment patch
+on:
+  push:
+    branches: ['fix/ARB-044-worker-deploy-gate']
+    paths: ['scripts/.worker-fix.part*', '.github/workflows/worker-fix-transport.yml']
+permissions:
+  contents: write
+jobs:
+  publish:
+    if: github.repository == 'makafeli/arbitrage-research' && github.ref == 'refs/heads/fix/ARB-044-worker-deploy-gate'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+      - name: Apply exact locally tested source and remove transport files
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = '00edabbc2c8dfb471b2a1709c6f917c43f219fd8'
+          cat scripts/.worker-fix.part0 scripts/.worker-fix.part1 scripts/.worker-fix.part2 > "$RUNNER_TEMP/worker.patch.gz"
+          echo "b38704c54b67cbc88368a1fa79ab0f46c77c78a598e701d22a6ec37ae1d3078b  $RUNNER_TEMP/worker.patch.gz" | sha256sum --check --strict
+          gzip -dc "$RUNNER_TEMP/worker.patch.gz" > "$RUNNER_TEMP/worker.patch"
+          git rm .github/workflows/worker-fix-transport.yml scripts/.worker-fix.part0 scripts/.worker-fix.part1 scripts/.worker-fix.part2
+          test "$(git write-tree)" = '9ca185e9cc444b7a4dd120767ce1836e399b887a'
+          git apply --index --whitespace=error-all "$RUNNER_TEMP/worker.patch"
+          test "$(git write-tree)" = '7233f9c0cadec3d869f7f9cd88f80326f9d155a4'
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Add exact-revision worker deployment gate and read-only readiness inspection' -m 'Source tree verified against locally tested patch. Temporary transport files removed. Full PR CI and review required before integration; no provider credentials or research activation.'
+          git push origin HEAD:refs/heads/fix/ARB-044-worker-deploy-gate
