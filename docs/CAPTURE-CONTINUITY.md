@@ -18,7 +18,7 @@ its normalized chain context, registry and pool scope. A database association is
 an explicit dependency assertion, not proof that arbitrary file contents were
 correctly decoded. This patch does not infer a binding from time, pool name or a
 healthy stream and does not invent bindings for historical captures. The current
-standalone capture worker does not yet create these associations automatically.
+research worker creates these associations automatically when an explicit source is configured, as described below.
 
 All associations are immutable. A capture already mentioned in stored decisions
 cannot be linked retrospectively. Session locking orders link registration and
@@ -29,7 +29,7 @@ Raw SQL clients remain trusted internal components, never browser clients.
 
 ## Existing publication path
 
-Once a session contains an association, the existing `decision_traces` insertion
+Once a session declares a required source or contains an association, the existing `decision_traces` insertion
 path automatically checks every new QUOTED decision with a database trigger.
 All one to eight distinct capture references must have matching manifest/snapshot
 IDs and capture generation. Every source must pass the PR139 continuity gate.
@@ -39,7 +39,7 @@ The worker's existing generation, epoch, configuration and trace checks remain.
 This does not replace them or grant additional execution eligibility.
 
 REJECTED, NO_ROUTE and DATA_UNAVAILABLE diagnostic rows can still be persisted
-after a halt. Sessions without associations keep their old recording behavior,
+after a halt. Sessions without a required source or associations keep their old recording behavior,
 but are explicitly UNTRACKED for this new gate. They are not claimed protected.
 Existing exact-retry/history reads do not rewrite or retract original evidence.
 
@@ -77,3 +77,49 @@ required. Actual results and tested commit IDs are recorded in the PR and #32.
 PostgreSQL lock/trigger semantics are documented at:
 - https://www.postgresql.org/docs/17/explicit-locking.html
 - https://www.postgresql.org/docs/17/trigger-datachanges.html
+
+## Explicit research-worker producer integration
+
+Set `ARB_BASE_INGESTION_STREAM` to an already initialized Base stream owned by the
+same operator. This is an internal identifier, not a URL, secret or trading switch.
+The application does not create a stream, issue extra RPC requests or deploy a
+worker merely because this code is present. The configured pool order, complete
+typed registry digest, ABI source revision and recorded/fixture origin must match
+the ingestion binding. The digest uses the same serialized `Vec<PoolRegistry>` as
+`base-ingest`, not the distinct outer runtime registry-document hash.
+
+After recovery to STOPPED and before the first provider request, the worker persists
+an immutable per-session source requirement. A later restart cannot omit it, change
+the stream or substitute another registry/origin. New quotes are guarded even before
+the first capture association. Existing untracked decision history cannot be promoted
+by turning the requirement on retrospectively; create a new research session instead.
+
+Each admitted complete capture batch must have one exact finalized block number,
+hash, parent hash and timestamp, plus the authorized per-pool registry and capture
+provenance. The adapter validates the original responses, and `write_bundle` commits
+the corresponding manifest/object digests before admission. All dependencies are
+then registered atomically under the same worker generation and source locks.
+The source must already retain the exact matching batch checkpoint: neither the
+nearest height nor a similarly timed or differently hashed block is substituted.
+An ingestion lag therefore produces a typed refusal, not optimistic publication or
+an unbounded catch-up attempt. The independent ingestion process still needs its
+own scheduling and resource budget.
+
+After a source HALT, new publication and current re-consumption fail while historical
+payloads remain readable and their separate validity becomes INVALIDATED. The worker
+retains a typed collection failure when source binding fails. This does not provide
+automatic recovery from terminal HALT, source rotation, Solana rollback, live trading
+or automatic virtual settlement.
+
+New worker publication uses `DecisionTrace::validate_for_publication` with at most
+eight references, matching the bounded acquisition contract. Existing schema-level
+`validate`, sealing, reads and exact retries retain the legacy representation so
+stored 9..64-reference non-route diagnostics do not become corrupt after deployment.
+Zero-input missing-data diagnostics remain valid. The number of decisions per batch
+is still independently bounded at 64; it is not the number of captures per decision.
+
+Tests use actual PostgreSQL and actual research-worker processes with the existing
+synthetic HTTP provider. They cover automatic matching, same-height/wrong-hash refusal,
+post-HALT exclusion, sticky source configuration, atomic rejected batches and the
+publication-reference boundary. CI run/commit results are recorded on the PR and #32;
+source code or this list alone is not a passed test or provider qualification.

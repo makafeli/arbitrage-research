@@ -1,5 +1,6 @@
 //! PostgreSQL-controlled OBSERVE/PAPER read-only capture and research runtime.
 //! Captures feed bounded research-only route evaluation. Gross quotes never imply fills or executable profit.
+mod capture_source;
 mod pipeline_metrics;
 mod stage_metrics;
 use pipeline_metrics::{Component, PipelineMetrics, persistence};
@@ -593,6 +594,7 @@ fn is_generation_fence(error: &StoreError) -> bool {
             "stale or fenced collection decisions"
                 | "decision generation is fenced"
                 | "stale or fenced capture"
+                | "stale or fenced capture binding"
                 | "capture generation is fenced"
                 | "worker lease lost"
         )
@@ -619,6 +621,7 @@ async fn finish_collection(
 }
 
 async fn run() -> Result<(), AnyError> {
+    let ingestion_stream = capture_source::setting()?;
     let metrics_enabled = stage_metrics::enabled()?;
     let config = ValidatedConfig::from_toml(&String::from_utf8(read_small(&required_env(
         "ARB_WORKER_CONFIG",
@@ -686,6 +689,7 @@ async fn run() -> Result<(), AnyError> {
         quota_bytes: config.capture_quota_bytes(),
         retention_days: config.capture_retention_days(),
     });
+    let bound_source = capture_source::configured(&plan, ingestion_stream.as_deref())?;
     let worker = ControlWorker::claim(
         store.clone(),
         &operator,
@@ -696,6 +700,9 @@ async fn run() -> Result<(), AnyError> {
     )
     .await?;
     worker.complete_recovery().await?;
+    worker
+        .configure_capture_ingestion_source(bound_source.as_ref())
+        .await?;
     println!(
         "{}",
         json!({"event":"worker-ready","session_id":session_id,"mode":expected_mode,"state":"STOPPED","capability":"capture-and-candidate-research","quote_ready":false})
@@ -804,6 +811,17 @@ async fn run() -> Result<(), AnyError> {
                                 } else { None };
                                 all_admitted &= admission.is_some();
                                 println!("{}",json!({"event":"capture-written","collection_attempt_id":collection.id,"capture_id":capture.capture_id,"manifest_digest":capture.manifest_digest,"admission":if admission.is_some(){"ADMITTED_RAW_CAPTURE"}else{"UNADMITTED_RAW_CAPTURE"},"research_attempt_id":admission,"quote_ready":false}));
+                            }
+                            if all_admitted && let Some(source) = &bound_source {
+                                let work = generation.expect("admitted capture has generation");
+                                match capture_source::bind_batch(&worker, work, &plan, source, &batch).await {
+                                    Ok(()) => {},
+                                    Err(error) if is_generation_fence(&error) => all_admitted = false,
+                                    Err(error) => {
+                                        finish_collection(&worker, &collection, CollectionOutcome::AcquisitionFailed, Some(CollectionReason::InputValidationFailed)).await?;
+                                        return Err(error.into());
+                                    }
+                                }
                             }
                             scheduler.set_gate(network, worker.generation().await.ok())?;
                             if all_admitted {

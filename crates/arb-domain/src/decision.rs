@@ -8,6 +8,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{collections::HashSet, fmt};
 
+/// Maximum source set for a newly published worker decision; legacy readers stay compatible.
+pub const MAX_PUBLICATION_CAPTURE_REFS: usize = 8;
 pub const DECISION_SCHEMA_VERSION: &str = "1.0.0";
 pub const FRESHNESS_DECISION_SCHEMA_VERSION: &str = "1.1.0";
 pub const GROUPING_VERSION: &str = "route-size-window-v1";
@@ -215,6 +217,18 @@ fn valid_codes(codes: &[String]) -> bool {
     !codes.is_empty() && allowed_codes(codes)
 }
 impl DecisionTrace {
+    /// Validate newly admitted worker output. Historical schema validation and
+    /// exact retries remain compatible; missing-data diagnostics may have no inputs.
+    pub fn validate_for_publication(&self) -> Result<(), DecisionError> {
+        if self.capture_refs.len() > MAX_PUBLICATION_CAPTURE_REFS {
+            return Err(invalid(
+                "capture_refs",
+                "new publication supports at most eight capture references",
+            ));
+        }
+        self.validate()
+    }
+
     /// Content-address one immutable observation. Grouping is an additional key;
     /// it never replaces or deletes raw quoted, rejected or missing-input rows.
     pub fn seal(mut self) -> Result<Self, DecisionError> {

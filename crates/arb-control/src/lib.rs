@@ -1,5 +1,6 @@
 //! Session-local research control with durable acknowledgements and cancellation fences.
 //! Chain capture CLIs are separate processes until explicitly integrated with this runner.
+mod capture_source;
 use arb_storage::{Store, StoreError, WorkerClaim, WorkerUpdate};
 use std::{sync::Arc, time::Duration};
 use tokio::{sync::Mutex, time::Instant};
