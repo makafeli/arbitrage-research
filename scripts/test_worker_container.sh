@@ -39,22 +39,22 @@ PYJSON
 expect_failure 'Worker requires its persistent volume at /data' \
     docker run --rm --pull=never --network none --read-only "$image" base-ingest --check
 
-# Entry point creates exactly the private capture directory and drops root.
-"${run[@]}" "$image" sh -ceu '
-    test "$(id -u)" = 10001
-    test "$(id -g)" = 10001
-    test "$(stat -c %u /data/captures)" = 10001
-    test "$(stat -c %g /data/captures)" = 10001
-    test "$(stat -c %a /data/captures)" = 700
-    test -s /app/config/research.example.toml
-    file=$(mktemp /data/captures/package-check.XXXXXX)
-    printf %s worker-volume-check > "$file"
-    sync -f "$file"
-    test "$(cat "$file")" = worker-volume-check
-    rm -- "$file"
-    base-ingest --check
-' > "$work/root.json"
-verify_inert "$work/root.json"
+# Test the same finite command used for the hosted storage preflight.
+"${run[@]}" "$image" worker-volume-check > "$work/preflight.jsonl"
+python3 - "$work/preflight.jsonl" <<'PYJSON'
+import json, sys
+with open(sys.argv[1], encoding='utf-8') as stream:
+    records = [json.loads(line) for line in stream]
+assert len(records) == 2
+assert records[0]['status'] == 'NOT_STARTED'
+assert records[0]['provider_requests'] == 0
+assert records[0]['execution_authorized'] is False
+assert records[1] == {
+    'status': 'VOLUME_CHECK_PASSED', 'worker_started': False,
+    'provider_requests': 0, 'database_requests': 0, 'execution_authorized': False,
+    'uid': 10001, 'gid': 10001, 'capture_directory_mode': '0700',
+}
+PYJSON
 
 # An already unprivileged deployment can use the same prepared volume.
 "${run[@]}" --user 10001:10001 "$image" base-ingest --check > "$work/nonroot.json"

@@ -37,13 +37,18 @@ export default defineRailway((ctx) => {
       ARB_API_HOST: api.env.RAILWAY_PRIVATE_DOMAIN,
     },
   });
-  // Prepared production resources only: no source, start command or RPC secret.
-  // Connecting a source and initializing a session remain separate reviewed steps.
+  // One-shot storage preflight only. Never starts research or initializes a source.
+  // Runtime activation requires a separately reviewed configuration/session.
   const baseCaptures = volume("base-research-captures", {
     region: "europe-west4-drams3a",
     sizeMB: 1024,
   });
   const baseWorker = service("base-research-worker", {
+    source: github("makafeli/arbitrage-research", {
+      branch: "main",
+      checkSuites: true,
+    }),
+    start: "worker-entrypoint worker-volume-check",
     replicas: { "europe-west4-drams3a": 1 },
     build: { dockerfilePath: "deploy/Dockerfile.worker" },
     deploy: { restartPolicyType: "NEVER" },

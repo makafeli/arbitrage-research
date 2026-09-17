@@ -29,18 +29,29 @@ missing environment variables are not proof that stored sessions do not exist.
 
 ## Repository and image changes
 
+The desired worker source is the same GitHub repository on main with Wait for CI.
+Its explicit start command is `worker-entrypoint worker-volume-check`, a finite
+storage preflight, **not** the research loop. Restart policy NEVER prevents that
+completed command being restarted. The dated checkpoint above predates attachment;
+read the current issue and Railway deployment for the actual applied state.
+The preflight writes, syncs, reads back and deletes only one uniquely named probe
+inside the dedicated capture directory. It emits VOLUME_CHECK_PASSED and exits.
+It performs no provider/database request, source initialization or session START.
+
+
 The full `.railway/railway.ts` graph now includes the prepared worker and dedicated
-volume. It deliberately does not attach a source or add an initialization/start
-command. Review the complete target plan before any later `config apply`; the
+volume. Its declared source/start command are limited to the storage preflight, not
+initialization or research activation. Review the complete target plan before any later `config apply`; the
 existing web/API/database resources must remain. This change has not executed an
-authenticated CLI plan and makes no zero-drift claim. Source omission is not a
-runtime lock: do not attach one out of band before reviewing configuration.
+authenticated CLI plan and makes no zero-drift claim. The preflight start command is not a
+permanent runtime lock: replacing it requires a separate configuration review.
 
 The existing worker image packages both `research-worker` and `base-ingest` from
 the same source, plus only the disabled research template. Owner activation data,
-RPC values and enabled production registries are not copied. The default command
-remains `research-worker`; adding a CLI never invokes its migrations, initialization
-or collection actions automatically. The image build runs only `base-ingest --check`,
+RPC values and enabled production registries are not copied. The image default command
+remains `research-worker`, while Railway explicitly overrides it with the one-shot
+preflight. Adding a CLI never invokes its migrations, initialization or collection
+actions automatically. The image build runs only `base-ingest --check`,
 which reports NOT_STARTED, zero provider requests and no execution authorization.
 
 The entrypoint rejects `/data` indirection and a capture path that is a symlink or
@@ -69,7 +80,8 @@ filesystem and one newly created disposable volume. Six scenarios check:
 5. A symlink at `/data/captures` is refused.
 6. A regular file at `/data/captures` is refused.
 
-Both successful check invocations must return the exact inert CLI result. The
+The hosted-preflight command must return the inert CLI result and the exact
+VOLUME_CHECK_PASSED record. Direct check also verifies the full inert result. The
 script removes only its own disposable volume and temporary output directory.
 It passes no database or provider credentials and never starts the research loop.
 The existing full CI checks remain mandatory. Consult the PR and #58 for actual
@@ -95,8 +107,9 @@ The integrator still owns the following deployment work under #58:
   the exact same validated profile with API and worker, select the immutable
   research session, and initialize a new source only when genuinely required.
   Use the existing CLI's explicit actions, never implicit reseeding or HALT reset.
-- Attach the reviewed GitHub source with Wait for CI, verify mounted-file
-  permissions and seed/source binding, then deploy and inspect the actual worker.
+- Verify the finite storage preflight deployment, then inspect mounted-file
+  permissions and seed/source binding before replacing the preflight command with
+  the actual research worker. Source attachment alone does not start research.
   Pre-deploy hooks have no mounted capture volume; do not use one as a substitute
   for mounted runtime initialization.
 - Exercise real-data capture, authenticated START/STOP acknowledgement and restart

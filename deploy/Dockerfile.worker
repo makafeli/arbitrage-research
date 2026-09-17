@@ -14,7 +14,8 @@ COPY --from=build /src/target/release/base-ingest /usr/local/bin/base-ingest
 # Disabled template only. Never package account bootstrap data or RPC credentials.
 COPY config/research.example.toml /app/config/research.example.toml
 COPY deploy/worker-entrypoint.sh /usr/local/bin/worker-entrypoint
-RUN chmod 755 /usr/local/bin/worker-entrypoint \
+COPY deploy/worker-volume-check.sh /usr/local/bin/worker-volume-check
+RUN chmod 755 /usr/local/bin/worker-entrypoint /usr/local/bin/worker-volume-check \
     && base-ingest --check
 ENTRYPOINT ["worker-entrypoint"]
 CMD ["research-worker"]
