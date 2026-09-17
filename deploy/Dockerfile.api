@@ -9,9 +9,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
     && useradd --uid 10001 --create-home arb
 WORKDIR /app
 COPY --from=build /src/target/release/control-api /usr/local/bin/control-api
+COPY --from=build /src/target/release/worker-profile-check /usr/local/bin/worker-profile-check
+COPY deploy/api-entrypoint.sh /usr/local/bin/api-entrypoint
+RUN chmod 755 /usr/local/bin/api-entrypoint
 COPY config/research.example.toml /app/config/research.example.toml
 COPY config/owner-bootstrap.json /app/config/owner-bootstrap.json
 USER 10001:10001
 ENV ARB_API_BIND_IP=:: ARB_API_PORT=8080
 EXPOSE 8080
-ENTRYPOINT ["control-api"]
+ENTRYPOINT ["api-entrypoint"]
