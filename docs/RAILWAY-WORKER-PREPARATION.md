@@ -43,6 +43,14 @@ start the market worker or contact Base. Up to 20 sessions/streams are returned;
 counts identify truncation. Missing settings remain listed by name only. Even a
 complete metadata report always states runtime_qualified=false.
 
+Database inspection defaults to `sslmode=require` and refuses `prefer`, `allow`,
+`disable` and empty mode values before connecting. This enforces encryption without
+claiming authenticated server identity; `require` is not `verify-full`. The container
+drill first proves refusal of a reachable plaintext-only server, then enables
+throwaway TLS and verifies the same read-only role succeeds without state changes.
+Workflow basenames may contain dots; this does not relax mandatory checks or allow
+additional failed workflows to pass the gate.
+
 The image includes Python and a PostgreSQL client for these finite operational
 commands; the research loop is unchanged. Tests use synthetic metadata and a
 separate pinned PostgreSQL container with a SELECT-only role. Original package,

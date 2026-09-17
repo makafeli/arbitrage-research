@@ -122,11 +122,11 @@ def inspect(environment: dict[str, str], runner=subprocess.run) -> dict:
                 and bool(parsed.username) and parsed.path.startswith('/') and len(parsed.path) > 1
                 and not parsed.fragment,
                 'DATABASE_SETTING_MISSING_OR_INVALID')
-        options = urllib.parse.parse_qs(parsed.query, strict_parsing=True)
+        options = urllib.parse.parse_qs(parsed.query, strict_parsing=True, keep_blank_values=True)
         require(set(options).issubset({'sslmode'})
                 and all(len(v) == 1 for v in options.values()), 'DATABASE_SETTING_MISSING_OR_INVALID')
-        sslmode = options.get('sslmode', ['prefer'])[0]
-        require(sslmode in {'prefer', 'require', 'verify-ca', 'verify-full'},
+        sslmode = options.get('sslmode', ['require'])[0]
+        require(sslmode in {'require', 'verify-ca', 'verify-full'},
                 'DATABASE_SETTING_MISSING_OR_INVALID')
         port = str(parsed.port or 5432)
         user = urllib.parse.unquote(parsed.username)

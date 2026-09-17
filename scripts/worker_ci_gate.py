@@ -99,7 +99,7 @@ def assess(payload: object, sha: str) -> tuple[bool, dict[str, int]]:
             require(isinstance(repo, dict) and repo.get('id') == REPOSITORY_ID
                     and repo.get('full_name') == REPOSITORY, 'CI_SCOPE_MISMATCH')
         path, rid = run.get('path'), run.get('id')
-        require(isinstance(path, str) and re.fullmatch(r'\.github/workflows/[A-Za-z0-9_-]+\.ya?ml', path)
+        require(isinstance(path, str) and re.fullmatch(r'\.github/workflows/[A-Za-z0-9_.-]+\.ya?ml', path)
                 is not None)
         require(positive_int(rid) and positive_int(run.get('run_attempt'))
                 and positive_int(run.get('run_number')) and rid not in identities)

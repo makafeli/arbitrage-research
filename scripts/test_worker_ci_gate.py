@@ -102,6 +102,27 @@ class GateTests(unittest.TestCase):
         with self.assertRaises(gate.GateError):
             gate.assess(value, SHA)
 
+    def test_dotted_workflow_names_keep_required_and_failure_checks(self):
+        for path in ['.github/workflows/release.v2.yml', '.github/workflows/quality.check.yaml']:
+            value = fixture()
+            extra = copy.deepcopy(value['workflow_runs'][0])
+            extra.update(id=4, path=path, conclusion='success')
+            value['workflow_runs'].append(extra)
+            value['total_count'] += 1
+            with self.subTest(path=path):
+                self.assertTrue(gate.assess(value, SHA)[0])
+                extra['conclusion'] = 'failure'
+                with self.assertRaisesRegex(gate.GateError, 'CI_CHECK_FAILED'):
+                    gate.assess(value, SHA)
+                extra['conclusion'] = 'skipped'
+                self.assertTrue(gate.assess(value, SHA)[0])
+        for path in ['.github/workflows/../ci.yml', '.github/workflows/sub/ci.yml',
+                     '.github/workflows/ci.json', 'other/ci.yml']:
+            value = fixture()
+            value['workflow_runs'][0]['path'] = path
+            with self.subTest(path=path), self.assertRaises(gate.GateError):
+                gate.assess(value, SHA)
+
     def test_wait_is_finite_and_does_not_repeat_failure(self):
         reads, pauses = [], []
         def reader(sha):

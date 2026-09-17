@@ -108,6 +108,26 @@ class ReadinessTests(unittest.TestCase):
                                'ARB_DATABASE_URL': 'postgres://test:private@db/test' + suffix},
                               lambda *a, **k: self.fail('must not run'))
 
+    def test_tls_is_required_by_default_and_never_downgraded(self):
+        for suffix in ['', '?sslmode=require', '?sslmode=verify-ca', '?sslmode=verify-full']:
+            def runner(argv, **kwargs):
+                expected = suffix.partition('=')[2] or 'require'
+                self.assertEqual(kwargs['env']['PGSSLMODE'], expected)
+                kwargs['stdout'].write(json.dumps(fixture()).encode())
+                return SimpleNamespace(returncode=0)
+            with self.subTest(suffix=suffix):
+                self.assertEqual(ready.inspect({
+                    'ARB_OPERATOR_ID': 'operator',
+                    'ARB_DATABASE_URL': 'postgres://test:private@db/test' + suffix,
+                }, runner)['status'], 'WORKER_READINESS_INSPECTED')
+        for mode in ['prefer', 'allow', 'disable', '', 'invented']:
+            with self.subTest(mode=mode), self.assertRaisesRegex(
+                    ready.ReadinessError, 'DATABASE_SETTING_MISSING_OR_INVALID'):
+                ready.inspect({
+                    'ARB_OPERATOR_ID': 'operator',
+                    'ARB_DATABASE_URL': 'postgres://test:private@db/test?sslmode=' + mode,
+                }, lambda *a, **k: self.fail('plaintext fallback must never execute'))
+
     def test_main_refuses_arguments_and_redacts_environment(self):
         output = io.StringIO()
         with patch.dict(os.environ, {}, clear=True), redirect_stderr(output):
