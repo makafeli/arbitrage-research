@@ -29,6 +29,17 @@ Root integration owns shared manifests, lockfiles, CI, publication and final acc
 
 ## Current delivery checkpoint
 
+### Worker deployment gate and state inspection, 17 September 2026
+
+Continue existing #58 after PR144/`00edabbc`. The prepared private worker now has
+an explicit pre-deploy exact-revision CI gate and a finite read-only database
+readiness command. Neither claims a running market feed. See
+[worker preparation](docs/RAILWAY-WORKER-PREPARATION.md). Native CI-switch mutation
+has not persisted; the pre-deploy gate is independently enforced. Required provider
+credentials cannot be inferred from settings names. Original task/epic acceptance
+is unchanged; actual review, integration and hosted results live on the current PR
+and #58. Do not repeat account setup or the verified storage preflight.
+
 ### Managed Base source catch-up, 17 September 2026
 
 Continue existing #58/#32/#30 from integrated `72b1dfab`. The research worker can

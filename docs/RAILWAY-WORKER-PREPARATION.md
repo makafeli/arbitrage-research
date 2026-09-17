@@ -3,7 +3,60 @@
 Existing task: ARB-044 / #58. This record is not acceptance of the full deployment,
 provider qualification, automatic paper settlement or live execution.
 
-## Connected infrastructure checkpoint: 17 September 2026
+## Current continuation: enforced pre-deploy CI and read-only readiness
+
+The native worker `checkSuites` switch did not persist through the connected
+configuration action. It must not be described as enabled. The worker now has an
+independent pre-deploy command:
+
+```text
+python3 -I /usr/local/lib/arb/worker_ci_gate.py
+```
+
+Railway blocks deployment when a pre-deploy command fails. This command checks
+only GitHub's public metadata for the exact Railway-provided main commit and
+repository. It requires successful main/push runs for ci.yml, recovery-review.yml
+and delivery-review.yml; PR-only, missing, cancelled, neutral or skipped mandatory
+runs cannot pass. Latest runs govern retries. Any additional failed main/push
+workflow also blocks. Unknown response types, truncated results, redirects,
+network errors and exhausted waiting are failures, not permission to deploy.
+
+It makes at most 12 API requests, waits 20 seconds between pending results and
+has a 360-second wall limit. It needs no GitHub/Railway token or RPC credential.
+An API quota failure can legitimately prevent a deployment; rerun only after
+checking the recorded reason. This does not promise that the UI checkbox is true,
+that builds themselves wait, or that administrators cannot override deployment
+configuration. It enforces runtime admission through the explicit pre-deploy step.
+
+The subsequent finite start command is:
+
+```text
+worker-entrypoint worker-readiness-check
+```
+
+It reuses the mounted volume check, then runs fixed SELECT queries in a read-only
+transaction with statement/lock/connect/process limits. Only scoped counts and
+bounded session/source identifiers, states and digests are returned. Account
+tables, configuration bodies, provider URLs, passwords and free-text errors are
+not read or logged. It does not migrate, create a session, initialize/rearm a source,
+start the market worker or contact Base. Up to 20 sessions/streams are returned;
+counts identify truncation. Missing settings remain listed by name only. Even a
+complete metadata report always states runtime_qualified=false.
+
+The image includes Python and a PostgreSQL client for these finite operational
+commands; the research loop is unchanged. Tests use synthetic metadata and a
+separate pinned PostgreSQL container with a SELECT-only role. Original package,
+Rust, API and browser checks remain required. Check the current PR/#58 for real
+CI, merge and hosted results instead of inferring success from this runbook.
+
+The Base URL remains a required confidential input. It is absent from the last
+observed Railway namespace inventory and cannot be invented from a variable name.
+The integrator owns the remaining matching runtime configuration, state inspection,
+explicit initialization and control/recovery exercise. Do not instruct the owner
+to invent session IDs, pool registries or disable tests. Automatic paper settlement
+and original release acceptance remain separate, unfinished work.
+
+## Historical infrastructure checkpoint: PR144, 17 September 2026
 
 The authenticated Railway connection confirmed the following production resources:
 
@@ -27,7 +80,7 @@ again for current deployment state rather than treating this dated record as liv
 health monitoring. No production database session or stream query was performed;
 missing environment variables are not proof that stored sessions do not exist.
 
-## Repository and image changes
+## Historical PR144 repository and image changes
 
 The desired worker source is the same GitHub repository on main with Wait for CI.
 Its explicit start command is `worker-entrypoint worker-volume-check`, a finite
@@ -61,7 +114,7 @@ prepared unprivileged invocation still works. These checks do not constitute a
 lock against a hostile concurrent volume writer; keep the existing single-owner
 volume/process rule.
 
-## Actual container verification
+## Historical PR144 container verification
 
 The mandatory `containers` job now runs:
 

@@ -70,4 +70,9 @@ expect_failure 'Worker capture path must be a real directory' \
 "${run[@]}" --entrypoint sh "$image" -ceu 'rm /data/captures; touch /data/captures'
 expect_failure 'Worker capture path must be a real directory' \
     "${run[@]}" "$image" base-ingest --check
-printf '%s\n' 'Worker package: six container scenarios passed; no network, database, provider or trade.'
+# Deployment guards refuse missing source or database metadata without networking.
+expect_failure 'CI_SOURCE_REJECTED' docker run --rm --pull=never --network none --read-only \
+    --entrypoint python3 "$image" -I /usr/local/lib/arb/worker_ci_gate.py
+expect_failure 'OPERATOR_SETTING_MISSING_OR_INVALID' docker run --rm --pull=never --network none --read-only \
+    --entrypoint python3 "$image" -I /usr/local/lib/arb/worker_readiness.py
+printf '%s\n' 'Worker package: eight container scenarios passed; no network, database, provider or trade.'
