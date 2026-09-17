@@ -5,8 +5,15 @@ use arb_storage::{CaptureSourceBinding, IngestionHead};
 fn parse_setting(value: Option<&str>) -> Result<Option<String>, AnyError> {
     match value {
         None => Ok(None),
-        Some(value) if !value.is_empty() && value.len() <= 128
-            && value.bytes().all(|c| c.is_ascii_alphanumeric() || b"-_.:".contains(&c)) => Ok(Some(value.into())),
+        Some(value)
+            if !value.is_empty()
+                && value.len() <= 128
+                && value
+                    .bytes()
+                    .all(|c| c.is_ascii_alphanumeric() || b"-_.:".contains(&c)) =>
+        {
+            Ok(Some(value.into()))
+        }
         _ => Err("invalid Base ingestion stream setting".into()),
     }
 }
@@ -21,12 +28,22 @@ pub(super) fn setting() -> Result<Option<String>, AnyError> {
 
 /// Use the same typed, ordered pool-registry serialization as base-ingest. A shared
 /// pool name or observation time is never sufficient to associate independent inputs.
-pub(super) fn configured(plan: &CapturePlan, stream: Option<&str>) -> Result<Option<CaptureSourceBinding>, AnyError> {
-    let Some(stream) = stream else { return Ok(None); };
-    let pools = plan.registry.pools().iter().map(|pool| match pool {
-        PoolRegistry::Base(pool) => Ok(pool.clone()),
-        _ => Err("Base ingestion cannot bind a different network"),
-    }).collect::<Result<Vec<_>,_>>()?;
+pub(super) fn configured(
+    plan: &CapturePlan,
+    stream: Option<&str>,
+) -> Result<Option<CaptureSourceBinding>, AnyError> {
+    let Some(stream) = stream else {
+        return Ok(None);
+    };
+    let pools = plan
+        .registry
+        .pools()
+        .iter()
+        .map(|pool| match pool {
+            PoolRegistry::Base(pool) => Ok(pool.clone()),
+            _ => Err("Base ingestion cannot bind a different network"),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     let mut addresses: Vec<_> = pools.iter().map(|p| p.pool.to_lowercase()).collect();
     addresses.sort();
     let origin = match plan.origin {
@@ -51,14 +68,21 @@ pub(super) fn configured(plan: &CapturePlan, stream: Option<&str>) -> Result<Opt
 
 fn checkpoint(context: &StateContext) -> Result<IngestionHead, StoreError> {
     match context {
-        StateContext::Evm { block_number, block_hash, parent_hash, block_timestamp_seconds, finality }
-            if finality == "finalized" => Ok(IngestionHead {
-                number: *block_number,
-                hash: block_hash.to_lowercase(),
-                parent_hash: parent_hash.to_lowercase(),
-                timestamp_seconds: *block_timestamp_seconds,
-            }),
-        _ => Err(StoreError::InvalidInput("capture source requires finalized Base context")),
+        StateContext::Evm {
+            block_number,
+            block_hash,
+            parent_hash,
+            block_timestamp_seconds,
+            finality,
+        } if finality == "finalized" => Ok(IngestionHead {
+            number: *block_number,
+            hash: block_hash.to_lowercase(),
+            parent_hash: parent_hash.to_lowercase(),
+            timestamp_seconds: *block_timestamp_seconds,
+        }),
+        _ => Err(StoreError::InvalidInput(
+            "capture source requires finalized Base context",
+        )),
     }
 }
 
@@ -71,30 +95,48 @@ pub(super) async fn bind_batch(
     source: &CaptureSourceBinding,
     batch: &CompletedBatch,
 ) -> Result<(), StoreError> {
-    let invalid = || StoreError::InvalidInput("capture batch differs from configured ingestion source");
-    if batch.captures.is_empty() || batch.captures.len() != plan.registry.pools().len()
-        || batch.captures.len() > arb_domain::MAX_PUBLICATION_CAPTURE_REFS {
+    let invalid =
+        || StoreError::InvalidInput("capture batch differs from configured ingestion source");
+    if batch.captures.is_empty()
+        || batch.captures.len() != plan.registry.pools().len()
+        || batch.captures.len() > arb_domain::MAX_PUBLICATION_CAPTURE_REFS
+    {
         return Err(invalid());
     }
     let mut common = None;
     let mut references = Vec::with_capacity(batch.captures.len());
     for (capture, expected) in batch.captures.iter().zip(plan.registry.pools()) {
-        let (arb_engine::PoolState::Base { snapshot, registry }, PoolRegistry::Base(expected)) = (&capture.pool.state, expected) else { return Err(invalid()); };
+        let (arb_engine::PoolState::Base { snapshot, registry }, PoolRegistry::Base(expected)) =
+            (&capture.pool.state, expected)
+        else {
+            return Err(invalid());
+        };
         if !snapshot.quality.coherent
-            || serde_json::to_value(registry).map_err(|_| invalid())? != serde_json::to_value(expected).map_err(|_| invalid())?
+            || serde_json::to_value(registry).map_err(|_| invalid())?
+                != serde_json::to_value(expected).map_err(|_| invalid())?
             || capture.pool.configuration_digest != plan.config_digest
             || capture.pool.origin.label() != source.binding.dataset_origin
             || capture.pool.capture.capture_id != capture.capture_id
             || capture.pool.capture.manifest_digest != capture.manifest_digest
-            || capture.pool.capture.snapshot_id != capture.manifest_digest {
+            || capture.pool.capture.snapshot_id != capture.manifest_digest
+        {
             return Err(invalid());
         }
         let head = checkpoint(&snapshot.context)?;
-        if common.as_ref().is_some_and(|previous| previous != &head) { return Err(invalid()); }
+        if common.as_ref().is_some_and(|previous| previous != &head) {
+            return Err(invalid());
+        }
         common = Some(head);
         references.push(capture.pool.capture.clone());
     }
-    worker.bind_captures_to_ingestion(generation, source, &common.ok_or_else(invalid)?, &references).await
+    worker
+        .bind_captures_to_ingestion(
+            generation,
+            source,
+            &common.ok_or_else(invalid)?,
+            &references,
+        )
+        .await
 }
 
 #[cfg(test)]
@@ -104,8 +146,17 @@ mod tests {
     #[test]
     fn stream_setting_is_explicit_bounded_and_never_echoes_secrets() {
         assert!(parse_setting(None).unwrap().is_none());
-        assert_eq!(parse_setting(Some("base:research-1")).unwrap().as_deref(), Some("base:research-1"));
-        for value in ["", " ", "https://example.invalid/private-secret", "a/b", "new\nsource"] {
+        assert_eq!(
+            parse_setting(Some("base:research-1")).unwrap().as_deref(),
+            Some("base:research-1")
+        );
+        for value in [
+            "",
+            " ",
+            "https://example.invalid/private-secret",
+            "a/b",
+            "new\nsource",
+        ] {
             let error = parse_setting(Some(value)).unwrap_err().to_string();
             assert_eq!(error, "invalid Base ingestion stream setting");
         }
@@ -128,8 +179,18 @@ mod tests {
         assert_eq!(head.parent_hash, format!("0x{}", "cd".repeat(32)));
         assert_eq!(head.timestamp_seconds, 100);
         let mut unsafe_context = context;
-        if let StateContext::Evm { finality, .. } = &mut unsafe_context { *finality = "latest".into(); }
+        if let StateContext::Evm { finality, .. } = &mut unsafe_context {
+            *finality = "latest".into();
+        }
         assert!(checkpoint(&unsafe_context).is_err());
-        assert!(checkpoint(&StateContext::Solana { slot: 1, genesis_hash: "different-network".into(), commitment: "finalized".into(), account_context: "single-response".into() }).is_err());
+        assert!(
+            checkpoint(&StateContext::Solana {
+                slot: 1,
+                genesis_hash: "different-network".into(),
+                commitment: "finalized".into(),
+                account_context: "single-response".into()
+            })
+            .is_err()
+        );
     }
 }

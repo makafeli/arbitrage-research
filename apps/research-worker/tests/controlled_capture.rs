@@ -1832,3 +1832,6 @@ async fn canonical_batch_failure_admits_no_partial_captures_or_decisions() {
     drop(worker);
     fs::remove_dir_all(root).unwrap();
 }
+
+#[path = "support/capture_source_process.rs"]
+mod capture_source_process;

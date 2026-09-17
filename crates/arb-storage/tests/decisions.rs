@@ -911,3 +911,6 @@ async fn malformed_present_snapshot_policy_never_becomes_an_absent_legacy_policy
         ));
     }
 }
+
+#[path = "support/capture_source_cases.rs"]
+mod capture_source_cases;

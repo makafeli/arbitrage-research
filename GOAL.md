@@ -29,6 +29,16 @@ Root integration owns shared manifests, lockfiles, CI, publication and final acc
 
 ## Current delivery checkpoint
 
+### Producer/source integration, 17 September 2026
+
+Continue existing #32/#30 from main `bc8a2106`. The research worker now has an explicit,
+per-session persistent Base ingestion source requirement and automatic exact-context
+capture associations. New publication is bounded independently from legacy history
+validation. See [capture continuity](docs/CAPTURE-CONTINUITY.md). Actual test, review,
+merge and deployment state must be read from the current PR and native issue. No new
+task, owner account change, provider purchase, worker activation or live trade is implied.
+The older checkpoints below retain their historical source-specific claims.
+
 ### Bounded reconnect continuation, 16 September 2026
 
 Base source `7494574e` already includes the deployed account login and Paper/Real

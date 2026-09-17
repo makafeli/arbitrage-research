@@ -11,11 +11,18 @@ impl ControlWorker {
         let mut gate = self.gate.lock().await;
         if gate.open || gate.recovery_required || Instant::now() >= gate.lease_deadline {
             gate.open = false;
-            return Err(StoreError::Conflict("capture source configuration requires recovered worker"));
+            return Err(StoreError::Conflict(
+                "capture source configuration requires recovered worker",
+            ));
         }
         gate.recovery_required = true;
-        let result = self.store.configure_capture_ingestion_source(&self.claim, source).await;
-        if result.is_ok() { gate.recovery_required = false; }
+        let result = self
+            .store
+            .configure_capture_ingestion_source(&self.claim, source)
+            .await;
+        if result.is_ok() {
+            gate.recovery_required = false;
+        }
         result
     }
 
@@ -28,13 +35,18 @@ impl ControlWorker {
         captures: &[arb_domain::DecisionCaptureRef],
     ) -> Result<(), StoreError> {
         let mut gate = self.gate.lock().await;
-        if Instant::now() >= gate.lease_deadline { gate.open = false; }
+        if Instant::now() >= gate.lease_deadline {
+            gate.open = false;
+        }
         if !gate.open || work.generation != gate.generation || work.epoch != self.claim.epoch() {
             return Err(StoreError::Conflict("stale or fenced capture binding"));
         }
         gate.open = false;
         gate.recovery_required = true;
-        let result = self.store.bind_captures_to_ingestion(&self.claim, work.generation, source, checkpoint, captures).await;
+        let result = self
+            .store
+            .bind_captures_to_ingestion(&self.claim, work.generation, source, checkpoint, captures)
+            .await;
         if result.is_ok() {
             gate.recovery_required = false;
             gate.open = true;

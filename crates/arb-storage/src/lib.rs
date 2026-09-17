@@ -4,6 +4,8 @@ pub use accounts::*;
 mod collection;
 mod ingestion;
 pub use ingestion::*;
+mod capture_source;
+pub use capture_source::*;
 mod costs;
 mod decisions;
 mod exports;
