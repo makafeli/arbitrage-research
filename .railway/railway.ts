@@ -37,7 +37,7 @@ export default defineRailway((ctx) => {
       ARB_API_HOST: api.env.RAILWAY_PRIVATE_DOMAIN,
     },
   });
-  // One-shot storage preflight only. Never starts research or initializes a source.
+  // One-shot storage and read-only metadata inspection; never starts research.
   // Runtime activation requires a separately reviewed configuration/session.
   const baseCaptures = volume("base-research-captures", {
     region: "europe-west4-drams3a",
@@ -48,10 +48,14 @@ export default defineRailway((ctx) => {
       branch: "main",
       checkSuites: true,
     }),
-    start: "worker-entrypoint worker-volume-check",
+    start: "worker-entrypoint worker-readiness-check",
     replicas: { "europe-west4-drams3a": 1 },
     build: { dockerfilePath: "deploy/Dockerfile.worker" },
-    deploy: { restartPolicyType: "NEVER" },
+    deploy: {
+      restartPolicyType: "NEVER",
+      // Enforced independently of the provider's native Wait for CI toggle.
+      preDeployCommand: ["python3 -I /usr/local/lib/arb/worker_ci_gate.py"],
+    },
     volumeMounts: { "/data": baseCaptures },
     env: {
       ARB_DATABASE_URL: db.env.DATABASE_URL,
