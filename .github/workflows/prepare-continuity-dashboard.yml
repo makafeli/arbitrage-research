@@ -1,0 +1,50 @@
+name: Prepare scoped continuity dashboard source
+on:
+  push:
+    branches: [feat/ARB-037-continuity-dashboard]
+    paths: [scripts/prepare-continuity-dashboard.py, .github/workflows/prepare-continuity-dashboard.yml]
+permissions:
+  contents: write
+jobs:
+  prepare:
+    if: github.repository == 'makafeli/arbitrage-research' && github.actor == 'makafeli'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Apply exact-base transformations and pinned formatting
+        run: |
+          python3 scripts/prepare-continuity-dashboard.py
+          rustup toolchain install 1.90.0 --profile minimal --component rustfmt
+          cargo +1.90.0 fmt --all
+          git diff --check
+      - name: Publish only the prepared feature source and remove preparation files
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import base64, os, subprocess
+          branch='feat/ARB-037-continuity-dashboard'
+          assert os.environ['GITHUB_REF']=='refs/heads/'+branch
+          head=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
+          assert head==os.environ['GITHUB_SHA']
+          files=['crates/arb-storage/src/lib.rs','crates/arb-storage/tests/capture_continuity.rs','apps/control-api/src/lib.rs','apps/control-api/src/research.rs','apps/control-api/src/tests.rs','apps/web/src/api/client.ts','apps/web/src/components/DecisionExplorer.tsx','apps/web/tests/browser/research.spec.ts','specs/openapi.yaml','GOAL.md','planning/implementation-progress.json','crates/arb-storage/src/continuity_read.rs']
+          modified=subprocess.check_output(['git','diff','--name-only'],text=True).splitlines()
+          assert set(modified)<=set(files), modified
+          subprocess.run(['git','add','--',*files],check=True)
+          subprocess.run(['git','rm','--','scripts/prepare-continuity-dashboard.py','.github/workflows/prepare-continuity-dashboard.yml'],check=True)
+          subprocess.run(['git','config','user.name','github-actions[bot]'],check=True)
+          subprocess.run(['git','config','user.email','41898282+github-actions[bot]@users.noreply.github.com'],check=True)
+          subprocess.run(['git','commit','-m','Connect authenticated decision continuity diagnostics and browser evidence'],check=True)
+          env=dict(os.environ)
+          env.update(GIT_CONFIG_COUNT='1',GIT_CONFIG_KEY_0='http.https://github.com/.extraheader',GIT_CONFIG_VALUE_0='AUTHORIZATION: basic '+base64.b64encode(('x-access-token:'+os.environ['GH_TOKEN']).encode()).decode())
+          current=subprocess.check_output(['git','ls-remote','origin','refs/heads/'+branch],env=env,text=True).split()[0]
+          assert current==head
+          subprocess.run(['git','push','origin','HEAD:refs/heads/'+branch],env=env,check=True)
+          print('PREPARED_HEAD='+subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip())
+          print('PREPARED_TREE='+subprocess.check_output(['git','rev-parse','HEAD^{tree}'],text=True).strip())
+          PY
