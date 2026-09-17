@@ -1,11 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ControlApi } from '../src/api/client.ts';
+import { parseDecision } from '../src/api/research.ts';
 import { continuityForDecision, parseDecisionContinuity } from '../src/api/continuity.ts';
 import { decision } from './research.fixture.ts';
 
 function fixture() {
-  const record = decision();
+  const record = parseDecision(decision());
   return { schema_version: '1.0.0', assessment_kind: 'CONTINUITY_ONLY', authorizes_execution: false,
     trace_id: record.trace_id, session_id: record.trace.session_id, observation_id: record.trace.observation_id,
     network_id: record.trace.network_id, checked_at: '2026-09-17T08:00:00.000Z', policy_version: 'base-capture-continuity-v1',
@@ -13,7 +14,7 @@ function fixture() {
     bound_count: String(record.trace.capture_refs.length), invalidation_reasons: [] as string[] };
 }
 test('continuity is separate from original decision bytes and never authorizes execution', () => {
-  const record = decision(), before = JSON.stringify(record);
+  const record = parseDecision(decision()), before = JSON.stringify(record);
   const current = continuityForDecision(parseDecisionContinuity(fixture()), record);
   assert.equal(current.authorizes_execution, false);
   const invalid = parseDecisionContinuity({ ...fixture(), continuity_status: 'INVALIDATED', invalidation_reasons: ['CONTINUITY_LOST'] });
@@ -44,7 +45,7 @@ test('bounded public reasons cannot carry raw provider text or duplicates', () =
   assert.equal(parseDecisionContinuity({ ...fixture(), continuity_status: 'INVALIDATED', invalidation_reasons: ['CONTINUITY_LOST', 'PROVIDER_FAILURE'] }).invalidation_reasons.length, 2);
 });
 test('inspection rejects another observation, trace, chain, session or capture denominator', () => {
-  const current = parseDecisionContinuity(fixture()), record = decision();
+  const current = parseDecisionContinuity(fixture()), record = parseDecision(decision());
   for (const change of [{ session_id: 'other' }, { observation_id: 'other' }, { trace_id: 'other' }, { network_id: 'solana-mainnet' as const }, { capture_count: '64' }]) {
     assert.throws(() => continuityForDecision({ ...current, ...change }, record));
   }
@@ -64,4 +65,17 @@ test('API continuity calls bind requested session and observation and preserve a
     const controller = new AbortController(); controller.abort();
     await assert.rejects(api.decisionContinuity('session-paper', 'observation-fixture', controller.signal));
   } finally { globalThis.fetch = original; }
+});
+test('revoked authorization cannot publish a late continuity response', async () => {
+  let release!: (response: Response) => void;
+  const api = new ControlApi(() => new Promise<Response>(resolve => { release = resolve; }));
+  const pending = api.decisionContinuity('session-paper', 'observation-fixture');
+  api.clearAuth();
+  release(new Response(JSON.stringify(fixture()), { status: 200 }));
+  await assert.rejects(pending, /Authorization changed/);
+});
+test('unauthorized source response is not parsed or displayed as healthy', async () => {
+  const api = new ControlApi(async () => new Response('<html>Not authorized</html>', { status: 401 }));
+  await assert.rejects(api.decisionContinuity('session-paper', 'observation-fixture'), /no longer authorized/);
+  assert.equal(api.isAuthorized(), false);
 });
