@@ -128,6 +128,8 @@ jobs:
         run: bash scripts/test_worker_readiness_container.sh arb-worker:test
       - name: Verify synthetic Base profile with the shipped Rust parser
         run: bash scripts/test_worker_profile_container.sh arb-worker:test
+      - name: Verify anchored session registration and matching API profile
+        run: bash scripts/test_worker_session_container.sh arb-worker:test arb-api:test
       - name: Build and validate the Railway web image
         run: |
           docker build -f deploy/Dockerfile.web -t arb-web:test .
