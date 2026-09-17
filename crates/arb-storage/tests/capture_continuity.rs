@@ -435,3 +435,95 @@ async fn current_decision_recheck_retains_transaction_lock_and_never_renews_vali
     halt(&f).await;
     code(check(&f, "first").await.unwrap_err(), "55000");
 }
+
+#[tokio::test]
+async fn diagnostic_read_tracks_halt_without_rewriting_historical_trace() {
+    let f = fixture().await;
+    capture(&f, "capture").await;
+    link(&f, "capture").await.unwrap();
+    let original = payload(&f, &["capture"]);
+    publish(&f, "read-status", &original).await.unwrap();
+    let before = f
+        .store
+        .decision_continuity(&f.operator, &f.session, "read-status")
+        .await
+        .unwrap();
+    assert_eq!(before.continuity_status, "NO_KNOWN_INVALIDATION");
+    assert_eq!(before.capture_count, "1");
+    assert_eq!(before.bound_count, "1");
+    assert!(!before.authorizes_execution);
+    assert_eq!(before.assessment_kind, "CONTINUITY_ONLY");
+    assert!(before.invalidation_reasons.is_empty());
+    assert!(chrono::DateTime::parse_from_rfc3339(&before.checked_at).is_ok());
+    halt(&f).await;
+    let after = f
+        .store
+        .decision_continuity(&f.operator, &f.session, "read-status")
+        .await
+        .unwrap();
+    assert_eq!(after.trace_id, before.trace_id);
+    assert_eq!(after.continuity_status, "INVALIDATED");
+    assert_eq!(after.invalidation_reasons, vec!["CONTINUITY_LOST"]);
+    assert!(!after.authorizes_execution);
+    let retained: Value = sqlx::query_scalar(
+        "SELECT payload FROM decision_traces WHERE session_id=$1 AND observation_id='read-status'",
+    )
+    .bind(&f.session)
+    .fetch_one(&f.pool)
+    .await
+    .unwrap();
+    assert_eq!(retained, original);
+}
+
+#[tokio::test]
+async fn diagnostic_read_does_not_borrow_another_session_or_operator() {
+    let f = fixture().await;
+    let other = fixture().await;
+    capture(&f, "legacy").await;
+    publish(&f, "same-observation", &payload(&f, &["legacy"]))
+        .await
+        .unwrap();
+    let report = f
+        .store
+        .decision_continuity(&f.operator, &f.session, "same-observation")
+        .await
+        .unwrap();
+    assert_eq!(report.continuity_status, "UNTRACKED");
+    assert_eq!(report.bound_count, "0");
+    for (operator, session, observation) in [
+        (&other.operator, &f.session, "same-observation"),
+        (&f.operator, &other.session, "same-observation"),
+        (&f.operator, &f.session, "missing"),
+    ] {
+        assert!(matches!(
+            f.store
+                .decision_continuity(operator, session, observation)
+                .await,
+            Err(arb_storage::StoreError::NotFound)
+        ));
+    }
+    assert!(
+        f.store
+            .decision_continuity(&f.operator, &f.session, &"x".repeat(129))
+            .await
+            .is_err()
+    );
+}
+
+#[tokio::test]
+async fn zero_input_diagnostics_do_not_invent_a_healthy_source() {
+    let f = fixture().await;
+    let mut diagnostic = payload(&f, &[]);
+    diagnostic["result"]["status"] = json!("DATA_UNAVAILABLE");
+    publish(&f, "zero-input", &diagnostic).await.unwrap();
+    let report = f
+        .store
+        .decision_continuity(&f.operator, &f.session, "zero-input")
+        .await
+        .unwrap();
+    assert_eq!(report.capture_count, "0");
+    assert_eq!(report.bound_count, "0");
+    assert_eq!(report.continuity_status, "UNTRACKED");
+    assert!(report.invalidation_reasons.is_empty());
+    assert!(!report.authorizes_execution);
+}

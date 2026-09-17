@@ -6,6 +6,7 @@ import { EmptyResearch, Exact, ExportButton, OriginBadge, Pagination, ResearchDi
 import { CostAssessmentWorkspace } from './CostAssessmentWorkspace';
 import { FrozenSessionExport } from './FrozenSessionExport';
 import { ChainFreshnessEvidence } from './ChainFreshnessEvidence';
+import { DecisionContinuityEvidence } from './DecisionContinuityEvidence';
 
 interface Props { active: boolean; api: ControlApi; capabilities: Capabilities; sessions: Session[]; filter: Network | 'all'; disabled: boolean; canRetry: boolean; onPendingChange: (value: boolean) => void }
 const origins: Origin[] = ['RECORDED_LIVE', 'SYNTHETIC', 'MANUALLY_CONSTRUCTED'];
@@ -54,7 +55,7 @@ export function DecisionExplorer({ active, api, capabilities, sessions, filter, 
       </>}
     </>}
     <ResearchDialog open={active && Boolean(observationId)} title="Decision evidence detail" close={() => setObservationId('')}>
-      <ResourceStatus resource={detail} />{detail.data && <DecisionDetail record={detail.data} receivedAt={detail.at} />}<button className="space-top" disabled={detail.loading} onClick={detail.refresh}>Refresh selected trace</button>
+      <ResourceStatus resource={detail} />{detail.data && <><DecisionContinuityEvidence key={detail.data.trace_id} api={api} record={detail.data} active={enabled && !disabled && Boolean(observationId)} /><DecisionDetail record={detail.data} receivedAt={detail.at} /></>}<button className="space-top" disabled={detail.loading} onClick={detail.refresh}>Refresh selected trace</button>
     </ResearchDialog>
   </section>;
 }

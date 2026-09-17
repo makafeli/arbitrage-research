@@ -2,7 +2,9 @@
 mod accounts;
 pub use accounts::*;
 mod collection;
+mod continuity_read;
 mod ingestion;
+pub use continuity_read::*;
 pub use ingestion::*;
 mod capture_source;
 pub use capture_source::*;

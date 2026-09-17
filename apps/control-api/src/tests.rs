@@ -1226,6 +1226,36 @@ async fn request_capacity_is_bounded_and_cancellation_releases_owned_permits() {
 
 #[async_trait]
 impl ResearchStore for MockStore {
+    async fn decision_continuity(
+        &self,
+        operator: &str,
+        session: &str,
+        observation: &str,
+    ) -> Result<arb_storage::DecisionContinuity, StoreError> {
+        assert_eq!(operator, "operator");
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        if self.fail {
+            return Err(StoreError::CorruptState);
+        }
+        if observation == "missing" {
+            return Err(StoreError::NotFound);
+        }
+        Ok(arb_storage::DecisionContinuity {
+            schema_version: "1.0.0".into(),
+            assessment_kind: "CONTINUITY_ONLY".into(),
+            authorizes_execution: false,
+            trace_id: "synthetic-trace".into(),
+            session_id: session.into(),
+            observation_id: observation.into(),
+            network_id: "base-mainnet".into(),
+            checked_at: "2026-09-17T08:00:00.000Z".into(),
+            policy_version: "base-capture-continuity-v1".into(),
+            continuity_status: "UNTRACKED".into(),
+            capture_count: "0".into(),
+            bound_count: "0".into(),
+            invalidation_reasons: vec![],
+        })
+    }
     async fn create_cost_assessment(
         &self,
         _operator: &str,
@@ -2986,4 +3016,93 @@ async fn read_reservation_keeps_the_original_global_bound_and_releases_failed_ad
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(state.0.inflight.available_permits(), MAX_INFLIGHT_REQUESTS);
     assert_eq!(state.0.reads.available_permits(), MAX_INFLIGHT_READS);
+}
+
+#[tokio::test]
+async fn continuity_http_requires_auth_and_validates_scope_before_reading() {
+    let (app, store) = setup();
+    let path = "/v1/sessions/session/decisions/observation/continuity";
+    let unauthorized = call(&app, Method::GET, path, None, None, None, None, None).await;
+    assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(unauthorized.headers()[header::CACHE_CONTROL], "no-store");
+    assert_eq!(store.calls.load(Ordering::SeqCst), 0);
+    let (cookie, _) = authenticate(&app).await;
+    let valid = call(
+        &app,
+        Method::GET,
+        path,
+        None,
+        Some(&cookie),
+        None,
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(valid.status(), StatusCode::OK);
+    assert_eq!(valid.headers()[header::CACHE_CONTROL], "no-store");
+    let body = value(valid).await;
+    assert_eq!(body["session_id"], "session");
+    assert_eq!(body["observation_id"], "observation");
+    assert_eq!(body["authorizes_execution"], false);
+    assert_eq!(body["continuity_status"], "UNTRACKED");
+    let calls = store.calls.load(Ordering::SeqCst);
+    for invalid in [
+        format!("{path}?extra=true"),
+        format!(
+            "/v1/sessions/session/decisions/{}/continuity",
+            "x".repeat(129)
+        ),
+    ] {
+        let response = call(
+            &app,
+            Method::GET,
+            &invalid,
+            None,
+            Some(&cookie),
+            None,
+            None,
+            None,
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+    assert_eq!(store.calls.load(Ordering::SeqCst), calls);
+    let missing = call(
+        &app,
+        Method::GET,
+        "/v1/sessions/session/decisions/missing/continuity",
+        None,
+        Some(&cookie),
+        None,
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(missing.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn continuity_http_storage_failure_is_redacted_not_healthy() {
+    let store = Arc::new(MockStore {
+        fail: true,
+        ..Default::default()
+    });
+    let app = setup_with(store, true);
+    let (cookie, _) = authenticate(&app).await;
+    let response = call(
+        &app,
+        Method::GET,
+        "/v1/sessions/session/decisions/observation/continuity",
+        None,
+        Some(&cookie),
+        None,
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+    let body = value(response).await;
+    assert_eq!(body["code"], "DEPENDENCY_UNAVAILABLE");
+    assert!(body.get("continuity_status").is_none());
 }

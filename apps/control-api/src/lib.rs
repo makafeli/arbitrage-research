@@ -439,6 +439,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/opportunities", get(list_opportunities))
         .route("/v1/decisions", get(research::list_decisions))
         .route("/v1/decisions/{observation_id}", get(research::get_decision))
+        .route("/v1/sessions/{session_id}/decisions/{observation_id}/continuity", get(research::decision_continuity))
         .route("/v1/decision-groups", get(research::decision_groups))
         .route("/v1/decision-coverage", get(research::decision_coverage))
         .route("/v1/sessions/{session_id}/paper-runs", get(research::list_paper_runs).post(research::create_paper_run))

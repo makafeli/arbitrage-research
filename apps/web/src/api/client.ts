@@ -1,4 +1,5 @@
 import { parseAdapterSupport } from './support.ts';
+import { parseDecisionContinuity } from './continuity.ts';
 import { canonicalCostJson, parseCostAssessment, verifyCostAssessment } from './costs.ts';
 import type { CostAssessmentRequest } from './costs.ts';
 import { parseAsset, parseCoverage, parseDecision, parseGroup, parseJournal, parsePaperRun, parseReservation } from './research.ts';
@@ -262,6 +263,11 @@ export class ControlApi {
   async decision(observationId: string, signal?: AbortSignal) {
     const item = parseDecision(await this.request('/decisions/' + encodeURIComponent(observationId), { signal }));
     assert(item.trace.observation_id === observationId, 'Decision response has the wrong observation.'); return item;
+  }
+  async decisionContinuity(sessionId: string, observationId: string, signal?: AbortSignal) {
+    const value = parseDecisionContinuity(await this.request('/sessions/' + encodeURIComponent(sessionId) + '/decisions/' + encodeURIComponent(observationId) + '/continuity', { signal }));
+    assert(value.session_id === sessionId && value.observation_id === observationId, 'Continuity response has the wrong decision scope.');
+    return value;
   }
   async decisionGroups(sessionId: string, cursor?: string, signal?: AbortSignal) {
     return parsePage(await this.request('/decision-groups?' + this.query(cursor, sessionId), { signal }), parseGroup);

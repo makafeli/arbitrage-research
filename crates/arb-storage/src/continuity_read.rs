@@ -73,13 +73,29 @@ impl Store {
             || !(0..=capture_count).contains(&bound_count)
             || !matches!(network.as_str(), "base-mainnet" | "solana-mainnet")
             || policy != "base-capture-continuity-v1"
-            || !matches!(status.as_str(), "NO_KNOWN_INVALIDATION" | "INVALIDATED" | "UNTRACKED" | "UNVERIFIABLE")
+            || !matches!(
+                status.as_str(),
+                "NO_KNOWN_INVALIDATION" | "INVALIDATED" | "UNTRACKED" | "UNVERIFIABLE"
+            )
             || reasons.len() > 4
             || reasons.windows(2).any(|pair| pair[0] >= pair[1])
-            || reasons.iter().any(|reason| !matches!(reason.as_str(), "CONTINUITY_LOST" | "PROVIDER_FAILURE" | "RESOURCE_LIMIT" | "INVALID_INPUT"))
-            || (status == "NO_KNOWN_INVALIDATION" && (network != "base-mainnet" || capture_count == 0 || bound_count != capture_count || !reasons.is_empty()))
-            || (status == "INVALIDATED" && (network != "base-mainnet" || bound_count == 0 || reasons.is_empty()))
-            || (status == "UNTRACKED" && (network != "base-mainnet" || (capture_count > 0 && bound_count == capture_count) || !reasons.is_empty()))
+            || reasons.iter().any(|reason| {
+                !matches!(
+                    reason.as_str(),
+                    "CONTINUITY_LOST" | "PROVIDER_FAILURE" | "RESOURCE_LIMIT" | "INVALID_INPUT"
+                )
+            })
+            || (status == "NO_KNOWN_INVALIDATION"
+                && (network != "base-mainnet"
+                    || capture_count == 0
+                    || bound_count != capture_count
+                    || !reasons.is_empty()))
+            || (status == "INVALIDATED"
+                && (network != "base-mainnet" || bound_count == 0 || reasons.is_empty()))
+            || (status == "UNTRACKED"
+                && (network != "base-mainnet"
+                    || (capture_count > 0 && bound_count == capture_count)
+                    || !reasons.is_empty()))
         {
             return Err(StoreError::CorruptState);
         }
@@ -91,7 +107,8 @@ impl Store {
             session_id: row.try_get("session_id")?,
             observation_id: row.try_get("observation_id")?,
             network_id: network,
-            checked_at: row.try_get::<DateTime<Utc>, _>("checked_at")?
+            checked_at: row
+                .try_get::<DateTime<Utc>, _>("checked_at")?
                 .to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
             policy_version: policy,
             continuity_status: status,
