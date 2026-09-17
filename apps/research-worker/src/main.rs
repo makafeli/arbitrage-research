@@ -812,16 +812,14 @@ async fn run() -> Result<(), AnyError> {
                                 all_admitted &= admission.is_some();
                                 println!("{}",json!({"event":"capture-written","collection_attempt_id":collection.id,"capture_id":capture.capture_id,"manifest_digest":capture.manifest_digest,"admission":if admission.is_some(){"ADMITTED_RAW_CAPTURE"}else{"UNADMITTED_RAW_CAPTURE"},"research_attempt_id":admission,"quote_ready":false}));
                             }
-                            if all_admitted {
-                                if let Some(source) = &bound_source {
-                                    let work = generation.expect("admitted capture has generation");
-                                    match capture_source::bind_batch(&worker, work, &plan, source, &batch).await {
-                                        Ok(()) => {},
-                                        Err(error) if is_generation_fence(&error) => all_admitted = false,
-                                        Err(error) => {
-                                            finish_collection(&worker, &collection, CollectionOutcome::AcquisitionFailed, Some(CollectionReason::InputValidationFailed)).await?;
-                                            return Err(error.into());
-                                        }
+                            if all_admitted && let Some(source) = &bound_source {
+                                let work = generation.expect("admitted capture has generation");
+                                match capture_source::bind_batch(&worker, work, &plan, source, &batch).await {
+                                    Ok(()) => {},
+                                    Err(error) if is_generation_fence(&error) => all_admitted = false,
+                                    Err(error) => {
+                                        finish_collection(&worker, &collection, CollectionOutcome::AcquisitionFailed, Some(CollectionReason::InputValidationFailed)).await?;
+                                        return Err(error.into());
                                     }
                                 }
                             }
