@@ -1,7 +1,8 @@
 FROM rust:1.90.0-bookworm AS build
 WORKDIR /src
 COPY . .
-RUN cargo build --locked --release -p control-api -p research-worker
+RUN cargo build --locked --release -p research-worker \
+    && cargo build --locked --release -p evm-worker --bin base-ingest
 
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates gosu \
@@ -9,7 +10,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
     && useradd --uid 10001 --create-home arb
 WORKDIR /app
 COPY --from=build /src/target/release/research-worker /usr/local/bin/research-worker
+COPY --from=build /src/target/release/base-ingest /usr/local/bin/base-ingest
+# Disabled template only. Never package account bootstrap data or RPC credentials.
+COPY config/research.example.toml /app/config/research.example.toml
 COPY deploy/worker-entrypoint.sh /usr/local/bin/worker-entrypoint
-RUN chmod 755 /usr/local/bin/worker-entrypoint
+RUN chmod 755 /usr/local/bin/worker-entrypoint \
+    && base-ingest --check
 ENTRYPOINT ["worker-entrypoint"]
 CMD ["research-worker"]

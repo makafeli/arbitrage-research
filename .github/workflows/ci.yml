@@ -119,6 +119,8 @@ jobs:
         run: docker build -f deploy/Dockerfile.api -t arb-api:test .
       - name: Build the isolated observation worker image
         run: docker build -f deploy/Dockerfile.worker -t arb-worker:test .
+      - name: Verify worker volume, privileges and inert initialization CLI
+        run: bash scripts/test_worker_container.sh arb-worker:test
       - name: Build and validate the Railway web image
         run: |
           docker build -f deploy/Dockerfile.web -t arb-web:test .
