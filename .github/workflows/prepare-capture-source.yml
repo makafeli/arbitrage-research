@@ -1,0 +1,74 @@
+name: Prepare exact PR141 source correction
+on:
+  push:
+    branches: [feat/ARB-018-producer-capture-source]
+permissions:
+  contents: write
+jobs:
+  prepare:
+    if: github.repository == 'makafeli/arbitrage-research' && github.actor == 'makafeli'
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Prepare only the reported nested-if correction
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          repo='repos/makafeli/arbitrage-research'
+          prior='1f164737b79086de9109904fc6550400657f3e27'
+          branch='feat/ARB-018-producer-capture-source'
+          path='apps/research-worker/src/main.rs'
+          def get(endpoint):
+              return json.loads(subprocess.check_output(['gh','api',repo+endpoint],text=True,timeout=30))
+          def post(endpoint,data):
+              result=subprocess.run(['gh','api','--method','POST',repo+endpoint,'--input','-'],input=json.dumps(data),text=True,capture_output=True,check=True,timeout=30)
+              return json.loads(result.stdout)
+          assert os.environ['GITHUB_REF']=='refs/heads/'+branch
+          assert subprocess.check_output(['git','rev-parse','HEAD^'],text=True).strip()==prior
+          assert get('/git/ref/heads/'+branch)['object']['sha']==os.environ['GITHUB_SHA']
+          file=Path(path)
+          source=file.read_text()
+          old='''                            if all_admitted {
+                                          if let Some(source) = &bound_source {
+                                              let work = generation.expect("admitted capture has generation");
+                                              match capture_source::bind_batch(&worker, work, &plan, source, &batch).await {
+                                                  Ok(()) => {},
+                                                  Err(error) if is_generation_fence(&error) => all_admitted = false,
+                                                  Err(error) => {
+                                                      finish_collection(&worker, &collection, CollectionOutcome::AcquisitionFailed, Some(CollectionReason::InputValidationFailed)).await?;
+                                                      return Err(error.into());
+                                                  }
+                                              }
+                                          }
+                                      }'''
+          # The quoted block above is checked against the exact inspected source;
+          # derive its indentation from the published main.rs, never fuzzy-match.
+          begin=source.index('                            if all_admitted {\n                                if let Some(source) = &bound_source {')
+          end=source.index('                            scheduler.set_gate(network, worker.generation().await.ok())?;',begin)
+          old=source[begin:end]
+          assert old.count('if all_admitted')==1 and old.count('if let Some(source)')==1
+          lines=old.splitlines()
+          assert lines[0]=='                            if all_admitted {'
+          assert lines[1]=='                                if let Some(source) = &bound_source {'
+          assert lines[-2]=='                                }' and lines[-1]=='                            }'
+          new='                            if all_admitted && let Some(source) = &bound_source {\n'
+          new+='\n'.join(line[4:] for line in lines[2:-2])+'\n                            }\n'
+          file.write_text(source[:begin]+new+source[end:])
+          Path('.github/workflows/prepare-capture-source.yml').unlink()
+          subprocess.run(['rustup','toolchain','install','1.90.0','--profile','minimal','--component','rustfmt'],check=True,timeout=90)
+          subprocess.run(['cargo','fmt','--all'],check=True,timeout=90)
+          changed=subprocess.check_output(['git','diff','--name-only',prior],text=True).splitlines()
+          assert changed==[path],changed
+          subprocess.run(['git','diff','--check',prior],check=True,timeout=30)
+          blob=post('/git/blobs',{'content':file.read_text(),'encoding':'utf-8'})['sha']
+          tree=post('/git/trees',{'base_tree':get('/git/commits/'+prior)['tree']['sha'],'tree':[{'path':path,'mode':'100644','type':'blob','sha':blob}]})['sha']
+          print('PREPARED_TREE='+tree)
+          Path(os.environ['GITHUB_STEP_SUMMARY']).write_text(json.dumps({'tree':tree,'base':prior,'changed':[path],'behavior_changed':False,'tests_run':False,'refs_changed':False}))
+          PY
