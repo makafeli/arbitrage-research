@@ -320,3 +320,63 @@ for (const width of [320, 390, 1440]) {
     await testInfo.attach('collection-health-' + width, { body: await page.screenshot({ path: testInfo.outputPath('collection-health-' + width + '.png'), fullPage: true, scale: 'css' }), contentType: 'image/png' });
   });
 }
+
+function continuityFixture(status = 'NO_KNOWN_INVALIDATION') {
+  const record = records[0];
+  return { schema_version: '1.0.0', assessment_kind: 'CONTINUITY_ONLY', authorizes_execution: false,
+    trace_id: record.trace_id, session_id: record.trace.session_id, observation_id: record.trace.observation_id,
+    network_id: record.trace.network_id, checked_at: '2026-09-17T08:00:00.000Z', policy_version: 'base-capture-continuity-v1',
+    continuity_status: status, capture_count: String(record.trace.capture_refs.length),
+    bound_count: status === 'UNTRACKED' ? '0' : String(record.trace.capture_refs.length),
+    invalidation_reasons: status === 'INVALIDATED' ? ['CONTINUITY_LOST'] : [] };
+}
+test('source invalidation is visible without changing historical quote evidence', async ({ page }) => {
+  let status = 'NO_KNOWN_INVALIDATION';
+  await stub(page, async (route, url) => {
+    if (!url.pathname.endsWith('/continuity')) return false;
+    await route.fulfill({ json: continuityFixture(status) }); return true;
+  });
+  await openDecisions(page);
+  await page.getByRole('button', { name: 'Inspect decision observation-fixture', exact: true }).click();
+  const panel = page.getByRole('region', { name: 'Source continuity', exact: true });
+  await expect(panel.getByText('No known source invalidation', { exact: true })).toBeVisible();
+  status = 'INVALIDATED';
+  await panel.getByRole('button', { name: 'Refresh source status' }).click();
+  await expect(panel.getByText('Source invalidated', { exact: true })).toBeVisible();
+  await expect(panel.getByText('CONTINUITY_LOST', { exact: true })).toBeVisible();
+  const modal = page.getByRole('dialog', { name: 'Decision evidence detail' });
+  await expect(modal.getByText('CANDIDATE · GROSS QUOTE', { exact: true })).toBeVisible();
+  await expect(modal.getByText('Unknown — external costs incomplete', { exact: true })).toBeVisible();
+});
+test('failed source refresh preserves a labelled last-known timestamp and status', async ({ page }) => {
+  let failed = false;
+  await stub(page, async (route, url) => {
+    if (!url.pathname.endsWith('/continuity')) return false;
+    if (failed) await route.fulfill({ status: 503, json: { code: 'DEPENDENCY_UNAVAILABLE' } });
+    else await route.fulfill({ json: continuityFixture('INVALIDATED') });
+    return true;
+  });
+  await openDecisions(page);
+  await page.getByRole('button', { name: 'Inspect decision observation-fixture', exact: true }).click();
+  const panel = page.getByRole('region', { name: 'Source continuity', exact: true });
+  await expect(panel.getByText('Source invalidated', { exact: true })).toBeVisible();
+  failed = true; await panel.getByRole('button', { name: 'Refresh source status' }).click();
+  await expect(panel.getByText(/Last received source status only/)).toBeVisible();
+  await expect(panel.getByText('2026-09-17T08:00:00.000Z', { exact: true })).toBeVisible();
+  await expect(panel.getByText('Source invalidated', { exact: true })).toBeVisible();
+  await expect(panel.getByText('No known source invalidation', { exact: true })).toHaveCount(0);
+});
+test('missing source links and wrong-session responses never appear as healthy', async ({ page }) => {
+  let wrong = false;
+  await stub(page, async (route, url) => {
+    if (!url.pathname.endsWith('/continuity')) return false;
+    await route.fulfill({ json: wrong ? { ...continuityFixture(), session_id: 'other-session' } : continuityFixture('UNTRACKED') }); return true;
+  });
+  await openDecisions(page);
+  await page.getByRole('button', { name: 'Inspect decision observation-fixture', exact: true }).click();
+  const panel = page.getByRole('region', { name: 'Source continuity', exact: true });
+  await expect(panel.getByText('Source continuity not tracked', { exact: true })).toBeVisible();
+  wrong = true; await panel.getByRole('button', { name: 'Refresh source status' }).click();
+  await expect(panel.getByText(/Last received source status only/)).toBeVisible();
+  await expect(panel.getByText('No known source invalidation', { exact: true })).toHaveCount(0);
+});

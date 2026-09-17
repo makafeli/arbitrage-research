@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Arbitrage Research Control API
-  version: 0.8.0
+  version: 0.9.0
   description: 'Implemented private research control boundary. Authentication, immutable configuration
     references, durable session intent, command receipts, admitted decision history and immutable virtual
     portfolios are supported. The API does not collect market data, sign or broadcast. Read results retain
@@ -684,6 +684,109 @@ paths:
         '429': *id001
         '503': *id006
         '504': *id001
+  /v1/sessions/{session_id}/decisions/{observation_id}/continuity:
+    {
+      "get": {
+        "operationId": "getDecisionContinuity",
+        "description": "Read-only continuity diagnostics at one database read snapshot. This does not grant execution eligibility, refresh market data, or rewrite historical evidence. No query parameters are accepted.",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_.:-]+$"
+            }
+          },
+          {
+            "name": "observation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_.:-]+$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current source projection; no-store, never an execution authorization.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DecisionContinuity"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Redacted request, authentication, scope or dependency failure; never a healthy status.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Redacted request, authentication, scope or dependency failure; never a healthy status.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Redacted request, authentication, scope or dependency failure; never a healthy status.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Redacted request, authentication, scope or dependency failure; never a healthy status.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Redacted request, authentication, scope or dependency failure; never a healthy status.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Redacted request, authentication, scope or dependency failure; never a healthy status.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
 components:
   securitySchemes:
     operatorSession:
@@ -724,6 +827,97 @@ components:
         type: string
       description: Must exactly match ARB_PUBLIC_ORIGIN; missing, duplicate and null origins are rejected.
   schemas:
+    DecisionContinuity:
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "trace_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_.:-]+$"
+          },
+          "session_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_.:-]+$"
+          },
+          "observation_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_.:-]+$"
+          },
+          "checked_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "schema_version": {
+            "const": "1.0.0"
+          },
+          "assessment_kind": {
+            "const": "CONTINUITY_ONLY"
+          },
+          "authorizes_execution": {
+            "const": false
+          },
+          "network_id": {
+            "enum": [
+              "base-mainnet",
+              "solana-mainnet"
+            ]
+          },
+          "policy_version": {
+            "const": "base-capture-continuity-v1"
+          },
+          "continuity_status": {
+            "enum": [
+              "NO_KNOWN_INVALIDATION",
+              "INVALIDATED",
+              "UNTRACKED",
+              "UNVERIFIABLE"
+            ]
+          },
+          "capture_count": {
+            "type": "string",
+            "pattern": "^(0|[1-5]?[0-9]|6[0-4])$"
+          },
+          "bound_count": {
+            "type": "string",
+            "pattern": "^(0|[1-5]?[0-9]|6[0-4])$"
+          },
+          "invalidation_reasons": {
+            "type": "array",
+            "maxItems": 4,
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "CONTINUITY_LOST",
+                "PROVIDER_FAILURE",
+                "RESOURCE_LIMIT",
+                "INVALID_INPUT"
+              ]
+            }
+          }
+        },
+        "required": [
+          "trace_id",
+          "session_id",
+          "observation_id",
+          "checked_at",
+          "schema_version",
+          "assessment_kind",
+          "authorizes_execution",
+          "network_id",
+          "policy_version",
+          "continuity_status",
+          "capture_count",
+          "bound_count",
+          "invalidation_reasons"
+        ]
+      }
     AccountSignIn:
       type: object
       additionalProperties: false

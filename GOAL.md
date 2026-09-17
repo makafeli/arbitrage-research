@@ -29,6 +29,15 @@ Root integration owns shared manifests, lockfiles, CI, publication and final acc
 
 ## Current delivery checkpoint
 
+### Authenticated decision continuity view, 17 September 2026
+
+PR141 is already integrated at `b3867784`. Existing #32/#51 now connect its source
+projection to an authenticated diagnostic endpoint and the decision inspector.
+See [decision continuity](docs/DECISION-CONTINUITY-UI.md). This read is not an
+execution gate, a deployed worker, fresh market data or paper settlement. Exact CI,
+review, merge and deployment results remain recorded on the PR and existing issues.
+No new task issues, credentials or real-trading activation are needed.
+
 ### Producer/source integration, 17 September 2026
 
 Continue existing #32/#30 from main `bc8a2106`. The research worker now has an explicit,

@@ -17,6 +17,14 @@ pub struct PaperAssetChoice {
 
 #[async_trait]
 pub(crate) trait ResearchStore: Send + Sync {
+    async fn decision_continuity(
+        &self,
+        _operator: &str,
+        _session: &str,
+        _observation: &str,
+    ) -> Result<arb_storage::DecisionContinuity, StoreError> {
+        Err(StoreError::CapabilityUnavailable)
+    }
     async fn create_cost_assessment(
         &self,
         operator: &str,
@@ -125,6 +133,14 @@ pub(crate) trait ResearchStore: Send + Sync {
 
 #[async_trait]
 impl ResearchStore for Store {
+    async fn decision_continuity(
+        &self,
+        operator: &str,
+        session: &str,
+        observation: &str,
+    ) -> Result<arb_storage::DecisionContinuity, StoreError> {
+        Store::decision_continuity(self, operator, session, observation).await
+    }
     async fn create_cost_assessment(
         &self,
         operator: &str,
@@ -661,4 +677,31 @@ fn validate_cost_cursor(cursor: &str, id: &RequestId) -> Result<(), ApiError> {
         return Err(ApiError::invalid(id));
     }
     Ok(())
+}
+
+pub(super) async fn decision_continuity(
+    State(state): State<AppState>,
+    Extension(id): Extension<RequestId>,
+    path: Result<Path<(String, String)>, PathRejection>,
+    query: Result<Query<EmptyQuery>, QueryRejection>,
+) -> Result<Json<arb_storage::DecisionContinuity>, ApiError> {
+    let Path((session, observation)) = path.map_err(|_| ApiError::invalid(&id))?;
+    query.map_err(|_| ApiError::invalid(&id))?;
+    for value in [&session, &observation] {
+        if value.is_empty()
+            || value.len() > 128
+            || !value
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"_.:-".contains(&b))
+        {
+            return Err(ApiError::invalid(&id));
+        }
+    }
+    state
+        .0
+        .store
+        .decision_continuity("operator", &session, &observation)
+        .await
+        .map(Json)
+        .map_err(|error| ApiError::store(error, &id))
 }
