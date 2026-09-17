@@ -1,5 +1,6 @@
 [package]
 name = "research-worker"
+default-run = "research-worker"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
