@@ -1,6 +1,6 @@
 // Repository-backed foundation; evaluate with Railway CLI, not the browser build.
 // Existing unrelated Railway projects are outside this configuration's scope.
-// Prepared worker status: docs/BASE-RUNTIME-PROFILE.md.
+// Prepared worker status: docs/BASE-SESSION-REGISTRATION.md.
 import { defineRailway, github, postgres, project, service, volume } from "railway/iac";
 
 export default defineRailway((ctx) => {
@@ -13,6 +13,7 @@ export default defineRailway((ctx) => {
     replicas: 1,
     healthcheck: "/healthz",
     healthcheckTimeout: 60,
+    deploy: { preDeployCommand: ["api-entrypoint --check-profile"] },
     env: {
       RAILWAY_DOCKERFILE_PATH: "deploy/Dockerfile.api",
       ARB_DATABASE_URL: db.env.DATABASE_URL,
@@ -22,6 +23,10 @@ export default defineRailway((ctx) => {
       ARB_API_PORT: "8080",
       ARB_ALLOW_INSECURE_LOOPBACK: "false",
       ARB_CONFIG_FILES: "/app/config/research.example.toml",
+      // Exact prepared profile, not an RPC URL or account credential.
+      ARB_BASE_PROFILE_TOML: ctx.shared.ARB_BASE_PROFILE_TOML,
+      ARB_BASE_PROFILE_REGISTRY: ctx.shared.ARB_BASE_PROFILE_REGISTRY,
+      ARB_BASE_PROFILE_DIGEST: ctx.shared.ARB_BASE_PROFILE_DIGEST,
     },
   });
   const web = service("web", {
@@ -37,7 +42,7 @@ export default defineRailway((ctx) => {
       ARB_API_HOST: api.env.RAILWAY_PRIVATE_DOMAIN,
     },
   });
-  // Explicit finite Base profile preparation; never starts the research loop.
+  // Explicit idempotent session registration, not the research loop or START.
   // Preserve the owner's separately managed ARB_BASE_RPC_URL when planning changes.
   const baseCaptures = volume("base-research-captures", {
     region: "europe-west4-drams3a",
@@ -48,7 +53,7 @@ export default defineRailway((ctx) => {
       branch: "main",
       checkSuites: true,
     }),
-    start: "worker-entrypoint worker-prepare-base",
+    start: "worker-entrypoint worker-session --register /data/runtime/base-v1",
     replicas: { "europe-west4-drams3a": 1 },
     build: { dockerfilePath: "deploy/Dockerfile.worker" },
     deploy: {
@@ -63,9 +68,9 @@ export default defineRailway((ctx) => {
       ARB_OPERATOR_ID: "operator",
       ARB_INGEST_OPERATOR_ID: "operator",
       ARB_RPC_MIN_INTERVAL_MS: "75",
+      ARB_BASE_PROFILE_DIGEST: ctx.shared.ARB_BASE_PROFILE_DIGEST,
     },
   });
-  // Keep prepared resources in the full graph, so later plans do not omit them.
   return project("arbitrage-research", {
     resources: [db, api, web, baseWorker, baseCaptures],
   });
