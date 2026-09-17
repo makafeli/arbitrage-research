@@ -13,140 +13,26 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          fetch-depth: 2
+          fetch-depth: 3
           persist-credentials: false
-      - name: Apply reviewed corrections and upload exact tree, without changing refs
+      - name: Reproduce exact locally tested tree using the corrected preparation recipe
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           python3 - <<'PY'
-          import base64, json, os, pathlib, subprocess, urllib.request
-          root = pathlib.Path('.')
-          def git(*args):
-              return subprocess.check_output(['git', *args], text=True).strip()
-          assert git('rev-parse', 'HEAD^') == '2217d18d4bc7792d7c555d775e498fdc3c8e57fe'
-          files = ['scripts/worker_ci_gate.py', 'scripts/worker_readiness.py', 'scripts/test_worker_ci_gate.py', 'scripts/test_worker_readiness.py', 'scripts/test_worker_readiness_container.sh', 'docs/RAILWAY-WORKER-PREPARATION.md']
-          p=root/files[0]; s=p.read_text(); assert '[A-Za-z0-9_-]+\\.ya?ml' in s
-          p.write_text(s.replace('[A-Za-z0-9_-]+\\.ya?ml','[A-Za-z0-9_.-]+\\.ya?ml'))
-          p=root/files[1]; s=p.read_text()
-          s=s.replace('parse_qs(parsed.query, strict_parsing=True)','parse_qs(parsed.query, strict_parsing=True, keep_blank_values=True)').replace("options.get('sslmode', ['prefer'])[0]", "options.get('sslmode', ['require'])[0]").replace("{'prefer', 'require', 'verify-ca', 'verify-full'}", "{'require', 'verify-ca', 'verify-full'}")
-          p.write_text(s)
-          p=root/files[2];s=p.read_text();pos='    def test_wait_is_finite_and_does_not_repeat_failure(self):\n';assert pos in s
-          s=s.replace(pos,'''    def test_dotted_workflow_names_keep_required_and_failure_checks(self):
-                  for path in ['.github/workflows/release.v2.yml', '.github/workflows/quality.check.yaml']:
-                      value = fixture()
-                      extra = copy.deepcopy(value['workflow_runs'][0])
-                      extra.update(id=4, path=path, conclusion='success')
-                      value['workflow_runs'].append(extra)
-                      value['total_count'] += 1
-                      with self.subTest(path=path):
-                          self.assertTrue(gate.assess(value, SHA)[0])
-                          extra['conclusion'] = 'failure'
-                          with self.assertRaisesRegex(gate.GateError, 'CI_CHECK_FAILED'):
-                              gate.assess(value, SHA)
-                          extra['conclusion'] = 'skipped'
-                          self.assertTrue(gate.assess(value, SHA)[0])
-                  for path in ['.github/workflows/../ci.yml', '.github/workflows/sub/ci.yml',
-                               '.github/workflows/ci.json', 'other/ci.yml']:
-                      value = fixture()
-                      value['workflow_runs'][0]['path'] = path
-                      with self.subTest(path=path), self.assertRaises(gate.GateError):
-                          gate.assess(value, SHA)
-          
-          '''.replace('\n          ', '\n')+pos);p.write_text(s)
-          p=root/files[3];s=p.read_text();pos='    def test_main_refuses_arguments_and_redacts_environment(self):\n';assert pos in s
-          s=s.replace(pos,'''    def test_tls_is_required_by_default_and_never_downgraded(self):
-                  for suffix in ['', '?sslmode=require', '?sslmode=verify-ca', '?sslmode=verify-full']:
-                      def runner(argv, **kwargs):
-                          expected = suffix.partition('=')[2] or 'require'
-                          self.assertEqual(kwargs['env']['PGSSLMODE'], expected)
-                          kwargs['stdout'].write(json.dumps(fixture()).encode())
-                          return SimpleNamespace(returncode=0)
-                      with self.subTest(suffix=suffix):
-                          self.assertEqual(ready.inspect({
-                              'ARB_OPERATOR_ID': 'operator',
-                              'ARB_DATABASE_URL': 'postgres://test:private@db/test' + suffix,
-                          }, runner)['status'], 'WORKER_READINESS_INSPECTED')
-                  for mode in ['prefer', 'allow', 'disable', '', 'invented']:
-                      with self.subTest(mode=mode), self.assertRaisesRegex(
-                              ready.ReadinessError, 'DATABASE_SETTING_MISSING_OR_INVALID'):
-                          ready.inspect({
-                              'ARB_OPERATOR_ID': 'operator',
-                              'ARB_DATABASE_URL': 'postgres://test:private@db/test?sslmode=' + mode,
-                          }, lambda *a, **k: self.fail('plaintext fallback must never execute'))
-          
-          '''.replace('\n          ', '\n')+pos);p.write_text(s)
-          p=root/files[4];s=p.read_text();old='snapshot > "$work/before"\ndocker run --rm';assert old in s
-          block=r'''snapshot > "$work/before"
-          # The production default must refuse an otherwise reachable non-TLS server.
-          status=0
-          docker run --rm --pull=never --network "$network" --read-only \
-              --tmpfs /tmp:rw,noexec,nosuid,nodev,size=8m \
-              --mount "type=volume,source=$volume,target=/data" \
-              -e ARB_OPERATOR_ID=operator \
-              -e ARB_DATABASE_URL=postgres://metadata_reader:disposable-readiness-only@readiness-db/postgres \
-              "$image" worker-readiness-check > "$work/no-tls.jsonl" 2> "$work/no-tls.err" || status=$?
-          test "$status" -eq 2
-          grep -F 'DATABASE_READ_UNAVAILABLE' "$work/no-tls.err" >/dev/null
-          ! grep -F 'WORKER_READINESS_INSPECTED' "$work/no-tls.jsonl" >/dev/null
-          
-          # Ephemeral self-signed TLS proves encryption, not authenticated server identity.
-          openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj '/CN=readiness-db' \
-              -keyout "$work/server.key" -out "$work/server.crt" >/dev/null 2>&1
-          docker cp "$work/server.key" "$database:/tmp/readiness.key"
-          docker cp "$work/server.crt" "$database:/tmp/readiness.crt"
-          docker exec "$database" sh -ceu '
-              chown postgres:postgres /tmp/readiness.key /tmp/readiness.crt
-              chmod 600 /tmp/readiness.key
-          '
-          docker exec -i "$database" psql -Xq -U postgres -v ON_ERROR_STOP=1 <<'TLS_SQL'
-          ALTER SYSTEM SET ssl_cert_file = '/tmp/readiness.crt';
-          ALTER SYSTEM SET ssl_key_file = '/tmp/readiness.key';
-          ALTER SYSTEM SET ssl = 'on';
-          SELECT pg_reload_conf();
-          TLS_SQL
-          # Verify the same SELECT-only role can actually establish an encrypted connection.
-          tls_ready=false
-          for attempt in $(seq 1 20); do
-              if docker exec -e PGPASSWORD=disposable-readiness-only -e PGSSLMODE=require \
-                 "$database" psql -XqAt -h readiness-db -U metadata_reader -d postgres \
-                 -v ON_ERROR_STOP=1 -c 'SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()' \
-                 > "$work/tls" 2>/dev/null && grep -Fx t "$work/tls" >/dev/null; then
-                  tls_ready=true; break
-              fi
-              sleep 1
-          done
-          test "$tls_ready" = true
-          
-          docker run --rm'''.replace('\n          ', '\n')
-          s=s.replace(old,block).replace('inspection passed with a SELECT-only role; state unchanged; no provider requests.', 'inspection passed with required TLS and a SELECT-only role; plaintext refused; state unchanged; no provider requests.');p.write_text(s)
-          p=root/files[5];s=p.read_text();needle='The image includes Python and a PostgreSQL client for these finite operational\n';assert needle in s
-          s=s.replace(needle,'''Database inspection defaults to `sslmode=require` and refuses `prefer`, `allow`,
-          `disable` and empty mode values before connecting. This enforces encryption without
-          claiming authenticated server identity; `require` is not `verify-full`. The container
-          drill first proves refusal of a reachable plaintext-only server, then enables
-          throwaway TLS and verifies the same read-only role succeeds without state changes.
-          Workflow basenames may contain dots; this does not relax mandatory checks or allow
-          additional failed workflows to pass the gate.
-          
-          '''.replace('\n          ', '\n')+needle);p.write_text(s)
-          subprocess.run(['git','rm','.github/workflows/pr145-review-fix.yml'],check=True)
-          subprocess.run(['git','add',*files],check=True)
-          subprocess.run(['git','diff','--cached','--check'],check=True)
-          tree=git('write-tree')
-          assert tree=='9204599394149683616ae063eab5802351f85f57', tree
-          subprocess.run(['python3','scripts/test_worker_ci_gate.py','-v'],check=True)
-          subprocess.run(['python3','scripts/test_worker_readiness.py','-v'],check=True)
-          subprocess.run(['bash','-n','scripts/test_worker_readiness_container.sh'],check=True)
-          def post(path,data):
-              req=urllib.request.Request('https://api.github.com/repos/makafeli/arbitrage-research/git/'+path,data=json.dumps(data).encode(),headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json','Content-Type':'application/json'},method='POST')
-              with urllib.request.urlopen(req,timeout=20) as response:return json.load(response)
-          entries=[]
-          for f in files:
-              blob=post('blobs',{'content':base64.b64encode((root/f).read_bytes()).decode(),'encoding':'base64'})
-              assert blob['sha']==git('hash-object',f)
-              entries.append({'path':f,'mode':git('ls-files','-s',f).split()[0],'type':'blob','sha':blob['sha']})
-          remote=post('trees',{'base_tree':'7233f9c0cadec3d869f7f9cd88f80326f9d155a4','tree':entries})
-          assert remote['sha']==tree
-          print('VERIFIED_REVIEW_FIX_TREE='+tree)
+          import subprocess
+          parent = subprocess.check_output(['git', 'rev-parse', 'HEAD^'], text=True).strip()
+          assert parent == '07e47007f75e553927e33857998019ce4721750e'
+          # The fixed recipe is our own immediately preceding source, not remote input.
+          raw = subprocess.check_output(['git', 'show', parent + ':.github/workflows/pr145-review-fix.yml'], text=True)
+          lines = raw.splitlines()
+          start = lines.index("          python3 - <<'PY'") + 1
+          end = len(lines) - 1
+          assert lines[end] == '          PY'
+          assert all(line.startswith('          ') for line in lines[start:end])
+          code = '\n'.join(line[10:] for line in lines[start:end]) + '\n'
+          # YAML already removes the outer ten-space indentation.
+          code = code.replace(r".replace('\n          ', '\n')", '')
+          code = code.replace("git('rev-parse', 'HEAD^')", "git('rev-parse', 'HEAD^^')")
+          exec(compile(code, '<reviewed-pr145-preparation>', 'exec'))
           PY
