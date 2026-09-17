@@ -1,6 +1,7 @@
 // Repository-backed foundation; evaluate with Railway CLI, not the browser build.
 // Existing unrelated Railway projects are outside this configuration's scope.
-import { defineRailway, github, postgres, project, service } from "railway/iac";
+// Prepared worker status: docs/RAILWAY-WORKER-PREPARATION.md.
+import { defineRailway, github, postgres, project, service, volume } from "railway/iac";
 
 export default defineRailway((ctx) => {
   const db = postgres("postgres");
@@ -36,7 +37,32 @@ export default defineRailway((ctx) => {
       ARB_API_HOST: api.env.RAILWAY_PRIVATE_DOMAIN,
     },
   });
-  // Stateful chain workers are added after configuration/registry qualification;
-  // each requires its own persistent volume and immutable OBSERVE session.
-  return project("arbitrage-research", { resources: [db, api, web] });
+  // One-shot storage preflight only. Never starts research or initializes a source.
+  // Runtime activation requires a separately reviewed configuration/session.
+  const baseCaptures = volume("base-research-captures", {
+    region: "europe-west4-drams3a",
+    sizeMB: 1024,
+  });
+  const baseWorker = service("base-research-worker", {
+    source: github("makafeli/arbitrage-research", {
+      branch: "main",
+      checkSuites: true,
+    }),
+    start: "worker-entrypoint worker-volume-check",
+    replicas: { "europe-west4-drams3a": 1 },
+    build: { dockerfilePath: "deploy/Dockerfile.worker" },
+    deploy: { restartPolicyType: "NEVER" },
+    volumeMounts: { "/data": baseCaptures },
+    env: {
+      ARB_DATABASE_URL: db.env.DATABASE_URL,
+      ARB_INGEST_DATABASE_URL: db.env.DATABASE_URL,
+      ARB_OPERATOR_ID: "operator",
+      ARB_INGEST_OPERATOR_ID: "operator",
+      ARB_RPC_MIN_INTERVAL_MS: "75",
+    },
+  });
+  // Keep prepared resources in the full graph, so later plans do not omit them.
+  return project("arbitrage-research", {
+    resources: [db, api, web, baseWorker, baseCaptures],
+  });
 });
