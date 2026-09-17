@@ -10,14 +10,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
     && useradd --uid 10001 --create-home arb
 WORKDIR /app
 COPY --from=build /src/target/release/research-worker /usr/local/bin/research-worker
+COPY --from=build /src/target/release/worker-profile-check /usr/local/bin/worker-profile-check
 COPY --from=build /src/target/release/base-ingest /usr/local/bin/base-ingest
-# Disabled template only. Never package account bootstrap data or RPC credentials.
 COPY config/research.example.toml /app/config/research.example.toml
+COPY docs/registries/initial-identities.json /app/docs/registries/initial-identities.json
+COPY scripts/worker_prepare_base.py scripts/recorded_base_slice.py scripts/collect_operator_base_evidence.py scripts/inspect_pool_candidates.py /app/scripts/
 COPY deploy/worker-entrypoint.sh /usr/local/bin/worker-entrypoint
 COPY deploy/worker-volume-check.sh /usr/local/bin/worker-volume-check
 COPY deploy/worker-readiness-check.sh /usr/local/bin/worker-readiness-check
+COPY deploy/worker-prepare-base.sh /usr/local/bin/worker-prepare-base
 COPY scripts/worker_ci_gate.py scripts/worker_readiness.py /usr/local/lib/arb/
-RUN chmod 755 /usr/local/bin/worker-entrypoint /usr/local/bin/worker-volume-check /usr/local/bin/worker-readiness-check \
+RUN chmod 755 /usr/local/bin/worker-entrypoint /usr/local/bin/worker-volume-check /usr/local/bin/worker-readiness-check /usr/local/bin/worker-prepare-base \
     && base-ingest --check
 ENTRYPOINT ["worker-entrypoint"]
 CMD ["research-worker"]

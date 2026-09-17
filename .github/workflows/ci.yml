@@ -25,6 +25,7 @@ jobs:
       - run: python scripts/validate_project.py
       - run: python scripts/test_worker_ci_gate.py -v
       - run: python scripts/test_worker_readiness.py -v
+      - run: python scripts/test_worker_prepare_base.py -v
       - run: python scripts/test_pipeline_workflow.py
       - run: python scripts/test_github_bootstrap.py
       - run: python scripts/github_bootstrap.py --repo "$GITHUB_REPOSITORY" --dry-run
@@ -125,6 +126,8 @@ jobs:
         run: bash scripts/test_worker_container.sh arb-worker:test
       - name: Verify read-only worker readiness against isolated PostgreSQL
         run: bash scripts/test_worker_readiness_container.sh arb-worker:test
+      - name: Verify synthetic Base profile with the shipped Rust parser
+        run: bash scripts/test_worker_profile_container.sh arb-worker:test
       - name: Build and validate the Railway web image
         run: |
           docker build -f deploy/Dockerfile.web -t arb-web:test .
