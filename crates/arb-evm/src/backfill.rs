@@ -179,14 +179,40 @@ pub fn recover_logs(
     limits: BackfillLimits,
     cancelled: impl FnMut() -> bool,
 ) -> Result<BackfillBatch, BackfillError> {
+    recover_logs_selected(rpc, pools, checkpoint, None, limits, cancelled)
+}
+
+/// Recover only through an already captured finalized header. The provider must
+/// still confirm finality and that exact canonical header. A newer finalized tip
+/// does not change the requested range or the snapshot the caller will consume.
+pub fn recover_logs_through(
+    rpc: &mut impl ReadRpc,
+    pools: &[PoolRegistry],
+    checkpoint: &BlockHeader,
+    through: &BlockHeader,
+    limits: BackfillLimits,
+    cancelled: impl FnMut() -> bool,
+) -> Result<BackfillBatch, BackfillError> {
+    recover_logs_selected(rpc, pools, checkpoint, Some(through), limits, cancelled)
+}
+
+fn recover_logs_selected(
+    rpc: &mut impl ReadRpc,
+    pools: &[PoolRegistry],
+    checkpoint: &BlockHeader,
+    requested: Option<&BlockHeader>,
+    limits: BackfillLimits,
+    cancelled: impl FnMut() -> bool,
+) -> Result<BackfillBatch, BackfillError> {
     let mut attempt = Attempt {
         rpc,
         cancelled,
         checkpoint,
-        target: None,
+        target: requested.map(|header| header.number),
     };
     if !limits.validate()
         || checkpoint.validate().is_err()
+        || requested.is_some_and(|header| header.validate().is_err())
         || pools.is_empty()
         || pools.len() > MAX_CAPTURE_POOLS
     {
@@ -218,7 +244,25 @@ pub fn recover_logs(
     if !original.same_block(checkpoint) {
         return Err(attempt.error(GapReason::CheckpointChanged, Some(checkpoint.number)));
     }
-    let target = attempt.header(json!("finalized"), None)?;
+    let finalized = attempt.header(json!("finalized"), None)?;
+    let target = if let Some(requested) = requested {
+        if requested.number > finalized.number {
+            return Err(attempt.error(GapReason::FinalityRegressed, Some(requested.number)));
+        }
+        if requested.number == finalized.number && !requested.same_block(&finalized) {
+            return Err(attempt.error(GapReason::TargetChanged, Some(requested.number)));
+        }
+        let confirmed = attempt.header(
+            json!(format!("0x{:x}", requested.number)),
+            Some(requested.number),
+        )?;
+        if !confirmed.same_block(requested) {
+            return Err(attempt.error(GapReason::TargetChanged, Some(requested.number)));
+        }
+        confirmed
+    } else {
+        finalized
+    };
     attempt.target = Some(target.number);
     let Some(distance) = target.number.checked_sub(checkpoint.number) else {
         return Err(attempt.error(GapReason::FinalityRegressed, Some(target.number)));

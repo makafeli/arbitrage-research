@@ -29,6 +29,17 @@ Root integration owns shared manifests, lockfiles, CI, publication and final acc
 
 ## Current delivery checkpoint
 
+### Managed Base source catch-up, 17 September 2026
+
+Continue existing #58/#32/#30 from integrated `72b1dfab`. The research worker can
+opt in to bounded exact-target source reconciliation before automatic capture
+associations and quote publication. It requires the original explicit ACTIVE
+source seed, shares the existing RPC budget and preserves independent STOP and
+shutdown fences. See [managed Base worker](docs/MANAGED-BASE-WORKER.md). This is
+not hosted activation, automatic session discovery or virtual trade settlement.
+Local and remote test/review evidence and final merge state belong on the existing
+PR/issues; no original acceptance or dependency is waived.
+
 ### Authenticated decision continuity view, 17 September 2026
 
 PR141 is already integrated at `b3867784`. Existing #32/#51 now connect its source
