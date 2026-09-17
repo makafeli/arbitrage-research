@@ -36,8 +36,8 @@ fn validate(configuration: &[u8], registry: &[u8]) -> Result<Value, &'static str
     {
         return Err("PROFILE_SCOPE_REJECTED");
     }
-    let document = RegistryDocument::from_bytes(registry, network)
-        .map_err(|_| "PROFILE_REGISTRY_REJECTED")?;
+    let document =
+        RegistryDocument::from_bytes(registry, network).map_err(|_| "PROFILE_REGISTRY_REJECTED")?;
     document
         .authorize(&config)
         .map_err(|_| "PROFILE_REGISTRY_UNAUTHORIZED")?;
@@ -75,7 +75,10 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Err(reason) => {
-            eprintln!("{}", json!({"status":"PROFILE_CHECK_BLOCKED","reason":reason}));
+            eprintln!(
+                "{}",
+                json!({"status":"PROFILE_CHECK_BLOCKED","reason":reason})
+            );
             ExitCode::from(2)
         }
     }
