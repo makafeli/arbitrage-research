@@ -1835,3 +1835,6 @@ async fn canonical_batch_failure_admits_no_partial_captures_or_decisions() {
 
 #[path = "support/capture_source_process.rs"]
 mod capture_source_process;
+
+#[path = "support/managed_ingestion_process.rs"]
+mod managed_ingestion_process;

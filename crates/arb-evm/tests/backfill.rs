@@ -585,3 +585,170 @@ fn hard_bounds_accept_their_exact_edge_and_refuse_the_next_block_or_log() {
         }
     }
 }
+
+// Targeted recovery uses genuine responses for the captured height, even when
+// the finalized tip has moved. These remain manually constructed transcripts.
+fn targeted_records(target: u64, finalized: u64) -> Vec<RpcRecord> {
+    let mut input = records(target);
+    change(&mut input[2], |v| *v = block(finalized));
+    input.insert(
+        3,
+        RpcRecord {
+            sequence: 0,
+            method: ReadMethod::EthGetBlockByNumber,
+            params: json!([format!("0x{target:x}"), false]),
+            response: json!({"jsonrpc":"2.0","id":0,"result":block(target)}).to_string(),
+        },
+    );
+    for (index, item) in input.iter_mut().enumerate() {
+        item.sequence = index as u64;
+        let mut response: Value = serde_json::from_str(&item.response).unwrap();
+        response["id"] = json!(index);
+        item.response = response.to_string();
+    }
+    input
+}
+
+#[test]
+fn exact_capture_target_does_not_follow_a_newer_finalized_tip() {
+    let start = checkpoint();
+    let through = BlockHeader::from_rpc(&block(102)).unwrap();
+    let mut rpc = TranscriptRpc::new(targeted_records(102, 200));
+    let batch = recover_logs_through(
+        &mut rpc,
+        &pools(),
+        &start,
+        &through,
+        BackfillLimits::default(),
+        || false,
+    )
+    .unwrap();
+    rpc.finish().unwrap();
+    assert_eq!(batch.through, through);
+    assert_eq!(batch.blocks.len(), 2);
+    assert_eq!(start, checkpoint());
+}
+
+#[test]
+fn exact_target_requires_matching_finalized_canonical_header_and_ancestry() {
+    let through = BlockHeader::from_rpc(&block(102)).unwrap();
+    let mut input = targeted_records(102, 101);
+    input.truncate(3);
+    let mut rpc = TranscriptRpc::new(input);
+    assert_eq!(
+        recover_logs_through(
+            &mut rpc,
+            &pools(),
+            &checkpoint(),
+            &through,
+            BackfillLimits::default(),
+            || false
+        )
+        .unwrap_err()
+        .reason,
+        GapReason::FinalityRegressed
+    );
+    rpc.finish().unwrap();
+    for index in [2, 3] {
+        let mut input = targeted_records(102, 102);
+        change(&mut input[index], |v| v["hash"] = json!(hash(777)));
+        let error = recover_logs_through(
+            &mut TranscriptRpc::new(input),
+            &pools(),
+            &checkpoint(),
+            &through,
+            BackfillLimits::default(),
+            || false,
+        )
+        .unwrap_err();
+        assert_eq!(error.reason, GapReason::TargetChanged);
+        assert_eq!(error.requested_through, Some(102));
+    }
+    let mut input = targeted_records(102, 103);
+    change(&mut input[4], |v| v["parentHash"] = json!(hash(777)));
+    assert_eq!(
+        recover_logs_through(
+            &mut TranscriptRpc::new(input),
+            &pools(),
+            &checkpoint(),
+            &through,
+            BackfillLimits::default(),
+            || false
+        )
+        .unwrap_err()
+        .reason,
+        GapReason::BrokenAncestry
+    );
+}
+
+#[test]
+fn exact_target_keeps_gap_limits_and_caught_up_rechecks() {
+    let mut input = targeted_records(100, 150);
+    let through = checkpoint();
+    let mut rpc = TranscriptRpc::new(input.clone());
+    let batch = recover_logs_through(
+        &mut rpc,
+        &pools(),
+        &through,
+        &through,
+        BackfillLimits::default(),
+        || false,
+    )
+    .unwrap();
+    assert!(batch.blocks.is_empty());
+    rpc.finish().unwrap();
+    input = targeted_records(117, 118);
+    let target = BlockHeader::from_rpc(&block(117)).unwrap();
+    input.truncate(4);
+    let mut rpc = TranscriptRpc::new(input);
+    assert_eq!(
+        recover_logs_through(
+            &mut rpc,
+            &pools(),
+            &checkpoint(),
+            &target,
+            BackfillLimits::default(),
+            || false
+        )
+        .unwrap_err()
+        .reason,
+        GapReason::BackfillLimitExceeded
+    );
+    rpc.finish().unwrap();
+}
+
+#[test]
+fn exact_target_preserves_cancellation_and_late_reorg_rejection() {
+    let through = BlockHeader::from_rpc(&block(102)).unwrap();
+    let mut input = targeted_records(102, 200);
+    let last = input.len() - 2;
+    change(&mut input[last], |v| v["timestamp"] = json!("0x0"));
+    assert_eq!(
+        recover_logs_through(
+            &mut TranscriptRpc::new(input),
+            &pools(),
+            &checkpoint(),
+            &through,
+            BackfillLimits::default(),
+            || false
+        )
+        .unwrap_err()
+        .reason,
+        GapReason::TargetChanged
+    );
+    let mut rpc = TranscriptRpc::new(vec![]);
+    assert_eq!(
+        recover_logs_through(
+            &mut rpc,
+            &pools(),
+            &checkpoint(),
+            &through,
+            BackfillLimits::default(),
+            || true
+        )
+        .unwrap_err()
+        .reason,
+        GapReason::Cancelled
+    );
+    rpc.finish().unwrap();
+}

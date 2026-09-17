@@ -1,6 +1,7 @@
 //! PostgreSQL-controlled OBSERVE/PAPER read-only capture and research runtime.
 //! Captures feed bounded research-only route evaluation. Gross quotes never imply fills or executable profit.
 mod capture_source;
+mod managed_ingestion;
 mod pipeline_metrics;
 mod stage_metrics;
 use pipeline_metrics::{Component, PipelineMetrics, persistence};
@@ -40,6 +41,7 @@ struct AttemptFailure {
     outcome: CollectionOutcome,
     reason: CollectionReason,
     captured_pools: u32,
+    ingestion_halt: Option<arb_storage::IngestionHalt>,
 }
 impl AttemptFailure {
     fn acquisition(reason: CollectionReason, captured_pools: usize) -> Self {
@@ -51,6 +53,7 @@ impl AttemptFailure {
             },
             reason,
             captured_pools: captured_pools as u32,
+            ingestion_halt: None,
         }
     }
     fn evaluation(reason: arb_scheduler::DropReason, captured_pools: u32) -> Self {
@@ -77,6 +80,7 @@ impl AttemptFailure {
             outcome,
             reason,
             captured_pools,
+            ingestion_halt: None,
         }
     }
 }
@@ -88,6 +92,7 @@ struct CollectionWork {
     captured_pools: u32,
     metrics: Arc<PipelineMetrics>,
     correlation: Uuid,
+    ingestion_cursor: Option<arb_storage::IngestionCursor>,
 }
 impl CollectionWork {
     fn finish(
@@ -183,6 +188,7 @@ fn evaluate_blocking(
         outcome: CollectionOutcome::EvaluationFailed,
         reason: CollectionReason::EvaluationRejected,
         captured_pools,
+        ingestion_halt: None,
     };
     if let Err(reason) = gate.cancellation.check(Instant::now()) {
         return Err(AttemptFailure::evaluation(reason, captured_pools));
@@ -342,6 +348,7 @@ struct CompletedCapture {
 }
 struct CompletedBatch {
     captures: Vec<CompletedCapture>,
+    ingestion: Option<arb_evm::backfill::BackfillBatch>,
     started: Instant,
     observed_at_ms: u64,
 }
@@ -415,6 +422,7 @@ fn directory_bytes(root: &Path) -> Result<u64, AnyError> {
 fn capture_blocking(
     plan: &CapturePlan,
     correlation: Uuid,
+    ingestion_cursor: Option<&arb_storage::IngestionCursor>,
 ) -> Result<CompletedBatch, AttemptFailure> {
     let started = Instant::now();
     let observed = now_ms()
@@ -469,6 +477,12 @@ fn capture_blocking(
             0,
         ));
     }
+    // Keep the original quote transcript unchanged. Recovery uses the SAME
+    // transport and its cumulative request, byte, pacing and 60-second budget.
+    // A failed recovery writes no pool artifacts or partial ingestion batch.
+    let ingestion = ingestion_cursor
+        .map(|cursor| managed_ingestion::recover(plan, &snapshots, cursor, &mut rpc))
+        .transpose()?;
     let mut captures = Vec::new();
     for (selected, (snapshot, context, coherent)) in plan.registry.pools().iter().zip(snapshots) {
         let registry = match selected {
@@ -582,6 +596,7 @@ fn capture_blocking(
     }
     Ok(CompletedBatch {
         captures,
+        ingestion,
         started,
         observed_at_ms: observed,
     })
@@ -622,6 +637,7 @@ async fn finish_collection(
 
 async fn run() -> Result<(), AnyError> {
     let ingestion_stream = capture_source::setting()?;
+    let managed_ingestion = managed_ingestion::enabled(ingestion_stream.as_deref())?;
     let metrics_enabled = stage_metrics::enabled()?;
     let config = ValidatedConfig::from_toml(&String::from_utf8(read_small(&required_env(
         "ARB_WORKER_CONFIG",
@@ -690,6 +706,11 @@ async fn run() -> Result<(), AnyError> {
         retention_days: config.capture_retention_days(),
     });
     let bound_source = capture_source::configured(&plan, ingestion_stream.as_deref())?;
+    if managed_ingestion {
+        // Never create, reset or re-arm a source merely because a process starts.
+        // The operator-approved source seed remains the coverage boundary.
+        managed_ingestion::cursor(&store, &operator, bound_source.as_ref()).await?;
+    }
     let worker = ControlWorker::claim(
         store.clone(),
         &operator,
@@ -793,12 +814,27 @@ async fn run() -> Result<(), AnyError> {
                     let mut collection = active_collection.take().expect("capture has durable collection");
                     match completed {
                         Ok(Ok(batch)) => {
-                            last_good_capture=Some(Instant::now());
+                            let mut source_ready = true;
+                            if !stopping && let Some(recovered) = &batch.ingestion {
+                                let source = bound_source.as_ref().ok_or("managed source is missing")?;
+                                let expected = collection.ingestion_cursor.as_ref().ok_or("managed cursor is missing")?;
+                                match managed_ingestion::commit(&store, &operator, source, expected, recovered).await {
+                                    Ok(ready) => source_ready = ready,
+                                    Err(error) => {
+                                        finish_collection(&worker, &collection, CollectionOutcome::AcquisitionFailed, Some(CollectionReason::InputValidationFailed)).await?;
+                                        worker.fence_local().await;
+                                        scheduler.fence(network)?;
+                                        worker.fault("MANAGED_SOURCE_PERSISTENCE_FAILED").await?;
+                                        return Err(error.into());
+                                    }
+                                }
+                            }
+                            last_good_capture=source_ready.then(Instant::now);
                             collection.captured_pools = batch.captures.len() as u32;
                             let generation=collection.generation;
-                            let mut all_admitted=!stopping && generation.is_some();
+                            let mut all_admitted=!stopping && generation.is_some() && source_ready;
                             for capture in &batch.captures {
-                                let admission = if stopping { None } else if let Some(generation)=generation {
+                                let admission = if stopping || !source_ready { None } else if let Some(generation)=generation {
                                     match persistence(&pipeline, collection.correlation, worker.admit_capture_manifest(generation,&capture.capture_id,&capture.manifest_digest,capture.path.to_str().ok_or("capture path is not UTF-8")?)).await {
                                         Ok(update)=>update.attempt_id,
                                         Err(error) if is_generation_fence(&error)=>None,
@@ -841,6 +877,7 @@ async fn run() -> Result<(), AnyError> {
                                     outcome:CollectionOutcome::EvaluationFailed,
                                     reason:CollectionReason::TaskFailed,
                                     captured_pools:collection.captured_pools,
+                                    ingestion_halt:None,
                                 };
                                 let scheduled = match scheduler.try_enqueue(item,Instant::now()) {
                                     Ok(Ok(())) => match scheduler.dispatch(Instant::now()) {
@@ -879,7 +916,23 @@ async fn run() -> Result<(), AnyError> {
                         Ok(Err(failure)) => {
                             last_good_capture=None;
                             collection.captured_pools=failure.captured_pools;
+                            // Terminal source faults invalidate dependent history. Never
+                            // overwrite a concurrently advanced cursor or halt on shutdown.
+                            if !stopping && let Some(reason) = failure.ingestion_halt {
+                                worker.fence_local().await;
+                                scheduler.fence(network)?;
+                                if let (Some(source), Some(expected)) = (&bound_source, &collection.ingestion_cursor) {
+                                    persistence(&pipeline, collection.correlation,
+                                        store.halt_ingestion(&operator, &source.stream_id, expected, reason)).await?;
+                                }
+                            }
                             finish_collection(&worker, &collection, failure.outcome, Some(failure.reason)).await?;
+                            if !stopping && failure.ingestion_halt.is_some() {
+                                // Readiness failure must not leave an apparently live
+                                // owner that can subsequently acknowledge START.
+                                worker.fault("MANAGED_SOURCE_RECOVERY_FAILED").await?;
+                                return Err("managed Base source recovery failed".into());
+                            }
                         }
                         Err(_) => {
                             finish_collection(&worker, &collection, CollectionOutcome::AcquisitionFailed, Some(CollectionReason::TaskFailed)).await?;
@@ -911,10 +964,13 @@ async fn run() -> Result<(), AnyError> {
                     let id=correlation.to_string();
                     // Commit before scheduling blocking work. A failed start writes no
                     // acquisition evidence and performs no external provider request.
+                    let ingestion_cursor = if managed_ingestion {
+                        Some(managed_ingestion::cursor(&store, &operator, bound_source.as_ref()).await?)
+                    } else { None };
                     persistence(&pipeline, correlation, worker.begin_collection_attempt(&id, update.generation, purpose)).await?;
-                    active_collection=Some(CollectionWork { id, generation, started:Instant::now(), captured_pools:0, correlation, metrics:Arc::clone(&pipeline) });
+                    active_collection=Some(CollectionWork { id, generation, started:Instant::now(), captured_pools:0, correlation, metrics:Arc::clone(&pipeline), ingestion_cursor:ingestion_cursor.clone() });
                     let task_plan=Arc::clone(&plan);
-                    job=Some(tokio::task::spawn_blocking(move||capture_blocking(&task_plan, correlation)));
+                    job=Some(tokio::task::spawn_blocking(move||capture_blocking(&task_plan, correlation, ingestion_cursor.as_ref())));
                 }
             }
         }

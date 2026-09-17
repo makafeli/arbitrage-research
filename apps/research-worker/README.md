@@ -64,3 +64,18 @@ The process tests cover registration before held RPC I/O, redacted HTTP 503 fail
 When a network's frozen configuration contains `chain_freshness = { version = "finalized-chain-time-v1", max_chain_age_ms = ... }`, research evaluates the retained chain timestamp against the acquisition UTC reference plus monotone elapsed time. Base retains its existing block timestamp and v2 batch sequence. Solana uses `arb_solana-pool-set-v3`: one complete account batch followed by `getBlockTime` for exactly the returned account context slot. This also applies to a legacy one-pool registry as a batch of one. The original time response is retained in the same full transcript. JSON null means unknown time; it never means a zero-age state. A failed lookup rejects acquisition, and no batch artifact is written.
 
 Initial unknown, future or stale chain-time reports produce durable `DATA_UNAVAILABLE` decision evidence with explicit `CHAIN_TIME_*` reasons; a state that expires during quoting produces a rejected route. Recent transport activity therefore cannot make old chain state fresh. These decisions remain separate from acquisition failures and market `NO_ROUTE` outcomes. The report is a declared research-time assumption, without independent provider, reorg or execution qualification. Missing policy preserves historical capture sequences, schema 1.0.0 and hashes; it does not prove chain freshness. Policy-enabled decisions use schema 1.1.0 and the versioned chain-time calculation.
+
+## Opt-in managed Base ingestion
+
+With an explicitly initialized matching ACTIVE source, set
+`ARB_BASE_INGESTION_STREAM` and `ARB_BASE_MANAGED_INGESTION=true` to let this process
+perform bounded log catch-up to its exact captured finalized block before capture
+associations or quotes are published. A separate ingestion writer is then not
+needed for each capture. This is not automatic stream initialization, discovery
+of all API sessions, a Railway deployment or paper settlement. HALTED sources are
+never rearmed, and an empty seed does not make research ready. The existing
+external-source mode remains unchanged by default.
+
+[Managed Base worker](../../docs/MANAGED-BASE-WORKER.md) defines the shared request
+budget, original quote replay, source persistence, STOP/SIGTERM and failure
+boundaries, plus the remaining deployment prerequisites.
