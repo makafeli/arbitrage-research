@@ -1,6 +1,6 @@
 // Repository-backed foundation; evaluate with Railway CLI, not the browser build.
 // Existing unrelated Railway projects are outside this configuration's scope.
-// Prepared worker status: docs/RAILWAY-WORKER-PREPARATION.md.
+// Prepared worker status: docs/BASE-RUNTIME-PROFILE.md.
 import { defineRailway, github, postgres, project, service, volume } from "railway/iac";
 
 export default defineRailway((ctx) => {
@@ -37,8 +37,8 @@ export default defineRailway((ctx) => {
       ARB_API_HOST: api.env.RAILWAY_PRIVATE_DOMAIN,
     },
   });
-  // One-shot storage and read-only metadata inspection; never starts research.
-  // Runtime activation requires a separately reviewed configuration/session.
+  // Explicit finite Base profile preparation; never starts the research loop.
+  // Preserve the owner's separately managed ARB_BASE_RPC_URL when planning changes.
   const baseCaptures = volume("base-research-captures", {
     region: "europe-west4-drams3a",
     sizeMB: 1024,
@@ -48,7 +48,7 @@ export default defineRailway((ctx) => {
       branch: "main",
       checkSuites: true,
     }),
-    start: "worker-entrypoint worker-readiness-check",
+    start: "worker-entrypoint worker-prepare-base",
     replicas: { "europe-west4-drams3a": 1 },
     build: { dockerfilePath: "deploy/Dockerfile.worker" },
     deploy: {
