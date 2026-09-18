@@ -16,11 +16,13 @@ network=$(docker network create --internal "arb-leaf-$(basename "$work")")
 volume=$(docker volume create)
 database=$(docker run -d --rm --network "$network" --network-alias session-db \
     -e POSTGRES_PASSWORD=disposable-leaf-only "$pg")
+# TCP on purpose: the image init starts a socket-only temporary server; a socket
+# pg_isready passes during init and the next psql hits "database system is shutting down".
 for attempt in $(seq 1 40); do
-    if docker exec "$database" pg_isready -U postgres >/dev/null; then break; fi
+    if docker exec "$database" pg_isready -h 127.0.0.1 -U postgres >/dev/null; then break; fi
     sleep 1
 done
-docker exec "$database" pg_isready -U postgres >/dev/null
+docker exec "$database" pg_isready -h 127.0.0.1 -U postgres >/dev/null
 for migration in migrations/[0-9]*.sql; do
     docker exec -i "$database" psql -Xq -U postgres -v ON_ERROR_STOP=1 < "$migration"
 done
