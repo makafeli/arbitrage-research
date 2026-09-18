@@ -23,19 +23,22 @@ import shlex
 import subprocess
 import sys
 
-# Railway subcommands that only read.
+# Railway subcommands that only read, plus the operator paths the owner opened
+# on 2026-09-18 for #58 maintenance: ssh, connect and GraphQL queries via api.
 RAILWAY_READ = {
     "status", "logs", "list", "ls", "whoami", "link", "open", "docs",
     "metrics", "help", "completion", "--help", "-h", "--version", "-V",
+    "ssh", "connect", "api",
 }
 # Subcommand groups whose default action is a read; only these second words mutate.
-RAILWAY_GROUPS = {"service", "environment", "env", "deployment", "deployments"}
+RAILWAY_GROUPS = {"service", "environment", "env", "deployment", "deployments", "volume"}
 RAILWAY_GROUP_MUTATING = {
     "delete", "rm", "remove", "redeploy", "restart", "scale", "source",
-    "files", "file", "new", "create", "up", "deploy",
+    "files", "file", "new", "create", "up", "deploy", "detach", "update", "restore",
 }
-# Subcommands that expose secrets or a production shell.
-RAILWAY_SECRET = {"variable", "variables", "vars", "shell", "run", "local", "ssh", "connect"}
+# Subcommands that print secrets into the transcript.
+RAILWAY_SECRET = {"variable", "variables", "vars", "shell", "run", "local"}
+GRAPHQL_MUTATION = re.compile(r"\bmutation\b", re.IGNORECASE)
 
 # Separators: chains, pipes, background, newlines, subshells, groups, backticks, $( ).
 SPLIT = re.compile(r"(?:\|\||&&|\||;|&|\n|\$\(|`|\(|\)|\{|\})")
@@ -95,9 +98,11 @@ def check_git(argv: list[str], cwd: str) -> None:
 def check_railway(argv: list[str]) -> None:
     sub = argv[1] if len(argv) > 1 else "help"
     sub2 = argv[2] if len(argv) > 2 else ""
+    if sub == "api" and GRAPHQL_MUTATION.search(" ".join(argv[2:])):
+        block("'railway api' with a GraphQL mutation can change production.")
     if sub in RAILWAY_READ:
         return
-    if sub in RAILWAY_GROUPS and sub2 not in RAILWAY_GROUP_MUTATING:
+    if sub in RAILWAY_GROUPS and not RAILWAY_GROUP_MUTATING.intersection(argv[2:4]):
         return
     if sub in RAILWAY_SECRET:
         block(f"'railway {sub}' exposes production secrets or a production shell.")
