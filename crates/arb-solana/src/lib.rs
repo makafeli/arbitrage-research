@@ -1,5 +1,6 @@
-//! Orca Whirlpool legacy SPL-token and fixed tick-array decoder. No transaction construction.
+//! Orca Whirlpool legacy SPL-token and fixed tick-array decoder, plus a research-only unsigned transaction plan (`plan`). No signing, no submission.
 pub mod math;
+pub mod plan;
 
 use arb_adapter_api::{AdapterError, ReadMethod, ReadRpc, Result, SnapshotQuality, StateContext};
 use base64::{Engine, engine::general_purpose::STANDARD};
