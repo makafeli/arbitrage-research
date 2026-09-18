@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import resource
 import signal
+import ssl
 import stat
 import subprocess
 import sys
@@ -100,16 +101,27 @@ def environment(source: dict[str, str]) -> dict[str, str]:
             and bool(database.username) and len(database.path) > 1 and not database.fragment,
             'DATABASE_SETTING_REJECTED')
     query = urllib.parse.parse_qs(database.query, keep_blank_values=True, strict_parsing=True)
-    require(set(query) <= {'sslmode'} and (not query or query['sslmode'] == ['require']),
+    require(set(query) <= {'sslmode'} and (not query or query['sslmode'] == ['verify-full']),
             'DATABASE_TLS_SETTING_REJECTED')
-    # Same private URL, but require encryption for both existing Rust processes.
-    database = urllib.parse.urlunsplit(database._replace(query='sslmode=require'))
+    # Trust comes from the authenticated deployment configuration, never TOFU or
+    # an unauthenticated connection to the database. SQLx accepts PEM in this env.
+    ca = source.get('ARB_DATABASE_CA_PEM', '')
+    require(len(ca) <= 16384 and re.fullmatch(
+        r'-----BEGIN CERTIFICATE-----\n[A-Za-z0-9+/=\r\n]+-----END CERTIFICATE-----[ \t\r\n]*', ca
+    ) is not None, 'DATABASE_CA_REQUIRED')
+    try:
+        ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT).load_verify_locations(cadata=ca)
+    except (ssl.SSLError, ValueError) as error:
+        raise LaunchError('DATABASE_CA_REJECTED') from error
+    # Both Rust processes must authenticate the chain AND the unchanged hostname.
+    database = urllib.parse.urlunsplit(database._replace(query='sslmode=verify-full'))
     pace = source.get('ARB_RPC_MIN_INTERVAL_MS', '')
     require(pace.isascii() and pace.isdigit() and str(int(pace)) == pace
             and 75 <= int(pace) <= 1000, 'RPC_PACING_REQUIRED')
     return {'PATH': '/usr/local/bin:/usr/bin:/bin', 'HOME': '/home/arb', 'LC_ALL': 'C',
             'ARB_OPERATOR_ID': operator, 'ARB_INGEST_OPERATOR_ID': operator,
             'ARB_DATABASE_URL': database, 'ARB_INGEST_DATABASE_URL': database,
+            'PGSSLROOTCERT': ca,
             'ARB_BASE_PROFILE_DIGEST': anchor, 'ARB_BASE_RPC_URL': endpoint,
             'ARB_RPC_MIN_INTERVAL_MS': pace, 'ARB_INGEST_STREAM_ID': STREAM,
             'ARB_BASE_INGESTION_STREAM': STREAM, 'ARB_BASE_MANAGED_INGESTION': 'true'}

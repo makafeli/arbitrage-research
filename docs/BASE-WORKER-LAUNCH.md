@@ -43,7 +43,13 @@ it is not a distributed lock against another service or a hostile volume writer.
 The original database lease and exact source binding remain authoritative.
 
 Only selected settings reach child processes. The database connection requires
-TLS; transport encryption does not claim authenticated server identity.
+authenticated TLS (`verify-full`), including hostname matching. The public
+`ARB_DATABASE_CA_PEM` is supplied through authenticated deployment configuration,
+not obtained from an unverified database connection. It is parsed and bounded
+before database access, then passed as `PGSSLROOTCERT` to the existing SQLx clients.
+The session checker independently forces `VerifyFull`; no helper may downgrade it.
+Missing/invalid trust, a different CA, an incorrect hostname or a malformed server
+certificate blocks launch before source initialization. No fallback to `require`.
 Proxy, account-secret, signer and arbitrary inherited settings are not forwarded.
 Profile JSON is read through a no-follow, regular-file descriptor with a hard
 1-MiB read limit, including when a file grows after its metadata check. Parent
@@ -64,6 +70,22 @@ A running process is not proof of qualified data, complete simulation, automatic
 virtual settlement or executable profit. Paper/Real navigation remains unchanged;
 this worker has no signing or broadcast capability.
 
+## Existing deployment certificate compatibility
+
+Read-only inspection on 18 September 2026 found the existing PostgreSQL public
+root CA and `postgres.railway.internal` SAN. The current server certificate also
+has `basicConstraints CA:TRUE`. The application's Rustls verifier rejects a CA
+used as an end-entity certificate, even with a trusted issuer and correct SAN.
+The container drill reproduces this with ephemeral synthetic keys.
+
+Before hosted activation, the server needs a proper `CA:FALSE`, `serverAuth` leaf
+and the worker needs the authenticated public CA input. This is infrastructure
+integration, not another account/RPC setup request. Never solve it by disabling
+certificate verification or changing the research/session anchors. No database
+certificate replacement or restart is performed by this launcher or runbook.
+A certificate fix must be reviewed/tested separately, preserve the original CA,
+keys and data, and include an actual successful authenticated connection.
+
 ## Verification
 
 `test_worker_launch_base.py` checks offline boundaries, including no implicit
@@ -71,7 +93,8 @@ initialization, anchored session scope, differing registry files, source refusal
 private environment/TLS, bounded subprocess output and inert invocation. Test
 doubles are not real provider evidence. The existing mandatory image/session drill
 also runs the shipped wrapper against its TLS-enabled disposable PostgreSQL and
-verifies missing-source refusal without new sessions, streams or commands.
+verifies wrong-CA/hostname/CA-leaf and missing-source refusals without new sessions,
+streams or commands.
 
 Actual CI, deployed revision, provider observations, source and session state,
 and remaining START/STOP/restart tests are recorded on #58 and the implementing PR.

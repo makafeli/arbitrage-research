@@ -68,6 +68,7 @@ export default defineRailway((ctx) => {
       ARB_OPERATOR_ID: "operator",
       ARB_INGEST_OPERATOR_ID: "operator",
       ARB_RPC_MIN_INTERVAL_MS: "75",
+      ARB_DATABASE_CA_PEM: ctx.shared.ARB_DATABASE_CA_PEM,
       ARB_BASE_PROFILE_DIGEST: ctx.shared.ARB_BASE_PROFILE_DIGEST,
     },
   });

@@ -5,6 +5,7 @@ import io
 import json
 import os
 import stat
+import subprocess
 from types import SimpleNamespace
 from pathlib import Path
 import tempfile
@@ -29,6 +30,17 @@ SOURCE = {'status': 'STATUS', 'state': 'ACTIVE', 'dataset_origin': 'RECORDED_LIV
 
 
 class LaunchTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.certificates = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(cls.certificates.cleanup)
+        root = Path(cls.certificates.name)
+        subprocess.run(['openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-nodes',
+                        '-days', '1', '-subj', '/CN=launcher-unit-test-ca',
+                        '-keyout', str(root/'key.pem'), '-out', str(root/'ca.pem')],
+                       check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        ENV['ARB_DATABASE_CA_PEM'] = (root/'ca.pem').read_text()
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -108,15 +120,33 @@ class LaunchTests(unittest.TestCase):
                                    'ARB_SESSION_ID':'foreign', 'PYTHONPATH':'foreign'})
         for key in ['HTTPS_PROXY','ARB_OPERATOR_SECRET','PGOPTIONS','ARB_SESSION_ID','PYTHONPATH']:
             self.assertNotIn(key, env)
-        self.assertTrue(env['ARB_DATABASE_URL'].endswith('?sslmode=require'))
+        self.assertTrue(env['ARB_DATABASE_URL'].endswith('?sslmode=verify-full'))
+        self.assertEqual(env['PGSSLROOTCERT'], ENV['ARB_DATABASE_CA_PEM'])
 
     def test_missing_endpoint_and_weak_database_modes_rejected(self):
         for key in ENV:
             with self.subTest(key=key), self.assertRaises((launch.LaunchError, ValueError)):
                 launch.environment({k:v for k,v in ENV.items() if k!=key})
-        for mode in ['prefer','allow','disable','','require&sslmode=require']:
+        for mode in ['prefer','allow','disable','','require','verify-ca','verify-full&sslmode=verify-full']:
             with self.subTest(mode=mode), self.assertRaises(launch.LaunchError):
                 launch.environment({**ENV,'ARB_DATABASE_URL':ENV['ARB_DATABASE_URL']+'?sslmode='+mode})
+
+    def test_explicit_verified_database_setting_is_preserved(self):
+        env = launch.environment({**ENV, 'ARB_DATABASE_URL': ENV['ARB_DATABASE_URL']+'?sslmode=verify-full'})
+        self.assertEqual(env['ARB_DATABASE_URL'], ENV['ARB_DATABASE_URL']+'?sslmode=verify-full')
+        self.assertEqual(env['PGSSLROOTCERT'], ENV['ARB_DATABASE_CA_PEM'])
+
+    def test_untrusted_inherited_ca_cannot_replace_deployment_trust(self):
+        env = launch.environment({**ENV, 'PGSSLROOTCERT': '/tmp/untrusted.pem'})
+        self.assertEqual(env['PGSSLROOTCERT'], ENV['ARB_DATABASE_CA_PEM'])
+
+    def test_invalid_or_oversized_certificate_is_refused_before_database_access(self):
+        for ca in ['', 'not-a-certificate', 'x'*16385,
+                   '-----BEGIN CERTIFICATE-----\nZmFrZQ==\n-----END CERTIFICATE-----\n',
+                   ENV['ARB_DATABASE_CA_PEM']*2]:
+            with self.subTest(length=len(ca)), self.assertRaises(launch.LaunchError):
+                launch.prepare({**ENV, 'ARB_DATABASE_CA_PEM': ca}, '--initialize-and-start', self.root, self.runner)
+            self.assertEqual(self.calls, [])
 
     def test_no_args_is_inert_and_unknown_args_are_redacted(self):
         for args in [[],['--check']]:

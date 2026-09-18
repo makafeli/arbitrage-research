@@ -16,7 +16,7 @@ cleanup() {
 trap cleanup EXIT
 network=$(docker network create --internal --label arb.session-test=true "arb-session-$(basename "$work")")
 volume=$(docker volume create --label arb.session-test=true)
-database=$(docker run -d --rm --network "$network" --network-alias session-db \
+database=$(docker run -d --rm --network "$network" --network-alias session-db --network-alias wrong-db \
     -e POSTGRES_PASSWORD=disposable-session-only "$pg")
 for attempt in $(seq 1 40); do
     if docker exec "$database" pg_isready -U postgres >/dev/null; then break; fi
@@ -42,10 +42,28 @@ p.prepare(Path("/data/runtime"),"not-a-provider",lambda _:report)
 anchor=$(docker run --rm --pull=never --network none --read-only --user 10001:10001 \
     --mount "type=volume,source=$volume,target=/data,readonly" --entrypoint python3 "$image" \
     -I -c 'import json;print(json.load(open("/data/runtime/base-v1/profile.json"))["configuration_digest"])')
+# Ephemeral test CA and hostname-bound end-entity certificate, never production trust.
+openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj '/CN=isolated-session-ca' \
+    -addext 'basicConstraints=critical,CA:TRUE' -addext 'keyUsage=critical,keyCertSign,cRLSign' \
+    -keyout "$work/ca.key" -out "$work/ca.crt" >/dev/null 2>&1
+openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj '/CN=wrong-session-ca' \
+    -keyout "$work/wrong.key" -out "$work/wrong.crt" >/dev/null 2>&1
+openssl req -new -newkey rsa:2048 -nodes -subj '/CN=session-db' \
+    -keyout "$work/server.key" -out "$work/server.csr" >/dev/null 2>&1
+cat > "$work/server.ext" <<'CERT'
+basicConstraints=critical,CA:FALSE
+keyUsage=critical,digitalSignature,keyEncipherment
+extendedKeyUsage=serverAuth
+subjectAltName=DNS:session-db
+CERT
+openssl x509 -req -in "$work/server.csr" -CA "$work/ca.crt" -CAkey "$work/ca.key" \
+    -CAcreateserial -days 1 -extfile "$work/server.ext" -out "$work/server.crt" >/dev/null 2>&1
 run=(docker run --rm --pull=never --network "$network" --read-only
     --tmpfs /tmp:rw,noexec,nosuid,nodev,size=8m
     --mount "type=volume,source=$volume,target=/data"
     -e "ARB_BASE_PROFILE_DIGEST=$anchor"
+    -e "PGSSLROOTCERT=$(cat "$work/ca.crt")"
+    -e "ARB_DATABASE_CA_PEM=$(cat "$work/ca.crt")"
     -e ARB_DATABASE_URL=postgres://postgres:disposable-session-only@session-db/postgres)
 expect_failure() {
     local reason=$1; shift
@@ -58,8 +76,6 @@ expect_failure() {
 # The registration CLI must refuse a reachable plaintext-only server.
 expect_failure DATABASE_UNAVAILABLE "${run[@]}" -e ARB_OPERATOR_ID=operator "$image" \
     worker-session --register /data/runtime/base-v1
-openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj '/CN=session-db' \
-    -keyout "$work/server.key" -out "$work/server.crt" >/dev/null 2>&1
 docker cp "$work/server.key" "$database:/tmp/session.key"
 docker cp "$work/server.crt" "$database:/tmp/session.crt"
 docker exec "$database" sh -ceu 'chown postgres:postgres /tmp/session.key /tmp/session.crt; chmod 600 /tmp/session.key'
@@ -78,11 +94,48 @@ for attempt in $(seq 1 20); do
     sleep 1
 done
 test "$tls_ready" = true
+# The shipped Rust session checker must not downgrade verify-full to require.
+expect_failure DATABASE_UNAVAILABLE "${run[@]}" -e ARB_OPERATOR_ID=operator \
+    -e "PGSSLROOTCERT=$(cat "$work/wrong.crt")" "$image" \
+    worker-session --status /data/runtime/base-v1
+expect_failure DATABASE_UNAVAILABLE "${run[@]}" -e ARB_OPERATOR_ID=operator \
+    -e ARB_DATABASE_URL=postgres://postgres:disposable-session-only@wrong-db/postgres \
+    "$image" worker-session --status /data/runtime/base-v1
+# Reproduce the production template's CA:TRUE leaf using synthetic keys only.
+# A trusted CA and correct SAN are insufficient: reject a CA used as a server leaf.
+sed 's/CA:FALSE/CA:TRUE/' "$work/server.ext" > "$work/ca-leaf.ext"
+openssl x509 -req -in "$work/server.csr" -CA "$work/ca.crt" -CAkey "$work/ca.key" \
+    -CAcreateserial -days 1 -extfile "$work/ca-leaf.ext" -out "$work/ca-leaf.crt" >/dev/null 2>&1
+docker cp "$work/ca-leaf.crt" "$database:/tmp/ca-leaf.crt"
+docker exec -i "$database" psql -Xq -U postgres -v ON_ERROR_STOP=1 <<'SQL'
+ALTER SYSTEM SET ssl_cert_file='/tmp/ca-leaf.crt';
+SELECT pg_reload_conf();
+SQL
+sleep 1
+expect_failure DATABASE_UNAVAILABLE "${run[@]}" -e ARB_OPERATOR_ID=operator "$image" \
+    worker-session --status /data/runtime/base-v1
+docker exec -i "$database" psql -Xq -U postgres -v ON_ERROR_STOP=1 <<'SQL'
+ALTER SYSTEM SET ssl_cert_file='/tmp/session.crt';
+SELECT pg_reload_conf();
+SQL
+sleep 1
 expect_failure BASE_SESSION_NOT_REGISTERED "${run[@]}" -e ARB_OPERATOR_ID=operator "$image" \
     worker-session --status /data/runtime/base-v1
 "${run[@]}" -e ARB_OPERATOR_ID=operator "$image" worker-session --register /data/runtime/base-v1 > "$work/first.json"
 "${run[@]}" -e ARB_OPERATOR_ID=operator "$image" worker-session --register /data/runtime/base-v1 > "$work/reused.json"
 "${run[@]}" -e ARB_OPERATOR_ID=operator "$image" worker-session --status /data/runtime/base-v1 > "$work/status.json"
+# The launcher also authenticates the server before any source initialization.
+expect_failure DATABASE_CA_REQUIRED "${run[@]}" -e ARB_OPERATOR_ID=operator \
+    -e ARB_DATABASE_CA_PEM= -e ARB_BASE_RPC_URL=https://rpc.invalid/unused \
+    -e ARB_RPC_MIN_INTERVAL_MS=75 "$image" worker-launch-base --initialize-and-start
+expect_failure REGISTERED_SESSION_REQUIRED "${run[@]}" -e ARB_OPERATOR_ID=operator \
+    -e "ARB_DATABASE_CA_PEM=$(cat "$work/wrong.crt")" \
+    -e ARB_BASE_RPC_URL=https://rpc.invalid/unused -e ARB_RPC_MIN_INTERVAL_MS=75 \
+    "$image" worker-launch-base --initialize-and-start
+expect_failure REGISTERED_SESSION_REQUIRED "${run[@]}" -e ARB_OPERATOR_ID=operator \
+    -e ARB_DATABASE_URL=postgres://postgres:disposable-session-only@wrong-db/postgres \
+    -e ARB_BASE_RPC_URL=https://rpc.invalid/unused -e ARB_RPC_MIN_INTERVAL_MS=75 \
+    "$image" worker-launch-base --initialize-and-start
 # The shipped launch wrapper never initializes a missing source on normal startup.
 # The reserved .invalid endpoint cannot receive requests; the missing-source check
 # must happen before the existing worker is executed.
@@ -144,4 +197,4 @@ expect_failure API_BASE_PROFILE_INCOMPLETE docker run --rm --pull=never --networ
     -e "ARB_BASE_PROFILE_DIGEST=$anchor" "$api_image" --check-profile
 docker run --rm --pull=never --network none --read-only "$api_image" --check-profile > "$work/api-inert.json"
 grep -F 'API_PROFILE_NOT_CONFIGURED' "$work/api-inert.json" >/dev/null
-printf '%s\n' 'Anchored session registration and API profile passed: TLS required, same-key reuse, concurrent registration, wrong anchor refusal, no commands/streams/provider calls.'
+printf '%s\n' 'Anchored session registration and API profile passed: verified TLS, wrong CA/hostname/CA-leaf refusal, same-key reuse, concurrent registration, wrong anchor refusal, no commands/streams/provider calls.'
