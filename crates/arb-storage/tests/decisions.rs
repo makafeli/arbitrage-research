@@ -169,6 +169,37 @@ async fn grouping_preserves_denominators_and_unknown_coverage() {
     );
 }
 #[tokio::test]
+async fn concurrent_identical_appends_are_idempotent_with_one_row() {
+    let (store, operator, id, claim, generation) = setup().await;
+    let traces = vec![
+        trace(&id, generation, 3001, "QUOTED"),
+        trace(&id, generation, 3002, "REJECTED"),
+    ];
+    let (first, second) = tokio::join!(
+        store.append_decision_traces(&claim, generation, &traces),
+        store.append_decision_traces(&claim, generation, &traces)
+    );
+    let first = first.unwrap();
+    let second = second.unwrap();
+    assert_eq!(
+        serde_json::to_value(&first).unwrap(),
+        serde_json::to_value(&second).unwrap()
+    );
+    let page = store
+        .list_decision_traces(&operator, &id, None, 10)
+        .await
+        .unwrap();
+    assert_eq!(page.items.len(), 2);
+    assert_eq!(
+        store
+            .decision_coverage(&operator, &id)
+            .await
+            .unwrap()
+            .raw_observations,
+        "2"
+    );
+}
+#[tokio::test]
 async fn opportunity_filtering_happens_before_pagination_and_quotes_never_become_simulations() {
     let (store, operator, id, claim, generation) = setup().await;
     let traces = vec![
