@@ -65,7 +65,13 @@ SIGTERM during preparation cancels the child and never proceeds to exec.
 
 One configured source and session remain the scope. The existing 16-block recovery
 limit, shared RPC time/byte/request budgets, capture quota and invalidation rules
-are unchanged. A gap beyond those bounds still fails rather than skipping history.
+are unchanged. A finalized step beyond that 16-block limit is no longer a single
+failing attempt: it is walked across consecutive captures, each committing at
+most 16 blocks with nothing skipped and no limit raised, until the step is
+closed. A capture is not admitted for research until the source has reached its
+own anchor block. A gap the bounded walk cannot close — a reorg, a finality
+regression or a provider failure — still fails exactly as before, rather than
+skipping history.
 A running process is not proof of qualified data, complete simulation, automatic
 virtual settlement or executable profit. Paper/Real navigation remains unchanged;
 this worker has no signing or broadcast capability.
