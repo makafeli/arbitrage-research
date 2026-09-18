@@ -39,6 +39,11 @@ RAILWAY_GROUP_MUTATING = {
 # Subcommands that print secrets into the transcript.
 RAILWAY_SECRET = {"variable", "variables", "vars", "shell", "run", "local"}
 GRAPHQL_MUTATION = re.compile(r"\bmutation\b", re.IGNORECASE)
+# The one mutation the owner opened on 2026-09-18: a volume backup only adds a restore point.
+BACKUP_CREATE = re.compile(
+    r'mutation\s*\{\s*volumeInstanceBackupCreate\(\s*volumeInstanceId:\s*"[0-9a-f-]{36}"\s*\)'
+    r"(\s*\{[^{}]*\})?\s*\}"
+)
 
 # Separators: chains, pipes, background, newlines, subshells, groups, backticks, $( ).
 SPLIT = re.compile(r"(?:\|\||&&|\||;|&|\n|\$\(|`|\(|\)|\{|\})")
@@ -99,7 +104,7 @@ def check_railway(argv: list[str], raw: str) -> None:
     sub = argv[1] if len(argv) > 1 else "help"
     sub2 = argv[2] if len(argv) > 2 else ""
     # The query is split on braces/newlines before it gets here, so scan the raw text.
-    if sub == "api" and GRAPHQL_MUTATION.search(raw):
+    if sub == "api" and GRAPHQL_MUTATION.search(BACKUP_CREATE.sub("", raw)):
         block("'railway api' with a GraphQL mutation can change production.")
     if sub in RAILWAY_READ:
         return
