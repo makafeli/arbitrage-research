@@ -639,7 +639,7 @@ async fn sigterm_during_recovery_preserves_the_cursor_without_fabricating_a_sour
 #[tokio::test]
 async fn a_finalized_step_beyond_the_bounded_range_is_walked_over_consecutive_captures() {
     let f = Fixture::new(true).await;
-    let child = f.start();
+    let mut child = f.start();
     f.ready().await;
     f.store
         .issue_command(
@@ -726,14 +726,126 @@ async fn a_finalized_step_beyond_the_bounded_range_is_walked_over_consecutive_ca
     assert!(
         events
             .iter()
-            .any(|e| e["admission"] == "UNADMITTED_RAW_CAPTURE" && e["source_caught_up"] == false),
+            .any(|e| e["admission"] == "UNADMITTED_RAW_CAPTURE"
+                && e["source_caught_up"] == false
+                && e["source_lag_blocks"] == 4),
         "events: {events:?}"
     );
     assert!(
         events
             .iter()
-            .any(|e| e["admission"] == "ADMITTED_RAW_CAPTURE" && e["source_caught_up"] == true),
+            .any(|e| e["admission"] == "ADMITTED_RAW_CAPTURE"
+                && e["source_caught_up"] == true
+                && e["source_lag_blocks"] == 0),
         "events: {events:?}"
+    );
+
+    // A second finalized step while RUNNING must be walked the same way: bounded,
+    // never skipped, and no research admission until the source is fully caught
+    // up again. This pins the production admission gate (`admit = source_ready
+    // && batch.source_caught_up`) with a real running session, not just the
+    // pre-RUNNING walk above.
+    f.provider.tip.store(40, Ordering::SeqCst);
+    wait_until(
+        async || {
+            f.store
+                .ingestion_cursor(&f.operator, "source")
+                .await
+                .unwrap()
+                .checkpoint
+                == stored(36)
+        },
+        30,
+    )
+    .await;
+    assert_eq!(
+        f.store
+            .ingestion_cursor(&f.operator, "source")
+            .await
+            .unwrap()
+            .state,
+        "ACTIVE"
+    );
+    assert!(
+        child.0.try_wait().unwrap().is_none(),
+        "worker exited while still walking the second bounded step"
+    );
+    wait_until(
+        async || {
+            f.store
+                .ingestion_cursor(&f.operator, "source")
+                .await
+                .unwrap()
+                .checkpoint
+                == stored(40)
+        },
+        30,
+    )
+    .await;
+    assert_eq!(
+        f.store
+            .ingestion_cursor(&f.operator, "source")
+            .await
+            .unwrap()
+            .state,
+        "ACTIVE"
+    );
+    assert!(
+        child.0.try_wait().unwrap().is_none(),
+        "worker exited after the second bounded step reached its anchor"
+    );
+
+    // The finished RESEARCH-purpose collections created while the second step
+    // was still short of its anchor must be ACQUISITION_FAILED /
+    // ACQUISITION_UNAVAILABLE, read from the store, not only from the log.
+    let unavailable: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM collection_attempts WHERE session_id=$1 AND purpose='RESEARCH' AND outcome='ACQUISITION_FAILED' AND reason='ACQUISITION_UNAVAILABLE'",
+    )
+    .bind(&f.session)
+    .fetch_one(&f.pool)
+    .await
+    .unwrap();
+    assert!(
+        unavailable >= 1,
+        "expected at least one ACQUISITION_FAILED/ACQUISITION_UNAVAILABLE research collection while the second step was still being walked"
+    );
+    let mismatched: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM collection_attempts WHERE session_id=$1 AND purpose='RESEARCH' AND outcome='ACQUISITION_FAILED' AND reason IS DISTINCT FROM 'ACQUISITION_UNAVAILABLE'",
+    )
+    .bind(&f.session)
+    .fetch_one(&f.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        mismatched, 0,
+        "every ACQUISITION_FAILED research collection in this run must be ACQUISITION_UNAVAILABLE"
+    );
+
+    let log = fs::read_to_string(f.root.join("worker.log")).unwrap();
+    let events: Vec<Value> = log
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .filter(|v| v["event"] == "capture-written")
+        .collect();
+    assert!(
+        events
+            .iter()
+            .any(|e| e["admission"] == "UNADMITTED_RAW_CAPTURE"
+                && e["source_caught_up"] == false
+                && e["source_lag_blocks"] == 4),
+        "events: {events:?}"
+    );
+    let admitted_caught_up = events
+        .iter()
+        .filter(|e| {
+            e["admission"] == "ADMITTED_RAW_CAPTURE"
+                && e["source_caught_up"] == true
+                && e["source_lag_blocks"] == 0
+        })
+        .count();
+    assert!(
+        admitted_caught_up >= 2,
+        "expected a new RESEARCH collection to admit after each finalized step reached its anchor: {events:?}"
     );
     drop(child);
 }

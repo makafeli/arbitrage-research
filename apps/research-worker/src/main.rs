@@ -353,6 +353,10 @@ struct CompletedBatch {
     // anchor block. A bounded catch-up batch that only partially closes a long
     // finalized step leaves this false; the caller must not admit that capture.
     source_caught_up: bool,
+    // Anchor block number minus the committed batch's `through.number`; 0 once
+    // caught up or when there is no managed batch. Surfaced on capture-written
+    // so a stalled-then-jumping finalized tag is visible without reading the DB.
+    source_lag_blocks: u64,
     started: Instant,
     observed_at_ms: u64,
 }
@@ -489,11 +493,15 @@ fn capture_blocking(
         .transpose()?;
     // Every snapshot shares one anchor block (recover() already validates that).
     // A bounded catch-up batch that stops short of it must not be admitted.
-    let source_caught_up = ingestion.as_ref().is_none_or(|batch| {
-        snapshots.first().is_some_and(|(_, context, _)| {
-            matches!(context, StateContext::Evm { block_number, .. }
-                if *block_number == batch.through.number)
-        })
+    let anchor_block_number = snapshots.first().and_then(|(_, context, _)| match context {
+        StateContext::Evm { block_number, .. } => Some(*block_number),
+        StateContext::Solana { .. } => None,
+    });
+    let source_caught_up = ingestion
+        .as_ref()
+        .is_none_or(|batch| anchor_block_number == Some(batch.through.number));
+    let source_lag_blocks = ingestion.as_ref().map_or(0, |batch| {
+        anchor_block_number.map_or(0, |anchor| anchor.saturating_sub(batch.through.number))
     });
     let mut captures = Vec::new();
     for (selected, (snapshot, context, coherent)) in plan.registry.pools().iter().zip(snapshots) {
@@ -610,6 +618,7 @@ fn capture_blocking(
         captures,
         ingestion,
         source_caught_up,
+        source_lag_blocks,
         started,
         observed_at_ms: observed,
     })
@@ -863,7 +872,7 @@ async fn run() -> Result<(), AnyError> {
                                     }
                                 } else { None };
                                 all_admitted &= admission.is_some();
-                                println!("{}",json!({"event":"capture-written","collection_attempt_id":collection.id,"capture_id":capture.capture_id,"manifest_digest":capture.manifest_digest,"admission":if admission.is_some(){"ADMITTED_RAW_CAPTURE"}else{"UNADMITTED_RAW_CAPTURE"},"research_attempt_id":admission,"quote_ready":false,"source_caught_up":batch.source_caught_up}));
+                                println!("{}",json!({"event":"capture-written","collection_attempt_id":collection.id,"capture_id":capture.capture_id,"manifest_digest":capture.manifest_digest,"admission":if admission.is_some(){"ADMITTED_RAW_CAPTURE"}else{"UNADMITTED_RAW_CAPTURE"},"research_attempt_id":admission,"quote_ready":false,"source_caught_up":batch.source_caught_up,"source_lag_blocks":batch.source_lag_blocks}));
                             }
                             if all_admitted && let Some(source) = &bound_source {
                                 let work = generation.expect("admitted capture has generation");

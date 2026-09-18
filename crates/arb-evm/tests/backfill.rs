@@ -839,6 +839,46 @@ fn bounded_recovery_with_a_short_range_matches_recover_logs_through() {
     assert_eq!(actual, expected);
 }
 
+/// At exactly `max_blocks` distance the walk must take the exact path (confirm
+/// the requested header by number) in a single attempt, not the capped path
+/// used for a range that is *longer* than `max_blocks`. This pins the `>` vs
+/// `>=` comparison against `limits.max_blocks`.
+#[test]
+fn bounded_recovery_at_exactly_max_blocks_takes_the_exact_path() {
+    let through = BlockHeader::from_rpc(&block(116)).unwrap();
+    let input = targeted_records(116, 120);
+    assert!(
+        input
+            .iter()
+            .any(|r| r.method == ReadMethod::EthGetBlockByNumber
+                && r.params == json!(["0x74", false])),
+        "transcript must contain the requested-header confirmation of 0x74"
+    );
+    let mut rpc_through = TranscriptRpc::new(input.clone());
+    let expected = recover_logs_through(
+        &mut rpc_through,
+        &pools(),
+        &checkpoint(),
+        &through,
+        BackfillLimits::default(),
+        || false,
+    )
+    .unwrap();
+    rpc_through.finish().unwrap();
+    let mut rpc_bounded = TranscriptRpc::new(input);
+    let actual = recover_logs_bounded(
+        &mut rpc_bounded,
+        &pools(),
+        &checkpoint(),
+        &through,
+        BackfillLimits::default(),
+        || false,
+    )
+    .unwrap();
+    rpc_bounded.finish().unwrap();
+    assert_eq!(actual, expected);
+}
+
 #[test]
 fn bounded_recovery_still_rejects_a_target_beyond_finality() {
     let through = BlockHeader::from_rpc(&block(125)).unwrap();
