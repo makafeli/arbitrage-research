@@ -27,6 +27,8 @@ jobs:
       - run: python scripts/test_worker_readiness.py -v
       - run: python scripts/test_worker_prepare_base.py -v
       - run: python scripts/test_worker_launch_base.py -v
+      - run: python scripts/test_postgres_leaf_repair.py -v
+      - run: python scripts/test_backlog_summary.py -v
       - run: python scripts/test_pipeline_workflow.py
       - run: python scripts/test_github_bootstrap.py
       - run: python scripts/github_bootstrap.py --repo "$GITHUB_REPOSITORY" --dry-run
@@ -131,6 +133,8 @@ jobs:
         run: bash scripts/test_worker_profile_container.sh arb-worker:test
       - name: Verify anchored session registration and matching API profile
         run: bash scripts/test_worker_session_container.sh arb-worker:test arb-api:test
+      - name: Verify reversible PostgreSQL leaf maintenance and unchanged database
+        run: bash scripts/test_postgres_leaf_repair_container.sh arb-worker:test
       - name: Build and validate the Railway web image
         run: |
           docker build -f deploy/Dockerfile.web -t arb-web:test .
