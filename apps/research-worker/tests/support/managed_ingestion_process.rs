@@ -106,7 +106,7 @@ impl Provider {
                     } else {
                         i64::from_str_radix(selector.strip_prefix("0x").unwrap(), 16).unwrap() - 100
                     };
-                    assert!((-1..=1).contains(&offset));
+                    assert!((-1..=40).contains(&offset));
                     header(offset)
                 } else if method == "eth_getLogs" {
                     held_s.store(true, Ordering::SeqCst);
@@ -118,10 +118,8 @@ impl Provider {
                         std::thread::sleep(Duration::from_millis(2));
                     }
                     assert!(params[0]["address"].as_array().unwrap().len() == 2);
-                    assert!(
-                        [header(0)["hash"].clone(), header(1)["hash"].clone()]
-                            .contains(&params[0]["blockHash"])
-                    );
+                    let tip_now = tip_s.load(Ordering::SeqCst) as i64;
+                    assert!((0..=tip_now).any(|k| header(k)["hash"] == params[0]["blockHash"]));
                     if malformed_s.load(Ordering::SeqCst) {
                         json!([{"private":"provider diagnostic must not escape"}])
                     } else {
@@ -131,10 +129,8 @@ impl Provider {
                     let mut comparable = params.clone();
                     if method == "eth_call" || method == "eth_getCode" {
                         assert_eq!(params[1]["requireCanonical"], true);
-                        assert!(
-                            [header(0)["hash"].clone(), header(1)["hash"].clone()]
-                                .contains(&params[1]["blockHash"])
-                        );
+                        let tip_now = tip_s.load(Ordering::SeqCst) as i64;
+                        assert!((0..=tip_now).any(|k| header(k)["hash"] == params[1]["blockHash"]));
                         comparable[1]["blockHash"] = header(0)["hash"].clone();
                     }
                     let record = records
@@ -635,4 +631,109 @@ async fn sigterm_during_recovery_preserves_the_cursor_without_fabricating_a_sour
         cursor
     );
     assert_eq!(f.quoted().await, 0);
+}
+
+/// A finalized step of 20 blocks exceeds `BackfillLimits::default().max_blocks`
+/// (16), so the bounded walk must span two consecutive capture attempts instead
+/// of halting the source. Neither attempt skips a block or raises the limit.
+#[tokio::test]
+async fn a_finalized_step_beyond_the_bounded_range_is_walked_over_consecutive_captures() {
+    let f = Fixture::new(true).await;
+    let child = f.start();
+    f.ready().await;
+    f.store
+        .issue_command(
+            &f.operator,
+            &f.session,
+            "start",
+            NewCommand {
+                action: "START".into(),
+                expected_revision: "0".into(),
+                reason: None,
+            },
+        )
+        .await
+        .unwrap();
+    f.provider.tip.store(20, Ordering::SeqCst);
+    wait_until(
+        async || {
+            f.store
+                .ingestion_cursor(&f.operator, "source")
+                .await
+                .unwrap()
+                .checkpoint
+                == stored(16)
+        },
+        30,
+    )
+    .await;
+    assert_eq!(
+        f.store
+            .ingestion_cursor(&f.operator, "source")
+            .await
+            .unwrap()
+            .state,
+        "ACTIVE"
+    );
+    wait_until(
+        async || {
+            f.store
+                .ingestion_cursor(&f.operator, "source")
+                .await
+                .unwrap()
+                .checkpoint
+                == stored(20)
+        },
+        30,
+    )
+    .await;
+    assert_eq!(
+        f.store
+            .ingestion_cursor(&f.operator, "source")
+            .await
+            .unwrap()
+            .state,
+        "ACTIVE"
+    );
+    wait_until(
+        async || {
+            f.store
+                .get_session(&f.operator, &f.session)
+                .await
+                .unwrap()
+                .observed_state
+                == "RUNNING"
+        },
+        10,
+    )
+    .await;
+    let batches = f
+        .store
+        .ingestion_batches(&f.operator, "source", 0, 16)
+        .await
+        .unwrap();
+    assert_eq!(batches.len(), 2, "batches: {batches:?}");
+    assert_eq!(batches[0]["through"]["number"].as_u64(), Some(116));
+    assert_eq!(batches[0]["blocks"].as_array().unwrap().len(), 16);
+    assert_eq!(batches[1]["through"]["number"].as_u64(), Some(120));
+    assert_eq!(batches[1]["blocks"].as_array().unwrap().len(), 4);
+    let log = fs::read_to_string(f.root.join("worker.log")).unwrap();
+    let events: Vec<Value> = log
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .filter(|v| v["event"] == "capture-written")
+        .collect();
+    assert!(
+        events
+            .iter()
+            .any(|e| e["admission"] == "UNADMITTED_RAW_CAPTURE" && e["source_caught_up"] == false),
+        "events: {events:?}"
+    );
+    assert!(
+        events
+            .iter()
+            .any(|e| e["admission"] == "ADMITTED_RAW_CAPTURE" && e["source_caught_up"] == true),
+        "events: {events:?}"
+    );
+    drop(child);
 }
