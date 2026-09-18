@@ -1,4 +1,4 @@
-use arb_domain::{DecisionTrace, Evidence, SourceKind};
+use arb_domain::{DecisionTrace, Evidence, NetworkId, SourceKind};
 use arb_storage::{NewCommand, NewSession, OpportunityFilter, Store, StoreError, WorkerClaim};
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -910,6 +910,241 @@ async fn malformed_present_snapshot_policy_never_becomes_an_absent_legacy_policy
             Err(StoreError::InvalidInput(_))
         ));
     }
+}
+
+/// One operator, one shared configuration digest, two sessions on different networks
+/// (base-mainnet, solana-mainnet), each with its own `networks.<id>.chain_freshness`
+/// policy embedded in the single configuration snapshot.
+async fn setup_two_networks(
+    policy_base: Option<Value>,
+    policy_solana: Option<Value>,
+) -> (
+    Store,
+    String,
+    (String, WorkerClaim, u64),
+    (String, WorkerClaim, u64),
+) {
+    let store = Store::connect(
+        &std::env::var("TEST_DATABASE_URL")
+            .expect("TEST_DATABASE_URL is mandatory; decision DB tests must not skip"),
+    )
+    .await
+    .unwrap();
+    store.migrate().await.unwrap();
+    let operator = format!("decision-cross-chain-{}", Uuid::new_v4());
+    store
+        .save_configuration(
+            &operator,
+            &hash("a"),
+            json!({"mode":"OBSERVE","networks":{"base":{"chain_freshness":policy_base},"solana":{"chain_freshness":policy_solana}}}),
+        )
+        .await
+        .unwrap();
+    let mut sessions = Vec::new();
+    for network in ["base-mainnet", "solana-mainnet"] {
+        let session = store
+            .create_session(
+                &operator,
+                &format!("session-{network}"),
+                NewSession {
+                    network_id: network.into(),
+                    mode: "OBSERVE".into(),
+                    configuration_digest: hash("a"),
+                    experiment_id: "decision-fixture".into(),
+                    strategy_ids: vec!["fixture-strategy".into()],
+                },
+            )
+            .await
+            .unwrap();
+        let claim = store
+            .claim_worker(&operator, &session.session_id, network, "worker", 60)
+            .await
+            .unwrap();
+        store.complete_worker_recovery(&claim).await.unwrap();
+        store
+            .issue_command(
+                &operator,
+                &session.session_id,
+                "start",
+                NewCommand {
+                    action: "START".into(),
+                    expected_revision: "0".into(),
+                    reason: None,
+                },
+            )
+            .await
+            .unwrap();
+        let generation = store
+            .apply_pending(&claim, true, |_| Ok(()))
+            .await
+            .unwrap()
+            .generation;
+        for (id, digest) in [("capture-one", hash("1")), ("capture-two", hash("2"))] {
+            store
+                .record_capture_admission(
+                    &claim,
+                    generation,
+                    id,
+                    &digest,
+                    &format!("/synthetic/{id}"),
+                )
+                .await
+                .unwrap();
+        }
+        sessions.push((session.session_id, claim, generation));
+    }
+    let solana = sessions.pop().unwrap();
+    let base = sessions.pop().unwrap();
+    (store, operator, base, solana)
+}
+
+fn solana_trace(session: &str, generation: u64, time: u64) -> DecisionTrace {
+    let value = json!({
+     "schema_version":"1.0.0","observation_id":"","session_id":session,"experiment_id":"decision-fixture","generation":generation.to_string(),"configuration_digest":hash("a"),"calculation_version":"fixture-math-v1","strategy_id":"fixture-strategy","network_id":"solana-mainnet","mode":"OBSERVE","source_kind":"SYNTHETIC_FIXTURE","dataset_origin":"MANUALLY_CONSTRUCTED","observed_at_unix_ms":time,"input_age_ms":0,
+     "capture_refs":[{"capture_id":"capture-one","manifest_digest":hash("1"),"snapshot_id":hash("1")},{"capture_id":"capture-two","manifest_digest":hash("2"),"snapshot_id":hash("2")}],
+     "route":[{"pool_id":"solana-mainnet:9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM","asset_in":"solana-mainnet:So11111111111111111111111111111111111111112","asset_out":"solana-mainnet:EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v","venue_family":"orca-whirlpools"},{"pool_id":"solana-mainnet:Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB","asset_in":"solana-mainnet:EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v","asset_out":"solana-mainnet:So11111111111111111111111111111111111111112","venue_family":"orca-whirlpools"}],
+     "amount_in_minor":"100","result":{"status":"QUOTED","quoted_output_minor":"110","gross_delta_minor":"10","included_pool_fees":["1","1"]},
+     "grouping":{"version":"","key":"","window_ms":1000,"window_start_ms":0},"diagnostics":[]
+    });
+    serde_json::from_value::<DecisionTrace>(value)
+        .unwrap()
+        .seal()
+        .unwrap()
+}
+fn solana_freshness_trace(mut source: DecisionTrace, max_chain_age_ms: u64) -> DecisionTrace {
+    let policy = arb_domain::ChainFreshnessPolicy {
+        version: arb_domain::CHAIN_FRESHNESS_VERSION.into(),
+        max_chain_age_ms,
+    };
+    let inputs = source
+        .capture_refs
+        .iter()
+        .map(|capture| arb_domain::ChainTimeInput {
+            capture_id: capture.capture_id.clone(),
+            source: arb_domain::ChainTimeSource::SolanaEstimatedBlockTime {
+                slot: "1".into(),
+                genesis_hash: "So11111111111111111111111111111111111111112".into(),
+                account_context: "fixture-context".into(),
+            },
+            chain_time_seconds: Some(1),
+        })
+        .collect();
+    source.chain_freshness = Some(
+        arb_domain::ChainFreshnessReport::assess(
+            policy,
+            source.observed_at_unix_ms,
+            source.input_age_ms.unwrap(),
+            inputs,
+        )
+        .unwrap(),
+    );
+    source.schema_version = arb_domain::FRESHNESS_DECISION_SCHEMA_VERSION.into();
+    source.calculation_version = arb_domain::FRESHNESS_CALCULATION_VERSION.into();
+    source.seal().unwrap()
+}
+
+/// ARB-018 criterion: "No cross-chain shared atomic snapshot is implied by similar
+/// wall-clock times." One operator and one configuration snapshot carry independent
+/// Base and Solana chain-freshness policies; two sessions append traces at the exact
+/// same wall-clock millisecond. Each network must accept only its own policy and
+/// reject the other network's, and each session's coverage/opportunity views must
+/// stay scoped to its own trace.
+#[tokio::test]
+async fn base_and_solana_sessions_never_share_or_conflate_chain_freshness_policy() {
+    let base_policy = json!({"version":"finalized-chain-time-v1","max_chain_age_ms":100});
+    let solana_policy = json!({"version":"finalized-chain-time-v1","max_chain_age_ms":500});
+    let (store, operator, (base_id, base_claim, base_gen), (solana_id, solana_claim, solana_gen)) =
+        setup_two_networks(Some(base_policy), Some(solana_policy)).await;
+
+    let same_wall_clock_ms = 1001;
+    let base_ok = freshness_trace(trace(&base_id, base_gen, same_wall_clock_ms, "QUOTED"), 100);
+    store
+        .append_decision_traces(&base_claim, base_gen, std::slice::from_ref(&base_ok))
+        .await
+        .unwrap();
+    let solana_ok = solana_freshness_trace(
+        solana_trace(&solana_id, solana_gen, same_wall_clock_ms),
+        500,
+    );
+    store
+        .append_decision_traces(&solana_claim, solana_gen, std::slice::from_ref(&solana_ok))
+        .await
+        .unwrap();
+
+    // A trace correctly self-consistent under the OTHER network's policy value must be
+    // rejected: the storage layer must read each session's own `networks.<id>` key,
+    // never the sibling network's, even though both share operator/configuration/time.
+    let base_tagged_with_solanas_policy =
+        freshness_trace(trace(&base_id, base_gen, same_wall_clock_ms, "QUOTED"), 500);
+    assert!(matches!(
+        store
+            .append_decision_traces(
+                &base_claim,
+                base_gen,
+                std::slice::from_ref(&base_tagged_with_solanas_policy)
+            )
+            .await,
+        Err(StoreError::InvalidInput(_))
+    ));
+    let solana_tagged_with_bases_policy = solana_freshness_trace(
+        solana_trace(&solana_id, solana_gen, same_wall_clock_ms),
+        100,
+    );
+    assert!(matches!(
+        store
+            .append_decision_traces(
+                &solana_claim,
+                solana_gen,
+                std::slice::from_ref(&solana_tagged_with_bases_policy)
+            )
+            .await,
+        Err(StoreError::InvalidInput(_))
+    ));
+
+    // Read paths stay scoped per session/network too: neither coverage nor the
+    // opportunity projection leaks the sibling chain's accepted trace.
+    let base_coverage = store.decision_coverage(&operator, &base_id).await.unwrap();
+    assert_eq!(base_coverage.raw_observations, "1");
+    let solana_coverage = store
+        .decision_coverage(&operator, &solana_id)
+        .await
+        .unwrap();
+    assert_eq!(solana_coverage.raw_observations, "1");
+
+    let base_opportunities = store
+        .list_opportunities(
+            &operator,
+            OpportunityFilter {
+                session_id: Some(base_id.clone()),
+                ..Default::default()
+            },
+            None,
+            10,
+        )
+        .await
+        .unwrap();
+    assert_eq!(base_opportunities.items.len(), 1);
+    assert_eq!(
+        base_opportunities.items[0].network_id,
+        NetworkId::BaseMainnet
+    );
+    let solana_opportunities = store
+        .list_opportunities(
+            &operator,
+            OpportunityFilter {
+                session_id: Some(solana_id.clone()),
+                ..Default::default()
+            },
+            None,
+            10,
+        )
+        .await
+        .unwrap();
+    assert_eq!(solana_opportunities.items.len(), 1);
+    assert_eq!(
+        solana_opportunities.items[0].network_id,
+        NetworkId::SolanaMainnet
+    );
 }
 
 #[path = "support/capture_source_cases.rs"]
