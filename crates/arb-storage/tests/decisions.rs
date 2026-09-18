@@ -201,6 +201,9 @@ async fn opportunity_filtering_happens_before_pagination_and_quotes_never_become
     assert_eq!(next.items.len(), 1);
     assert!(next.next_cursor.is_none());
     assert_ne!(first.items[0].opportunity_id, next.items[0].opportunity_id);
+    // The second page is the NEGATIVE-delta quote: negative math results are
+    // CANDIDATE evidence too, never a simulation/execution label, on read-back.
+    assert_eq!(next.items[0].evidence_label, Evidence::Candidate);
     assert!(
         store
             .list_opportunities(
