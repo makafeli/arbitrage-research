@@ -61,6 +61,8 @@ BLOCK = [
     f"{R} volume delete -v x",
     f"{R} volume backup restore x",
     f"{R} api 'mutation {{ volumeDelete(id: \"x\") }}'",
+    f"{R} api '\nmutation {{ volumeDelete(id: \"x\") }}'",
+    f"{R} api 'query {{ me {{ name }} }}\nmutation {{ volumeDelete(id: \"x\") }}'",
     f"{R} domain add x",
     "git push --force origin feat/x",
     "git push -f",

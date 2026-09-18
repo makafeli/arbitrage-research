@@ -95,10 +95,11 @@ def check_git(argv: list[str], cwd: str) -> None:
         block("push while on main. Use a feat/fix/docs/ARB-xxx branch and open a PR.")
 
 
-def check_railway(argv: list[str]) -> None:
+def check_railway(argv: list[str], raw: str) -> None:
     sub = argv[1] if len(argv) > 1 else "help"
     sub2 = argv[2] if len(argv) > 2 else ""
-    if sub == "api" and GRAPHQL_MUTATION.search(" ".join(argv[2:])):
+    # The query is split on braces/newlines before it gets here, so scan the raw text.
+    if sub == "api" and GRAPHQL_MUTATION.search(raw):
         block("'railway api' with a GraphQL mutation can change production.")
     if sub in RAILWAY_READ:
         return
@@ -149,7 +150,7 @@ def scan(cmd: str, cwd: str, raw: str) -> None:
         if exe == "git":
             check_git(argv, cwd)
         elif exe == "railway":
-            check_railway(argv)
+            check_railway(argv, raw)
 
 
 def main() -> None:
