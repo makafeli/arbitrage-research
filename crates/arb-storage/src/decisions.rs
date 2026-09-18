@@ -97,6 +97,8 @@ impl Store {
         {
             return Err(StoreError::InvalidInput("decision batch exceeds 256 KiB"));
         }
+        // The FOR UPDATE session row lock serializes same-session appends, so the
+        // observation check-then-insert below cannot race into UNIQUE(session_id,observation_id).
         let session = worker::locked_worker(tx, claim).await?;
         let state = lifecycle(&session)?;
         if !state.allows_evaluation() || state.generation() != generation {
