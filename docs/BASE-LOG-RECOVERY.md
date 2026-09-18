@@ -48,6 +48,17 @@ caller must persist the entire result before committing `through` as its new
 checkpoint. Versioned output retains Base identity, exact registry digest, pinned
 ABI revision and complete per-block event metadata.
 
+`arb_evm::backfill::recover_logs_bounded` runs the same chain-identity, ancestry,
+code-identity, log-bound and recheck logic as `recover_logs_through` against an
+exact requested target, but never rejects a range longer than `limits.max_blocks`
+outright. When the requested header is farther away than one attempt may walk, it
+fetches nothing beyond the cap: it walks exactly the first `max_blocks` blocks
+after the checkpoint and returns that reached height as `through`, with no block
+skipped and no limit raised. A caller that has not yet reached the requested
+header repeats the call from the returned checkpoint on a later attempt until the
+requested header is reached, at which point it behaves exactly like
+`recover_logs_through`. `recover_logs` and `recover_logs_through` are unchanged.
+
 ## Evidence and capability boundaries
 
 An empty blockHash-bound result is not a missing block, but is still a single

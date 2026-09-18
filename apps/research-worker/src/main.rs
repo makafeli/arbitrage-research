@@ -349,6 +349,14 @@ struct CompletedCapture {
 struct CompletedBatch {
     captures: Vec<CompletedCapture>,
     ingestion: Option<arb_evm::backfill::BackfillBatch>,
+    // True once the managed source has walked all the way to this capture's own
+    // anchor block. A bounded catch-up batch that only partially closes a long
+    // finalized step leaves this false; the caller must not admit that capture.
+    source_caught_up: bool,
+    // Anchor block number minus the committed batch's `through.number`; 0 once
+    // caught up or when there is no managed batch. Surfaced on capture-written
+    // so a stalled-then-jumping finalized tag is visible without reading the DB.
+    source_lag_blocks: u64,
     started: Instant,
     observed_at_ms: u64,
 }
@@ -483,6 +491,18 @@ fn capture_blocking(
     let ingestion = ingestion_cursor
         .map(|cursor| managed_ingestion::recover(plan, &snapshots, cursor, &mut rpc))
         .transpose()?;
+    // Every snapshot shares one anchor block (recover() already validates that).
+    // A bounded catch-up batch that stops short of it must not be admitted.
+    let anchor_block_number = snapshots.first().and_then(|(_, context, _)| match context {
+        StateContext::Evm { block_number, .. } => Some(*block_number),
+        StateContext::Solana { .. } => None,
+    });
+    let source_caught_up = ingestion
+        .as_ref()
+        .is_none_or(|batch| anchor_block_number == Some(batch.through.number));
+    let source_lag_blocks = ingestion.as_ref().map_or(0, |batch| {
+        anchor_block_number.map_or(0, |anchor| anchor.saturating_sub(batch.through.number))
+    });
     let mut captures = Vec::new();
     for (selected, (snapshot, context, coherent)) in plan.registry.pools().iter().zip(snapshots) {
         let registry = match selected {
@@ -597,6 +617,8 @@ fn capture_blocking(
     Ok(CompletedBatch {
         captures,
         ingestion,
+        source_caught_up,
+        source_lag_blocks,
         started,
         observed_at_ms: observed,
     })
@@ -830,11 +852,15 @@ async fn run() -> Result<(), AnyError> {
                                 }
                             }
                             last_good_capture=source_ready.then(Instant::now);
+                            // A RUNNING session stays ready while the source catches up; only
+                            // admission for research (not readiness) requires it to have
+                            // reached this capture's own anchor block.
+                            let admit = source_ready && batch.source_caught_up;
                             collection.captured_pools = batch.captures.len() as u32;
                             let generation=collection.generation;
-                            let mut all_admitted=!stopping && generation.is_some() && source_ready;
+                            let mut all_admitted=!stopping && generation.is_some() && admit;
                             for capture in &batch.captures {
-                                let admission = if stopping || !source_ready { None } else if let Some(generation)=generation {
+                                let admission = if stopping || !admit { None } else if let Some(generation)=generation {
                                     match persistence(&pipeline, collection.correlation, worker.admit_capture_manifest(generation,&capture.capture_id,&capture.manifest_digest,capture.path.to_str().ok_or("capture path is not UTF-8")?)).await {
                                         Ok(update)=>update.attempt_id,
                                         Err(error) if is_generation_fence(&error)=>None,
@@ -846,7 +872,7 @@ async fn run() -> Result<(), AnyError> {
                                     }
                                 } else { None };
                                 all_admitted &= admission.is_some();
-                                println!("{}",json!({"event":"capture-written","collection_attempt_id":collection.id,"capture_id":capture.capture_id,"manifest_digest":capture.manifest_digest,"admission":if admission.is_some(){"ADMITTED_RAW_CAPTURE"}else{"UNADMITTED_RAW_CAPTURE"},"research_attempt_id":admission,"quote_ready":false}));
+                                println!("{}",json!({"event":"capture-written","collection_attempt_id":collection.id,"capture_id":capture.capture_id,"manifest_digest":capture.manifest_digest,"admission":if admission.is_some(){"ADMITTED_RAW_CAPTURE"}else{"UNADMITTED_RAW_CAPTURE"},"research_attempt_id":admission,"quote_ready":false,"source_caught_up":batch.source_caught_up,"source_lag_blocks":batch.source_lag_blocks}));
                             }
                             if all_admitted && let Some(source) = &bound_source {
                                 let work = generation.expect("admitted capture has generation");
@@ -909,6 +935,10 @@ async fn run() -> Result<(), AnyError> {
                                 finish_collection(&worker, &collection, CollectionOutcome::WorkerCancelled, Some(CollectionReason::WorkerShutdown)).await?;
                             } else if generation.is_none() {
                                 finish_collection(&worker, &collection, CollectionOutcome::ReadinessCompleted, None).await?;
+                            } else if !batch.source_caught_up {
+                                // ponytail: still walking a long finalized step; this research
+                                // attempt could not admit anything, not a fenced generation.
+                                finish_collection(&worker, &collection, CollectionOutcome::AcquisitionFailed, Some(CollectionReason::AcquisitionUnavailable)).await?;
                             } else {
                                 finish_collection(&worker, &collection, CollectionOutcome::Suppressed, Some(CollectionReason::GenerationFenced)).await?;
                             }

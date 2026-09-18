@@ -2,7 +2,7 @@
 //! An explicitly initialized stream is required; restart never replaces its seed.
 use super::*;
 use arb_evm::{
-    backfill::{BackfillBatch, BackfillLimits, GapReason, recover_logs_through},
+    backfill::{BackfillBatch, BackfillLimits, GapReason, recover_logs_bounded},
     events::BlockHeader,
 };
 use arb_storage::{CaptureSourceBinding, IngestionCursor, IngestionHalt};
@@ -42,6 +42,10 @@ pub(super) async fn cursor(
 /// Called after capture, before artifacts are written, using the same transport.
 /// Only the pool transcript is retained in each replay bundle; no recovery call
 /// is rewritten into a quote response. Transport limits remain cumulative.
+/// A finalized step larger than the bounded per-attempt range is walked over
+/// consecutive attempts: no block is skipped and no limit is raised, so a
+/// capture whose anchor is not yet reached commits a partial batch and the
+/// next attempt resumes from the returned checkpoint.
 pub(super) fn recover(
     plan: &CapturePlan,
     snapshots: &[(Value, StateContext, bool)],
@@ -96,7 +100,7 @@ pub(super) fn recover(
         parent_hash: cursor.checkpoint.parent_hash.clone(),
         timestamp_seconds: cursor.checkpoint.timestamp_seconds,
     };
-    recover_logs_through(
+    recover_logs_bounded(
         rpc,
         &pools,
         &start,

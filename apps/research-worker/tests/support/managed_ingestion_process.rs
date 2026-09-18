@@ -63,6 +63,9 @@ impl Provider {
                     std::thread::sleep(Duration::from_millis(2));
                     continue;
                 };
+                // ponytail: accepted sockets inherit O_NONBLOCK from the listener on
+                // macOS/BSD; without this the first read_line can WouldBlock and panic.
+                stream.set_nonblocking(false).unwrap();
                 stream
                     .set_read_timeout(Some(Duration::from_secs(2)))
                     .unwrap();
@@ -106,7 +109,7 @@ impl Provider {
                     } else {
                         i64::from_str_radix(selector.strip_prefix("0x").unwrap(), 16).unwrap() - 100
                     };
-                    assert!((-1..=1).contains(&offset));
+                    assert!((-1..=40).contains(&offset));
                     header(offset)
                 } else if method == "eth_getLogs" {
                     held_s.store(true, Ordering::SeqCst);
@@ -118,10 +121,8 @@ impl Provider {
                         std::thread::sleep(Duration::from_millis(2));
                     }
                     assert!(params[0]["address"].as_array().unwrap().len() == 2);
-                    assert!(
-                        [header(0)["hash"].clone(), header(1)["hash"].clone()]
-                            .contains(&params[0]["blockHash"])
-                    );
+                    let tip_now = tip_s.load(Ordering::SeqCst) as i64;
+                    assert!((0..=tip_now).any(|k| header(k)["hash"] == params[0]["blockHash"]));
                     if malformed_s.load(Ordering::SeqCst) {
                         json!([{"private":"provider diagnostic must not escape"}])
                     } else {
@@ -131,10 +132,8 @@ impl Provider {
                     let mut comparable = params.clone();
                     if method == "eth_call" || method == "eth_getCode" {
                         assert_eq!(params[1]["requireCanonical"], true);
-                        assert!(
-                            [header(0)["hash"].clone(), header(1)["hash"].clone()]
-                                .contains(&params[1]["blockHash"])
-                        );
+                        let tip_now = tip_s.load(Ordering::SeqCst) as i64;
+                        assert!((0..=tip_now).any(|k| header(k)["hash"] == params[1]["blockHash"]));
                         comparable[1]["blockHash"] = header(0)["hash"].clone();
                     }
                     let record = records
@@ -175,6 +174,23 @@ impl Drop for Provider {
         }
     }
 }
+/// `capture-written` lines are printed after the batch commit that the cursor
+/// polls observe, so callers poll this until the expected line has landed.
+fn capture_events(f: &Fixture) -> Vec<Value> {
+    fs::read_to_string(f.root.join("worker.log"))
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .filter(|v| v["event"] == "capture-written")
+        .collect()
+}
+
+fn admitted_caught_up(e: &Value) -> bool {
+    e["admission"] == "ADMITTED_RAW_CAPTURE"
+        && e["source_caught_up"] == true
+        && e["source_lag_blocks"] == 0
+}
+
 struct Fixture {
     pool: PgPool,
     store: Store,
@@ -635,4 +651,217 @@ async fn sigterm_during_recovery_preserves_the_cursor_without_fabricating_a_sour
         cursor
     );
     assert_eq!(f.quoted().await, 0);
+}
+
+/// A finalized step of 20 blocks exceeds `BackfillLimits::default().max_blocks`
+/// (16), so the bounded walk must span two consecutive capture attempts instead
+/// of halting the source. Neither attempt skips a block or raises the limit.
+#[tokio::test]
+async fn a_finalized_step_beyond_the_bounded_range_is_walked_over_consecutive_captures() {
+    let f = Fixture::new(true).await;
+    let mut child = f.start();
+    f.ready().await;
+    f.store
+        .issue_command(
+            &f.operator,
+            &f.session,
+            "start",
+            NewCommand {
+                action: "START".into(),
+                expected_revision: "0".into(),
+                reason: None,
+            },
+        )
+        .await
+        .unwrap();
+    f.provider.tip.store(20, Ordering::SeqCst);
+    wait_until(
+        async || {
+            f.store
+                .ingestion_cursor(&f.operator, "source")
+                .await
+                .unwrap()
+                .checkpoint
+                == stored(16)
+        },
+        30,
+    )
+    .await;
+    assert_eq!(
+        f.store
+            .ingestion_cursor(&f.operator, "source")
+            .await
+            .unwrap()
+            .state,
+        "ACTIVE"
+    );
+    wait_until(
+        async || {
+            f.store
+                .ingestion_cursor(&f.operator, "source")
+                .await
+                .unwrap()
+                .checkpoint
+                == stored(20)
+        },
+        30,
+    )
+    .await;
+    assert_eq!(
+        f.store
+            .ingestion_cursor(&f.operator, "source")
+            .await
+            .unwrap()
+            .state,
+        "ACTIVE"
+    );
+    wait_until(
+        async || {
+            f.store
+                .get_session(&f.operator, &f.session)
+                .await
+                .unwrap()
+                .observed_state
+                == "RUNNING"
+        },
+        10,
+    )
+    .await;
+    let batches = f
+        .store
+        .ingestion_batches(&f.operator, "source", 0, 16)
+        .await
+        .unwrap();
+    assert_eq!(batches.len(), 2, "batches: {batches:?}");
+    assert_eq!(batches[0]["through"]["number"].as_u64(), Some(116));
+    assert_eq!(batches[0]["blocks"].as_array().unwrap().len(), 16);
+    assert_eq!(batches[1]["through"]["number"].as_u64(), Some(120));
+    assert_eq!(batches[1]["blocks"].as_array().unwrap().len(), 4);
+    wait_until(
+        async || capture_events(&f).iter().any(admitted_caught_up),
+        10,
+    )
+    .await;
+    let events = capture_events(&f);
+    assert!(
+        events
+            .iter()
+            .any(|e| e["admission"] == "UNADMITTED_RAW_CAPTURE"
+                && e["source_caught_up"] == false
+                && e["source_lag_blocks"] == 4),
+        "events: {events:?}"
+    );
+    assert!(events.iter().any(admitted_caught_up), "events: {events:?}");
+
+    // A second finalized step while RUNNING must be walked the same way: bounded,
+    // never skipped, and no research admission until the source is fully caught
+    // up again. This pins the production admission gate (`admit = source_ready
+    // && batch.source_caught_up`) with a real running session, not just the
+    // pre-RUNNING walk above. Baseline the admissions first: only an admission
+    // that lands after the second step reached its anchor counts for it.
+    let admitted_before_second_step = capture_events(&f)
+        .iter()
+        .filter(|e| admitted_caught_up(e))
+        .count();
+    f.provider.tip.store(40, Ordering::SeqCst);
+    wait_until(
+        async || {
+            f.store
+                .ingestion_cursor(&f.operator, "source")
+                .await
+                .unwrap()
+                .checkpoint
+                == stored(36)
+        },
+        30,
+    )
+    .await;
+    assert_eq!(
+        f.store
+            .ingestion_cursor(&f.operator, "source")
+            .await
+            .unwrap()
+            .state,
+        "ACTIVE"
+    );
+    assert!(
+        child.0.try_wait().unwrap().is_none(),
+        "worker exited while still walking the second bounded step"
+    );
+    wait_until(
+        async || {
+            f.store
+                .ingestion_cursor(&f.operator, "source")
+                .await
+                .unwrap()
+                .checkpoint
+                == stored(40)
+        },
+        30,
+    )
+    .await;
+    assert_eq!(
+        f.store
+            .ingestion_cursor(&f.operator, "source")
+            .await
+            .unwrap()
+            .state,
+        "ACTIVE"
+    );
+    assert!(
+        child.0.try_wait().unwrap().is_none(),
+        "worker exited after the second bounded step reached its anchor"
+    );
+
+    // The finished RESEARCH-purpose collections created while the second step
+    // was still short of its anchor must be ACQUISITION_FAILED /
+    // ACQUISITION_UNAVAILABLE, read from the store, not only from the log.
+    let unavailable: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM collection_attempts WHERE session_id=$1 AND purpose='RESEARCH' AND outcome='ACQUISITION_FAILED' AND reason='ACQUISITION_UNAVAILABLE'",
+    )
+    .bind(&f.session)
+    .fetch_one(&f.pool)
+    .await
+    .unwrap();
+    assert!(
+        unavailable >= 1,
+        "expected at least one ACQUISITION_FAILED/ACQUISITION_UNAVAILABLE research collection while the second step was still being walked"
+    );
+    let mismatched: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM collection_attempts WHERE session_id=$1 AND purpose='RESEARCH' AND outcome='ACQUISITION_FAILED' AND reason IS DISTINCT FROM 'ACQUISITION_UNAVAILABLE'",
+    )
+    .bind(&f.session)
+    .fetch_one(&f.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        mismatched, 0,
+        "every ACQUISITION_FAILED research collection in this run must be ACQUISITION_UNAVAILABLE"
+    );
+
+    wait_until(
+        async || {
+            capture_events(&f)
+                .iter()
+                .filter(|e| admitted_caught_up(e))
+                .count()
+                > admitted_before_second_step
+        },
+        10,
+    )
+    .await;
+    let events = capture_events(&f);
+    assert!(
+        events
+            .iter()
+            .any(|e| e["admission"] == "UNADMITTED_RAW_CAPTURE"
+                && e["source_caught_up"] == false
+                && e["source_lag_blocks"] == 4),
+        "events: {events:?}"
+    );
+    assert!(
+        events.iter().filter(|e| admitted_caught_up(e)).count() > admitted_before_second_step,
+        "expected a new RESEARCH collection to admit after the second finalized step reached its anchor: {events:?}"
+    );
+    drop(child);
 }

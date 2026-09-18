@@ -179,7 +179,7 @@ pub fn recover_logs(
     limits: BackfillLimits,
     cancelled: impl FnMut() -> bool,
 ) -> Result<BackfillBatch, BackfillError> {
-    recover_logs_selected(rpc, pools, checkpoint, None, limits, cancelled)
+    recover_logs_selected(rpc, pools, checkpoint, None, false, limits, cancelled)
 }
 
 /// Recover only through an already captured finalized header. The provider must
@@ -193,7 +193,41 @@ pub fn recover_logs_through(
     limits: BackfillLimits,
     cancelled: impl FnMut() -> bool,
 ) -> Result<BackfillBatch, BackfillError> {
-    recover_logs_selected(rpc, pools, checkpoint, Some(through), limits, cancelled)
+    recover_logs_selected(
+        rpc,
+        pools,
+        checkpoint,
+        Some(through),
+        false,
+        limits,
+        cancelled,
+    )
+}
+
+/// Recover through an already captured finalized header, the same as
+/// `recover_logs_through`, except a range longer than `limits.max_blocks` is
+/// never rejected outright: the walk covers exactly the first `max_blocks`
+/// blocks after the checkpoint and returns that reached header as `through`,
+/// with nothing skipped and no limit raised. A caller that has not reached the
+/// requested header resumes from the returned `through` on a later attempt,
+/// repeating until the requested header is reached.
+pub fn recover_logs_bounded(
+    rpc: &mut impl ReadRpc,
+    pools: &[PoolRegistry],
+    checkpoint: &BlockHeader,
+    through: &BlockHeader,
+    limits: BackfillLimits,
+    cancelled: impl FnMut() -> bool,
+) -> Result<BackfillBatch, BackfillError> {
+    recover_logs_selected(
+        rpc,
+        pools,
+        checkpoint,
+        Some(through),
+        true,
+        limits,
+        cancelled,
+    )
 }
 
 fn recover_logs_selected(
@@ -201,6 +235,7 @@ fn recover_logs_selected(
     pools: &[PoolRegistry],
     checkpoint: &BlockHeader,
     requested: Option<&BlockHeader>,
+    bounded: bool,
     limits: BackfillLimits,
     cancelled: impl FnMut() -> bool,
 ) -> Result<BackfillBatch, BackfillError> {
@@ -252,14 +287,22 @@ fn recover_logs_selected(
         if requested.number == finalized.number && !requested.same_block(&finalized) {
             return Err(attempt.error(GapReason::TargetChanged, Some(requested.number)));
         }
-        let confirmed = attempt.header(
-            json!(format!("0x{:x}", requested.number)),
-            Some(requested.number),
-        )?;
-        if !confirmed.same_block(requested) {
-            return Err(attempt.error(GapReason::TargetChanged, Some(requested.number)));
+        if bounded && requested.number.saturating_sub(checkpoint.number) > limits.max_blocks {
+            // The requested header is farther away than one attempt may walk. Do
+            // not fetch/confirm it at all; instead walk exactly `max_blocks` blocks
+            // toward it and let the caller resume from the returned checkpoint.
+            let capped = checkpoint.number + limits.max_blocks;
+            attempt.header(json!(format!("0x{capped:x}")), Some(capped))?
+        } else {
+            let confirmed = attempt.header(
+                json!(format!("0x{:x}", requested.number)),
+                Some(requested.number),
+            )?;
+            if !confirmed.same_block(requested) {
+                return Err(attempt.error(GapReason::TargetChanged, Some(requested.number)));
+            }
+            confirmed
         }
-        confirmed
     } else {
         finalized
     };

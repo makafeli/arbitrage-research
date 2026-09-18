@@ -717,6 +717,187 @@ fn exact_target_keeps_gap_limits_and_caught_up_rechecks() {
     rpc.finish().unwrap();
 }
 
+fn bounded_walk_records(checkpoint_n: u64, finalized_n: u64, cap: u64) -> Vec<RpcRecord> {
+    let mut records = Vec::new();
+    let mut push = |method, params, result| {
+        let sequence = records.len() as u64;
+        records.push(RpcRecord {
+            sequence,
+            method,
+            params,
+            response: json!({"jsonrpc":"2.0","id":sequence,"result":result}).to_string(),
+        });
+    };
+    push(ReadMethod::EthChainId, json!([]), json!("0x2105"));
+    push(
+        ReadMethod::EthGetBlockByNumber,
+        json!([format!("0x{checkpoint_n:x}"), false]),
+        block(checkpoint_n),
+    );
+    push(
+        ReadMethod::EthGetBlockByNumber,
+        json!(["finalized", false]),
+        block(finalized_n),
+    );
+    push(
+        ReadMethod::EthGetBlockByNumber,
+        json!([format!("0x{cap:x}"), false]),
+        block(cap),
+    );
+    let pools = pools();
+    let addresses: Vec<_> = pools.iter().map(|p| p.pool.clone()).collect();
+    for n in (checkpoint_n + 1)..=cap {
+        push(
+            ReadMethod::EthGetBlockByNumber,
+            json!([format!("0x{n:x}"), false]),
+            block(n),
+        );
+        for address in [
+            UNISWAP_V3_FACTORY.to_string(),
+            pools[0].pool.clone(),
+            pools[1].pool.clone(),
+        ] {
+            push(
+                ReadMethod::EthGetCode,
+                json!([address,{"blockHash":hash(n),"requireCanonical":true}]),
+                json!("0x6000"),
+            );
+        }
+        push(
+            ReadMethod::EthGetLogs,
+            json!([{"blockHash":hash(n),"address":addresses}]),
+            json!([event(n, 0)]),
+        );
+    }
+    push(
+        ReadMethod::EthGetBlockByNumber,
+        json!([format!("0x{cap:x}"), false]),
+        block(cap),
+    );
+    push(
+        ReadMethod::EthGetBlockByNumber,
+        json!([format!("0x{checkpoint_n:x}"), false]),
+        block(checkpoint_n),
+    );
+    records
+}
+
+#[test]
+fn bounded_recovery_walks_only_the_first_max_blocks_of_a_long_range() {
+    let checkpoint = checkpoint();
+    let through = BlockHeader::from_rpc(&block(120)).unwrap();
+    let mut rpc = TranscriptRpc::new(bounded_walk_records(100, 120, 116));
+    let batch = recover_logs_bounded(
+        &mut rpc,
+        &pools(),
+        &checkpoint,
+        &through,
+        BackfillLimits::default(),
+        || false,
+    )
+    .unwrap();
+    rpc.finish().unwrap();
+    assert_eq!(batch.through.number, 116);
+    assert_eq!(batch.blocks.len(), 16);
+    assert_eq!(batch.from_checkpoint, checkpoint);
+    assert_eq!(
+        batch
+            .blocks
+            .iter()
+            .map(|b| b.header.number)
+            .collect::<Vec<_>>(),
+        (101..=116).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn bounded_recovery_with_a_short_range_matches_recover_logs_through() {
+    let through = BlockHeader::from_rpc(&block(104)).unwrap();
+    let input = targeted_records(104, 120);
+    let mut rpc_through = TranscriptRpc::new(input.clone());
+    let expected = recover_logs_through(
+        &mut rpc_through,
+        &pools(),
+        &checkpoint(),
+        &through,
+        BackfillLimits::default(),
+        || false,
+    )
+    .unwrap();
+    rpc_through.finish().unwrap();
+    let mut rpc_bounded = TranscriptRpc::new(input);
+    let actual = recover_logs_bounded(
+        &mut rpc_bounded,
+        &pools(),
+        &checkpoint(),
+        &through,
+        BackfillLimits::default(),
+        || false,
+    )
+    .unwrap();
+    rpc_bounded.finish().unwrap();
+    assert_eq!(actual, expected);
+}
+
+/// At exactly `max_blocks` distance the walk must take the exact path (confirm
+/// the requested header by number) in a single attempt, not the capped path
+/// used for a range that is *longer* than `max_blocks`. This pins the `>` vs
+/// `>=` comparison against `limits.max_blocks`.
+#[test]
+fn bounded_recovery_at_exactly_max_blocks_takes_the_exact_path() {
+    let through = BlockHeader::from_rpc(&block(116)).unwrap();
+    let input = targeted_records(116, 120);
+    assert!(
+        input
+            .iter()
+            .any(|r| r.method == ReadMethod::EthGetBlockByNumber
+                && r.params == json!(["0x74", false])),
+        "transcript must contain the requested-header confirmation of 0x74"
+    );
+    let mut rpc_through = TranscriptRpc::new(input.clone());
+    let expected = recover_logs_through(
+        &mut rpc_through,
+        &pools(),
+        &checkpoint(),
+        &through,
+        BackfillLimits::default(),
+        || false,
+    )
+    .unwrap();
+    rpc_through.finish().unwrap();
+    let mut rpc_bounded = TranscriptRpc::new(input);
+    let actual = recover_logs_bounded(
+        &mut rpc_bounded,
+        &pools(),
+        &checkpoint(),
+        &through,
+        BackfillLimits::default(),
+        || false,
+    )
+    .unwrap();
+    rpc_bounded.finish().unwrap();
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn bounded_recovery_still_rejects_a_target_beyond_finality() {
+    let through = BlockHeader::from_rpc(&block(125)).unwrap();
+    let mut input = targeted_records(125, 120);
+    input.truncate(3);
+    let mut rpc = TranscriptRpc::new(input);
+    let error = recover_logs_bounded(
+        &mut rpc,
+        &pools(),
+        &checkpoint(),
+        &through,
+        BackfillLimits::default(),
+        || false,
+    )
+    .unwrap_err();
+    assert_eq!(error.reason, GapReason::FinalityRegressed);
+    rpc.finish().unwrap();
+}
+
 #[test]
 fn exact_target_preserves_cancellation_and_late_reorg_rejection() {
     let through = BlockHeader::from_rpc(&block(102)).unwrap();
