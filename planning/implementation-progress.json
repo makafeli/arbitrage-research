@@ -862,28 +862,32 @@
     {
       "id": "ARB-028",
       "issue_url": "https://github.com/makafeli/arbitrage-research/issues/42",
-      "state": "planned",
+      "state": "in_progress",
       "owner_role": "EVM engineer",
       "dependencies": [
         "ARB-019",
         "ARB-021",
         "ARB-025"
       ],
-      "evidence": [],
-      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+      "evidence": [
+        "2026-09-18 wave 3 bounded implementation (Sonnet worker + Opus captain, AI-assisted, no independent human review): PR #167 (merged 77a3af70d637b4d9f36522fe14e96946761050d7): crates/arb-evm/src/plan.rs (BasePlan, PoolAllowlist, PlanRejection, canonical ABI-style bytes + sha256 digest), crates/arb-evm/tests/plan.rs (10 tests: valid cycle + digest stability/sensitivity, unsupported pool/token, non-cyclic route, leg discontinuity, insufficient final balance with amounts, unauthorized callback, missing allowance, fee-account-only, canonical length); validated on main 30a433780be7f17e5cbd19357f0bfeb7b91abd7f (https://github.com/makafeli/arbitrage-research/actions/runs/35345614485, all CI jobs passed). Evidence only: issue stays open. Bounded plan half only; the on-chain guard artifact and the fork/validator harness half are parked until fork tooling is added to the workspace (captain decision), and real captures are still required for acceptance."
+      ],
+      "remaining_acceptance": "Harness half: local-fork execution of the plan with the on-chain guard, atomic revert on failed guards (unauthorized callback, unsupported target, insufficient final balance) proven in the harness; needs fork tooling not in the workspace. Then evaluate all original criteria with real Base captures."
     },
     {
       "id": "ARB-029",
       "issue_url": "https://github.com/makafeli/arbitrage-research/issues/43",
-      "state": "planned",
+      "state": "in_progress",
       "owner_role": "Solana engineer",
       "dependencies": [
         "ARB-020",
         "ARB-021",
         "ARB-025"
       ],
-      "evidence": [],
-      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+      "evidence": [
+        "2026-09-18 wave 3 bounded implementation (Sonnet worker + Opus captain, AI-assisted, no independent human review): PR #168 (merged 30a433780be7f17e5cbd19357f0bfeb7b91abd7f): crates/arb-solana/src/plan.rs (SolanaPlan: compute-budget prefix, two Orca Whirlpool swap legs, placeholder final-balance guard; ProgramAllowlist, PlanRejection, canonical instruction bytes + sha256 digest), crates/arb-solana/tests/plan.rs (instruction order and Anchor swap discriminator, unsupported program/whirlpool/mint, authority and guard-owner mismatch, non-cyclic and discontinuous route, insufficient final balance, compute-unit bounds, canonical length, guard placeholder data); validated on main 30a433780be7f17e5cbd19357f0bfeb7b91abd7f (https://github.com/makafeli/arbitrage-research/actions/runs/35345614485, all CI jobs passed). Evidence only: issue stays open. Bounded plan half only; the on-chain guard artifact and the fork/validator harness half are parked until fork tooling is added to the workspace (captain decision), and real captures are still required for acceptance."
+      ],
+      "remaining_acceptance": "Harness half: local validator execution of the plan with a real guard program replacing GUARD_PROGRAM_PLACEHOLDER, atomic failure on insufficient final balance and invalid account/program identity proven in the harness, on-chain token-account ownership checks; needs validator tooling not in the workspace. Then evaluate all original criteria with real Solana captures."
     },
     {
       "id": "ARB-030",
