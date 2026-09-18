@@ -69,9 +69,30 @@ expect_failure() {
     local reason=$1; shift
     local status=0
     "$@" > "$work/refused.out" 2> "$work/refused.err" || status=$?
-    test "$status" -eq 2
-    grep -F "$reason" "$work/refused.err" >/dev/null
+    if [[ "$status" -ne 2 ]] || ! grep -F "$reason" "$work/refused.err" >/dev/null; then
+        # Fixed test labels only; never echo command arguments, PEM or child output.
+        printf 'Expected refusal did not match: %s (exit %s)\n' "$reason" "$status" >&2
+        return 1
+    fi
+    printf 'Verified refusal: %s\n' "$reason"
     ! grep -F 'disposable-session-only' "$work/refused.err" >/dev/null
+}
+wait_server_certificate() {
+    local expected actual=''
+    expected=$(openssl x509 -in "$1" -noout -fingerprint -sha256)
+    # Check the actual peer, not the configured path or a fixed sleep. A failed
+    # PostgreSQL reload retains the old certificate and must fail this test.
+    for attempt in $(seq 1 20); do
+        actual=$(docker exec "$database" sh -ceu '
+            timeout 4 openssl s_client -starttls postgres -connect session-db:5432 \
+                -servername session-db </dev/null 2>/dev/null \
+                | openssl x509 -noout -fingerprint -sha256
+        ' 2>/dev/null) || actual=''
+        if [[ "$actual" == "$expected" ]]; then return 0; fi
+        sleep 0.2
+    done
+    printf '%s\n' 'PostgreSQL did not serve the expected synthetic certificate.' >&2
+    return 1
 }
 # The registration CLI must refuse a reachable plaintext-only server.
 expect_failure DATABASE_UNAVAILABLE "${run[@]}" -e ARB_OPERATOR_ID=operator "$image" \
@@ -94,6 +115,7 @@ for attempt in $(seq 1 20); do
     sleep 1
 done
 test "$tls_ready" = true
+wait_server_certificate "$work/server.crt"
 # The shipped Rust session checker must not downgrade verify-full to require.
 expect_failure DATABASE_UNAVAILABLE "${run[@]}" -e ARB_OPERATOR_ID=operator \
     -e "PGSSLROOTCERT=$(cat "$work/wrong.crt")" "$image" \
@@ -107,18 +129,20 @@ sed 's/CA:FALSE/CA:TRUE/' "$work/server.ext" > "$work/ca-leaf.ext"
 openssl x509 -req -in "$work/server.csr" -CA "$work/ca.crt" -CAkey "$work/ca.key" \
     -CAcreateserial -days 1 -extfile "$work/ca-leaf.ext" -out "$work/ca-leaf.crt" >/dev/null 2>&1
 docker cp "$work/ca-leaf.crt" "$database:/tmp/ca-leaf.crt"
+# mktemp/umask produces a root-owned 0600 copy; the server must be able to read it.
+docker exec "$database" sh -ceu 'chown postgres:postgres /tmp/ca-leaf.crt; chmod 600 /tmp/ca-leaf.crt'
 docker exec -i "$database" psql -Xq -U postgres -v ON_ERROR_STOP=1 <<'SQL'
 ALTER SYSTEM SET ssl_cert_file='/tmp/ca-leaf.crt';
 SELECT pg_reload_conf();
 SQL
-sleep 1
+wait_server_certificate "$work/ca-leaf.crt"
 expect_failure DATABASE_UNAVAILABLE "${run[@]}" -e ARB_OPERATOR_ID=operator "$image" \
     worker-session --status /data/runtime/base-v1
 docker exec -i "$database" psql -Xq -U postgres -v ON_ERROR_STOP=1 <<'SQL'
 ALTER SYSTEM SET ssl_cert_file='/tmp/session.crt';
 SELECT pg_reload_conf();
 SQL
-sleep 1
+wait_server_certificate "$work/server.crt"
 expect_failure BASE_SESSION_NOT_REGISTERED "${run[@]}" -e ARB_OPERATOR_ID=operator "$image" \
     worker-session --status /data/runtime/base-v1
 "${run[@]}" -e ARB_OPERATOR_ID=operator "$image" worker-session --register /data/runtime/base-v1 > "$work/first.json"
