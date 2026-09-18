@@ -12,7 +12,7 @@ import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-IGNORE = {'.git', 'node_modules', 'target', 'dist', '__pycache__'}
+IGNORE = {'.git', '.claude', 'node_modules', 'target', 'dist', '__pycache__'}
 
 
 def files(suffix: str):
