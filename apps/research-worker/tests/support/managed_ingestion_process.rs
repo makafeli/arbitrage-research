@@ -174,6 +174,23 @@ impl Drop for Provider {
         }
     }
 }
+/// `capture-written` lines are printed after the batch commit that the cursor
+/// polls observe, so callers poll this until the expected line has landed.
+fn capture_events(f: &Fixture) -> Vec<Value> {
+    fs::read_to_string(f.root.join("worker.log"))
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .filter(|v| v["event"] == "capture-written")
+        .collect()
+}
+
+fn admitted_caught_up(e: &Value) -> bool {
+    e["admission"] == "ADMITTED_RAW_CAPTURE"
+        && e["source_caught_up"] == true
+        && e["source_lag_blocks"] == 0
+}
+
 struct Fixture {
     pool: PgPool,
     store: Store,
@@ -720,12 +737,12 @@ async fn a_finalized_step_beyond_the_bounded_range_is_walked_over_consecutive_ca
     assert_eq!(batches[0]["blocks"].as_array().unwrap().len(), 16);
     assert_eq!(batches[1]["through"]["number"].as_u64(), Some(120));
     assert_eq!(batches[1]["blocks"].as_array().unwrap().len(), 4);
-    let log = fs::read_to_string(f.root.join("worker.log")).unwrap();
-    let events: Vec<Value> = log
-        .lines()
-        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-        .filter(|v| v["event"] == "capture-written")
-        .collect();
+    wait_until(
+        async || capture_events(&f).iter().any(admitted_caught_up),
+        10,
+    )
+    .await;
+    let events = capture_events(&f);
     assert!(
         events
             .iter()
@@ -734,14 +751,7 @@ async fn a_finalized_step_beyond_the_bounded_range_is_walked_over_consecutive_ca
                 && e["source_lag_blocks"] == 4),
         "events: {events:?}"
     );
-    assert!(
-        events
-            .iter()
-            .any(|e| e["admission"] == "ADMITTED_RAW_CAPTURE"
-                && e["source_caught_up"] == true
-                && e["source_lag_blocks"] == 0),
-        "events: {events:?}"
-    );
+    assert!(events.iter().any(admitted_caught_up), "events: {events:?}");
 
     // A second finalized step while RUNNING must be walked the same way: bounded,
     // never skipped, and no research admission until the source is fully caught
@@ -824,12 +834,18 @@ async fn a_finalized_step_beyond_the_bounded_range_is_walked_over_consecutive_ca
         "every ACQUISITION_FAILED research collection in this run must be ACQUISITION_UNAVAILABLE"
     );
 
-    let log = fs::read_to_string(f.root.join("worker.log")).unwrap();
-    let events: Vec<Value> = log
-        .lines()
-        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-        .filter(|v| v["event"] == "capture-written")
-        .collect();
+    wait_until(
+        async || {
+            capture_events(&f)
+                .iter()
+                .filter(|e| admitted_caught_up(e))
+                .count()
+                >= 2
+        },
+        10,
+    )
+    .await;
+    let events = capture_events(&f);
     assert!(
         events
             .iter()
@@ -838,16 +854,8 @@ async fn a_finalized_step_beyond_the_bounded_range_is_walked_over_consecutive_ca
                 && e["source_lag_blocks"] == 4),
         "events: {events:?}"
     );
-    let admitted_caught_up = events
-        .iter()
-        .filter(|e| {
-            e["admission"] == "ADMITTED_RAW_CAPTURE"
-                && e["source_caught_up"] == true
-                && e["source_lag_blocks"] == 0
-        })
-        .count();
     assert!(
-        admitted_caught_up >= 2,
+        events.iter().filter(|e| admitted_caught_up(e)).count() >= 2,
         "expected a new RESEARCH collection to admit after each finalized step reached its anchor: {events:?}"
     );
     drop(child);
