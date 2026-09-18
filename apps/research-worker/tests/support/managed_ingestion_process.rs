@@ -757,7 +757,12 @@ async fn a_finalized_step_beyond_the_bounded_range_is_walked_over_consecutive_ca
     // never skipped, and no research admission until the source is fully caught
     // up again. This pins the production admission gate (`admit = source_ready
     // && batch.source_caught_up`) with a real running session, not just the
-    // pre-RUNNING walk above.
+    // pre-RUNNING walk above. Baseline the admissions first: only an admission
+    // that lands after the second step reached its anchor counts for it.
+    let admitted_before_second_step = capture_events(&f)
+        .iter()
+        .filter(|e| admitted_caught_up(e))
+        .count();
     f.provider.tip.store(40, Ordering::SeqCst);
     wait_until(
         async || {
@@ -840,7 +845,7 @@ async fn a_finalized_step_beyond_the_bounded_range_is_walked_over_consecutive_ca
                 .iter()
                 .filter(|e| admitted_caught_up(e))
                 .count()
-                >= 2
+                > admitted_before_second_step
         },
         10,
     )
@@ -855,8 +860,8 @@ async fn a_finalized_step_beyond_the_bounded_range_is_walked_over_consecutive_ca
         "events: {events:?}"
     );
     assert!(
-        events.iter().filter(|e| admitted_caught_up(e)).count() >= 2,
-        "expected a new RESEARCH collection to admit after each finalized step reached its anchor: {events:?}"
+        events.iter().filter(|e| admitted_caught_up(e)).count() > admitted_before_second_step,
+        "expected a new RESEARCH collection to admit after the second finalized step reached its anchor: {events:?}"
     );
     drop(child);
 }
