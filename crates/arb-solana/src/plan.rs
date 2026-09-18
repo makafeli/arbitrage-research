@@ -2,11 +2,14 @@
 //!
 //! `SolanaPlan` describes ONE intended atomic Solana transaction: a
 //! compute-budget prefix, two Orca Whirlpool swap legs that start and end in
-//! the same mint, and a final-balance guard instruction. It is a research
-//! artifact only. Every type in this module holds no keypair, no signature
-//! and no serialized signed transaction; nothing here executes, simulates or
-//! broadcasts anything. Signing, an on-chain guard program and a fork/
-//! validator harness are a later, separately reviewed increment.
+//! the same mint, and a final-balance guard instruction. The guard is an SPL
+//! Token `Transfer` of a token account to itself; no custom on-chain program
+//! is required or deployed (see [`FinalBalanceGuard::instruction`]). It is a
+//! research artifact only. Every type in this module holds no keypair, no
+//! signature and no serialized signed transaction; nothing here executes,
+//! simulates or broadcasts anything. Signing and live execution are a later,
+//! separately reviewed increment. The `arb-solana-harness` crate proves this
+//! plan executes atomically offline (litesvm), never on a live cluster.
 
 use crate::WHIRLPOOL_PROGRAM;
 use arb_adapter_api::{AdapterError, Result};
@@ -60,12 +63,6 @@ impl fmt::Display for Pubkey32 {
 fn program_pubkey(base58: &str) -> Pubkey32 {
     Pubkey32::from_base58(base58).expect("pinned program id is valid base58")
 }
-
-/// Research-only placeholder guard program: an all-zero pubkey. It is not
-/// deployed; replaced by the qualified guard program in the harness
-/// increment. An instruction naming this id cannot execute on any live or
-/// test cluster.
-pub const GUARD_PROGRAM_PLACEHOLDER: Pubkey32 = Pubkey32([0u8; 32]);
 
 /// One account reference within an [`Instruction`]. Carries no signature.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -193,8 +190,10 @@ impl WhirlpoolSwapLeg {
     }
 }
 
-/// Final-balance guard: asserts (in the harness increment's on-chain program)
-/// that `token_account` ends the transaction with at least `min_balance`.
+/// Final-balance guard: an SPL Token `Transfer` of `token_account` to itself
+/// for `min_balance`, signed by `owner`. Asserts that `token_account` holds
+/// at least `min_balance` at the point this instruction executes; see
+/// [`FinalBalanceGuard::instruction`] for why a self-transfer enforces that.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct FinalBalanceGuard {
     pub token_account: Pubkey32,
@@ -203,22 +202,47 @@ pub struct FinalBalanceGuard {
 }
 
 impl FinalBalanceGuard {
-    /// Build the guard instruction against the placeholder program. Data is
-    /// `b"guard"` followed by `min_balance` as little-endian `u64`.
-    pub fn instruction(&self) -> Instruction {
-        let mut data = b"guard".to_vec();
+    /// Build the guard as one SPL Token `Transfer` instruction from
+    /// `token_account` to itself for exactly `min_balance`, signed by
+    /// `owner`. No custom on-chain program is required or deployed.
+    ///
+    /// Why a self-transfer proves a final-balance invariant: the SPL Token
+    /// program checks `source.amount >= amount` before it does anything
+    /// else, so if `token_account` holds less than `min_balance` at the
+    /// point this instruction executes, it fails the whole instruction with
+    /// `TokenError::InsufficientFunds` (custom program error 1) and the
+    /// entire transaction — every earlier instruction in this plan — is
+    /// rolled back atomically. A balance that already meets or exceeds
+    /// `min_balance` makes the transfer a same-account no-op: it changes no
+    /// state. The token program also checks that `owner` is the account's
+    /// actual owner and has signed (`TokenError::OwnerMismatch`, custom
+    /// error 4), and that `token_account` decodes as a real SPL Token
+    /// account of this program. Placed last in the plan's instruction list,
+    /// it asserts the FINAL balance, not a balance at some earlier point in
+    /// the transaction.
+    ///
+    // ponytail: this enforces a balance-only invariant (>= min_balance); it
+    // cannot express a richer post-condition. A custom guard program is the
+    // deliberate upgrade path if a richer invariant is ever needed.
+    pub fn instruction(&self, token_program: &Pubkey32) -> Instruction {
+        let mut data = vec![3u8];
         data.extend_from_slice(&self.min_balance.to_le_bytes());
         Instruction {
-            program_id: GUARD_PROGRAM_PLACEHOLDER,
+            program_id: *token_program,
             accounts: vec![
                 AccountMeta {
                     pubkey: self.token_account,
                     is_signer: false,
-                    is_writable: false,
+                    is_writable: true,
+                },
+                AccountMeta {
+                    pubkey: self.token_account,
+                    is_signer: false,
+                    is_writable: true,
                 },
                 AccountMeta {
                     pubkey: self.owner,
-                    is_signer: false,
+                    is_signer: true,
                     is_writable: false,
                 },
             ],
@@ -243,6 +267,7 @@ pub enum PlanRejection {
     UnsupportedMint { mint: Pubkey32 },
     AuthorityMismatch,
     GuardOwnerMismatch,
+    GuardAccountMismatch,
     RouteNotCyclic,
     InsufficientFinalBalance { required: u64, guaranteed: u64 },
     WritableSetViolation { account: Pubkey32 },
@@ -287,7 +312,7 @@ impl SolanaPlan {
         instructions.extend(self.compute_budget.instructions());
         instructions.push(self.legs[0].instruction(&self.token_program));
         instructions.push(self.legs[1].instruction(&self.token_program));
-        instructions.push(self.guard.instruction());
+        instructions.push(self.guard.instruction(&self.token_program));
         instructions
     }
 
@@ -329,6 +354,9 @@ impl SolanaPlan {
         }
         if self.guard.owner != self.authority {
             return Err(PlanRejection::GuardOwnerMismatch);
+        }
+        if self.guard.token_account != self.starting_token_account {
+            return Err(PlanRejection::GuardAccountMismatch);
         }
         if leg_mints[0].0 != self.starting_mint
             || leg_mints[0].1 != leg_mints[1].0
