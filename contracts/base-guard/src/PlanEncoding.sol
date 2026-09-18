@@ -18,6 +18,8 @@ library PlanEncoding {
         uint256 amount;
     }
 
+    error FeeTiersLengthMismatch(uint256 legsLength, uint256 feeTiersLength);
+
     /// Deterministic ABI-style encoding: every field as a 32-byte
     /// big-endian word (addresses left-padded), dynamic arrays as a length
     /// word followed by their elements, in the same field order as
@@ -32,7 +34,9 @@ library PlanEncoding {
         Allowance[] memory allowances,
         address[] memory callbackPools
     ) internal pure returns (bytes memory) {
-        require(feeTiers.length == plan.legs.length, "PlanEncoding: feeTiers length");
+        if (feeTiers.length != plan.legs.length) {
+            revert FeeTiersLengthMismatch(plan.legs.length, feeTiers.length);
+        }
 
         bytes memory out = abi.encodePacked(
             chainId,

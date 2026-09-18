@@ -66,26 +66,37 @@ contract ArbGuard is IUniswapV3SwapCallback {
     mapping(address => bool) public isAllowedPool;
 
     // Set for the duration of exactly one leg's swap call so the callback can
-    // verify its caller is that leg's pool. A plain storage slot rather than
-    // EIP-1153 transient storage: readability over the gas saving, and this
-    // artifact is never executed under gas pressure.
+    // verify its caller is that leg's pool and the amount it reports. A plain
+    // storage slot rather than EIP-1153 transient storage: readability over
+    // the gas saving, and this artifact is never executed under gas
+    // pressure. All three are cleared together, before the callback pays the
+    // pool, so a second callback in the same swap (a malicious or buggy
+    // pool) sees `activePool == address(0)` and reverts `UnauthorizedCallback`
+    // instead of being paid again.
     address private activePool;
+    address private activeTokenIn;
+    uint256 private activeExactIn;
 
+    error ZeroOwner();
     error NotOwner();
     error DeadlinePassed();
     error RouteTooShort();
     error RouteNotCyclic();
     error LegDiscontinuity(uint256 index);
+    error ExactInMismatch(uint256 legIndex, uint256 received, uint256 exactIn);
+    error ExactInTooLarge();
     error UnsupportedTarget(address target);
     error InsufficientPrincipal();
     error InsufficientOutput(uint256 legIndex, uint256 received, uint256 required);
     error InsufficientFinalBalance(uint256 required, uint256 actual);
+    error SweepFailed();
     error UnauthorizedCallback(address caller);
     error CallbackAmountMismatch();
 
     event RouteExecuted(bytes32 digest, uint256 finalBalance);
 
     constructor(address owner_, address[] memory allowedPools) {
+        if (owner_ == address(0)) revert ZeroOwner();
         owner = owner_;
         for (uint256 i = 0; i < allowedPools.length; i++) {
             isAllowedPool[allowedPools[i]] = true;
@@ -106,7 +117,9 @@ contract ArbGuard is IUniswapV3SwapCallback {
             revert RouteNotCyclic();
         }
         for (uint256 i = 0; i + 1 < plan.legs.length; i++) {
-            if (plan.legs[i].tokenOut != plan.legs[i + 1].tokenIn) revert LegDiscontinuity(i);
+            // Reports the LATER leg's index, mirroring
+            // `crates/arb-evm/src/plan.rs`'s `LegDiscontinuity { index: index + 1 }`.
+            if (plan.legs[i].tokenOut != plan.legs[i + 1].tokenIn) revert LegDiscontinuity(i + 1);
         }
         for (uint256 i = 0; i < plan.legs.length; i++) {
             if (!isAllowedPool[plan.legs[i].pool]) revert UnsupportedTarget(plan.legs[i].pool);
@@ -117,15 +130,20 @@ contract ArbGuard is IUniswapV3SwapCallback {
         uint256 received;
         for (uint256 i = 0; i < plan.legs.length; i++) {
             Leg calldata leg = plan.legs[i];
-            if (i > 0 && leg.exactIn > received) {
-                revert InsufficientOutput(i, received, leg.exactIn);
+            // A later leg must spend exactly what the previous leg produced:
+            // not just "enough" (`>=`), so nothing is ever left stranded in
+            // the guard between legs.
+            if (i > 0 && leg.exactIn != received) {
+                revert ExactInMismatch(i, received, leg.exactIn);
             }
             received = _swapLeg(leg, i);
         }
 
         uint256 residual = IERC20(plan.startingAsset).balanceOf(address(this));
         if (residual > 0) {
-            IERC20(plan.startingAsset).transfer(plan.spendingAccount, residual);
+            if (!IERC20(plan.startingAsset).transfer(plan.spendingAccount, residual)) {
+                revert SweepFailed();
+            }
         }
         uint256 finalBalance = IERC20(plan.startingAsset).balanceOf(plan.spendingAccount);
         if (finalBalance < plan.minFinalBalance) {
@@ -136,13 +154,25 @@ contract ArbGuard is IUniswapV3SwapCallback {
     }
 
     /// The only place this guard ever pays a pool: it trusts `msg.sender`
-    /// only while `activePool` names it, decodes the amount the active leg
-    /// committed to pay, and refuses to pay anything else.
-    function uniswapV3SwapCallback(int256 amount0Delta, int256 amount1Delta, bytes calldata data)
+    /// only while `activePool` names it, checks the amount the pool reports
+    /// against what `_swapLeg` itself committed to (`activeTokenIn`/
+    /// `activeExactIn`), never against attacker-suppliable `data`, and
+    /// refuses to pay anything else. `activePool` (and the other two) are
+    /// cleared BEFORE the payout, making this one-shot per swap: a pool that
+    /// calls back a second time in the same `swap()` finds `activePool`
+    /// already zeroed and gets `UnauthorizedCallback`, not a second payout.
+    /// `data` is accepted only because the interface requires it; it is
+    /// never read or trusted.
+    function uniswapV3SwapCallback(int256 amount0Delta, int256 amount1Delta, bytes calldata)
         external
     {
         if (msg.sender != activePool) revert UnauthorizedCallback(msg.sender);
-        (address tokenIn, uint256 exactIn) = abi.decode(data, (address, uint256));
+        address tokenIn = activeTokenIn;
+        uint256 exactIn = activeExactIn;
+        activePool = address(0);
+        activeTokenIn = address(0);
+        activeExactIn = 0;
+
         int256 positiveDelta = amount0Delta > amount1Delta ? amount0Delta : amount1Delta;
         if (positiveDelta <= 0 || uint256(positiveDelta) != exactIn) {
             revert CallbackAmountMismatch();
@@ -151,19 +181,23 @@ contract ArbGuard is IUniswapV3SwapCallback {
     }
 
     function _swapLeg(Leg calldata leg, uint256 index) private returns (uint256 receivedAmount) {
+        if (leg.exactIn > uint256(type(int256).max)) revert ExactInTooLarge();
+
         activePool = leg.pool;
+        activeTokenIn = leg.tokenIn;
+        activeExactIn = leg.exactIn;
         bool zeroForOne = leg.tokenIn < leg.tokenOut;
         uint160 sqrtPriceLimit = zeroForOne ? MIN_SQRT_RATIO + 1 : MAX_SQRT_RATIO - 1;
         uint256 balanceBefore = IERC20(leg.tokenOut).balanceOf(address(this));
         IUniswapV3Pool(leg.pool)
-            .swap(
-                address(this),
-                zeroForOne,
-                int256(leg.exactIn),
-                sqrtPriceLimit,
-                abi.encode(leg.tokenIn, leg.exactIn)
-            );
+            .swap(address(this), zeroForOne, int256(leg.exactIn), sqrtPriceLimit, "");
+        // Defensive: the callback already clears these before paying out, so
+        // this is a no-op on the honest path. It only matters if a pool's
+        // `swap()` returns without ever calling back, which would otherwise
+        // leave a stale `activePool` armed for an unrelated later call.
         activePool = address(0);
+        activeTokenIn = address(0);
+        activeExactIn = 0;
         receivedAmount = IERC20(leg.tokenOut).balanceOf(address(this)) - balanceBefore;
         if (receivedAmount < leg.minOut) {
             revert InsufficientOutput(index, receivedAmount, leg.minOut);
@@ -182,17 +216,21 @@ contract ArbGuard is IUniswapV3SwapCallback {
         if (!ok) revert InsufficientPrincipal();
     }
 
-    /// Digest emitted with `RouteExecuted`, built from `PlanEncoding` using
-    /// only the data this on-chain `Plan` actually carries: principal is the
-    /// amount actually pulled (`legs[0].exactIn`), fee tiers are zero (this
-    /// harness's `Plan`/`Leg` carry none), allowances are empty and the
-    /// callback pool set is the route's own legs. This is a guard-level
-    /// digest for observability, not asserted equal to an off-chain
-    /// `BasePlan` digest for the "same" economic route: the byte-for-byte
-    /// parity claim with `crates/arb-evm/src/plan.rs::BasePlan::canonical_bytes`
-    /// is proven only by the fixture in `test/PlanEncoding.t.sol` and
+    /// `RouteExecuted.digest` IS NOT the off-chain `BasePlan` digest. Plainly:
+    /// this is a guard-local EXECUTION digest, for observability only, built
+    /// from only the data this on-chain `Plan` actually carries: principal is
+    /// the amount actually pulled (`legs[0].exactIn`), fee tiers are zero
+    /// (this harness's `Plan`/`Leg` carry none), allowances are empty and the
+    /// callback pool set is the route's own legs. It is never compared
+    /// against, and must never be assumed equal to, an off-chain `BasePlan`
+    /// digest for the "same" economic route. The byte-for-byte encoder
+    /// parity claim with
+    /// `crates/arb-evm/src/plan.rs::BasePlan::canonical_bytes` is proven only
+    /// by the fixtures in `test/PlanEncoding.t.sol` and
     /// `crates/arb-evm/tests/plan_parity.rs`, which call `PlanEncoding.digest`
-    /// directly with the full field set.
+    /// directly with the full field set (real principal, per-leg fee tiers,
+    /// allowances and an arbitrary callback pool set) — not through this
+    /// function.
     function _planDigest(Plan calldata plan) private view returns (bytes32) {
         uint64[] memory feeTiers = new uint64[](plan.legs.length);
         PlanEncoding.Allowance[] memory allowances = new PlanEncoding.Allowance[](0);

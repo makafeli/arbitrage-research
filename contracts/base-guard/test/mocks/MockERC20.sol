@@ -16,6 +16,14 @@ contract MockERC20 is IERC20 {
     mapping(address => uint256) public balanceOf;
     mapping(address => mapping(address => uint256)) public allowance;
 
+    // Lets a test make one specific `transfer` destination fail (return
+    // `false`, never revert) without breaking other transfers of the same
+    // token to other recipients — e.g. `ArbGuard`'s residual sweep to the
+    // spending account, while a pool's earlier payout to the guard itself
+    // still succeeds.
+    bool public failTransfers;
+    address public failTransfersTo;
+
     constructor(string memory name_, string memory symbol_) {
         name = name_;
         symbol = symbol_;
@@ -30,7 +38,16 @@ contract MockERC20 is IERC20 {
         return true;
     }
 
+    /// `setFailTransfers(true, recipient)` makes `transfer(recipient, ...)`
+    /// return `false` from now on; `setFailTransfers(false, address(0))`
+    /// undoes it.
+    function setFailTransfers(bool shouldFail, address to) external {
+        failTransfers = shouldFail;
+        failTransfersTo = to;
+    }
+
     function transfer(address to, uint256 amount) external returns (bool) {
+        if (failTransfers && to == failTransfersTo) return false;
         return _transfer(msg.sender, to, amount);
     }
 
