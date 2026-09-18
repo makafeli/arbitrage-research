@@ -168,7 +168,7 @@ async fn run() -> Result<Value> {
     let url = std::env::var("ARB_DATABASE_URL").map_err(|_| "DATABASE_REQUIRED")?;
     let options = PgConnectOptions::from_str(&url)
         .map_err(|_| "DATABASE_SETTING_REJECTED")?
-        .ssl_mode(PgSslMode::Require);
+        .ssl_mode(PgSslMode::VerifyFull);
     let pool = PgPoolOptions::new()
         .max_connections(2)
         .acquire_timeout(Duration::from_secs(5))

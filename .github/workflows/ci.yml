@@ -26,6 +26,7 @@ jobs:
       - run: python scripts/test_worker_ci_gate.py -v
       - run: python scripts/test_worker_readiness.py -v
       - run: python scripts/test_worker_prepare_base.py -v
+      - run: python scripts/test_worker_launch_base.py -v
       - run: python scripts/test_pipeline_workflow.py
       - run: python scripts/test_github_bootstrap.py
       - run: python scripts/github_bootstrap.py --repo "$GITHUB_REPOSITORY" --dry-run

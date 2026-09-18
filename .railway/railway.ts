@@ -42,7 +42,7 @@ export default defineRailway((ctx) => {
       ARB_API_HOST: api.env.RAILWAY_PRIVATE_DOMAIN,
     },
   });
-  // Explicit idempotent session registration, not the research loop or START.
+  // Existing source/session only. First-use source initialization is a separate explicit deployment action.
   // Preserve the owner's separately managed ARB_BASE_RPC_URL when planning changes.
   const baseCaptures = volume("base-research-captures", {
     region: "europe-west4-drams3a",
@@ -53,7 +53,7 @@ export default defineRailway((ctx) => {
       branch: "main",
       checkSuites: true,
     }),
-    start: "worker-entrypoint worker-session --register /data/runtime/base-v1",
+    start: "worker-entrypoint worker-launch-base --start",
     replicas: { "europe-west4-drams3a": 1 },
     build: { dockerfilePath: "deploy/Dockerfile.worker" },
     deploy: {
@@ -68,6 +68,7 @@ export default defineRailway((ctx) => {
       ARB_OPERATOR_ID: "operator",
       ARB_INGEST_OPERATOR_ID: "operator",
       ARB_RPC_MIN_INTERVAL_MS: "75",
+      ARB_DATABASE_CA_PEM: ctx.shared.ARB_DATABASE_CA_PEM,
       ARB_BASE_PROFILE_DIGEST: ctx.shared.ARB_BASE_PROFILE_DIGEST,
     },
   });
