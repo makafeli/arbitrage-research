@@ -41,6 +41,10 @@ jobs:
           set -euo pipefail
           python scripts/delivery.py snapshot > delivery-artifacts/github-issues.json
           python scripts/delivery.py audit --input delivery-artifacts/github-issues.json | tee delivery-artifacts/issue-audit.json
+      - name: Report original tasks, parent epics and later-stage work separately
+        run: |
+          python scripts/backlog_summary.py --snapshot delivery-artifacts/github-issues.json > delivery-artifacts/backlog-summary.json
+          python scripts/backlog_summary.py --snapshot delivery-artifacts/github-issues.json --format markdown > delivery-artifacts/backlog-summary.md
       - name: Archive only the committed review source
         if: always()
         run: |
