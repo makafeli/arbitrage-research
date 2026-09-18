@@ -20,9 +20,9 @@ REQUIRED = frozenset({
     '.github/workflows/delivery-review.yml',
 })
 MAX_RESPONSE = 2 * 1024 * 1024
-MAX_POLLS = 12
+MAX_POLLS = 30
 POLL_SECONDS = 20
-WALL_SECONDS = 360
+WALL_SECONDS = 660
 PENDING = frozenset({'queued', 'in_progress', 'waiting', 'pending', 'requested'})
 
 
