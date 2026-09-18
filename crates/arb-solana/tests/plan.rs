@@ -15,7 +15,9 @@ fn valid_leg0() -> WhirlpoolSwapLeg {
     WhirlpoolSwapLeg {
         whirlpool: key(7),
         token_authority: key(2),
-        token_owner_account_a: key(10),
+        // a_to_b: true, so this is the leg's input account — must equal the
+        // plan's starting_token_account (key(4)).
+        token_owner_account_a: key(4),
         token_vault_a: key(11),
         token_owner_account_b: key(12),
         token_vault_b: key(13),
@@ -33,7 +35,9 @@ fn valid_leg1() -> WhirlpoolSwapLeg {
     WhirlpoolSwapLeg {
         whirlpool: key(8),
         token_authority: key(2),
-        token_owner_account_a: key(18),
+        // a_to_b: false, so this is the leg's output account — must equal
+        // the plan's starting_token_account (key(4)), closing the cycle.
+        token_owner_account_a: key(4),
         token_vault_a: key(19),
         token_owner_account_b: key(20),
         token_vault_b: key(21),
@@ -199,6 +203,30 @@ fn rejects_guard_watching_a_different_account_than_the_starting_token_account() 
     assert_eq!(
         watches_wrong_account.validate(&allowlist, &leg_mints),
         Err(PlanRejection::GuardAccountMismatch)
+    );
+}
+
+#[test]
+fn rejects_starting_account_not_bound_to_the_legs() {
+    let leg_mints = valid_leg_mints();
+    let allowlist = valid_allowlist();
+
+    // Leg 0's input account (a_to_b: true -> token_owner_account_a) no
+    // longer matches starting_token_account.
+    let mut leg0_input_mismatch = valid_plan();
+    leg0_input_mismatch.legs[0].token_owner_account_a = key(97);
+    assert_eq!(
+        leg0_input_mismatch.validate(&allowlist, &leg_mints),
+        Err(PlanRejection::StartingAccountMismatch)
+    );
+
+    // Leg 1's output account (a_to_b: false -> token_owner_account_a) no
+    // longer matches starting_token_account.
+    let mut leg1_output_mismatch = valid_plan();
+    leg1_output_mismatch.legs[1].token_owner_account_a = key(97);
+    assert_eq!(
+        leg1_output_mismatch.validate(&allowlist, &leg_mints),
+        Err(PlanRejection::StartingAccountMismatch)
     );
 }
 

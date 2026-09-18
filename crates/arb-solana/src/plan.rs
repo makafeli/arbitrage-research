@@ -8,8 +8,10 @@
 //! research artifact only. Every type in this module holds no keypair, no
 //! signature and no serialized signed transaction; nothing here executes,
 //! simulates or broadcasts anything. Signing and live execution are a later,
-//! separately reviewed increment. The `arb-solana-harness` crate proves this
-//! plan executes atomically offline (litesvm), never on a live cluster.
+//! separately reviewed increment. The `arb-solana-harness` crate proves
+//! offline (litesvm) that the guard fails atomically and that the plan
+//! assembles into one transaction; the swap legs are not executed there yet,
+//! and nothing runs on a live cluster.
 
 use crate::WHIRLPOOL_PROGRAM;
 use arb_adapter_api::{AdapterError, Result};
@@ -156,6 +158,28 @@ impl WhirlpoolSwapLeg {
         ]
     }
 
+    /// This leg's input token account: the owner account debited when this
+    /// leg executes, derived from `a_to_b` the same way a caller derives the
+    /// leg's input mint.
+    fn input_account(&self) -> Pubkey32 {
+        if self.a_to_b {
+            self.token_owner_account_a
+        } else {
+            self.token_owner_account_b
+        }
+    }
+
+    /// This leg's output token account: the owner account credited when this
+    /// leg executes, derived from `a_to_b` the same way a caller derives the
+    /// leg's output mint.
+    fn output_account(&self) -> Pubkey32 {
+        if self.a_to_b {
+            self.token_owner_account_b
+        } else {
+            self.token_owner_account_a
+        }
+    }
+
     /// Build this leg's `swap` instruction against the given SPL token
     /// program account.
     pub fn instruction(&self, token_program: &Pubkey32) -> Instruction {
@@ -219,7 +243,12 @@ impl FinalBalanceGuard {
     /// error 4), and that `token_account` decodes as a real SPL Token
     /// account of this program. Placed last in the plan's instruction list,
     /// it asserts the FINAL balance, not a balance at some earlier point in
-    /// the transaction.
+    /// the transaction. litesvm's mainnet feature set runs the p-token build
+    /// of the token program (`replace_spl_token_with_p_token`), which agrees
+    /// with spl-token on every outcome this module's harness asserts. This
+    /// assumes `min_balance` is an absolute floor on the guarded account,
+    /// which is only a meaningful final-balance check when that account is
+    /// the route's dedicated start/end account.
     ///
     // ponytail: this enforces a balance-only invariant (>= min_balance); it
     // cannot express a richer post-condition. A custom guard program is the
@@ -268,6 +297,7 @@ pub enum PlanRejection {
     AuthorityMismatch,
     GuardOwnerMismatch,
     GuardAccountMismatch,
+    StartingAccountMismatch,
     RouteNotCyclic,
     InsufficientFinalBalance { required: u64, guaranteed: u64 },
     WritableSetViolation { account: Pubkey32 },
@@ -357,6 +387,11 @@ impl SolanaPlan {
         }
         if self.guard.token_account != self.starting_token_account {
             return Err(PlanRejection::GuardAccountMismatch);
+        }
+        if self.starting_token_account != self.legs[0].input_account()
+            || self.starting_token_account != self.legs[1].output_account()
+        {
+            return Err(PlanRejection::StartingAccountMismatch);
         }
         if leg_mints[0].0 != self.starting_mint
             || leg_mints[0].1 != leg_mints[1].0
