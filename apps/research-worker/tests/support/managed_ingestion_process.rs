@@ -63,6 +63,9 @@ impl Provider {
                     std::thread::sleep(Duration::from_millis(2));
                     continue;
                 };
+                // ponytail: accepted sockets inherit O_NONBLOCK from the listener on
+                // macOS/BSD; without this the first read_line can WouldBlock and panic.
+                stream.set_nonblocking(false).unwrap();
                 stream
                     .set_read_timeout(Some(Duration::from_secs(2)))
                     .unwrap();
