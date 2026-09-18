@@ -1,0 +1,19 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "out"
+libs = ["lib"]
+solc_version = "0.8.28"
+evm_version = "cancun"
+optimizer = true
+optimizer_runs = 200
+# Research-only guard artifact and mock-pool harness. No deploy scripts, no RPC
+# endpoints, no fork URLs: every test runs offline against in-memory mocks or
+# committed state fixtures.
+fs_permissions = [{ access = "read", path = "./test/fixtures" }]
+
+[fmt]
+line_length = 100
+tab_width = 4
+bracket_spacing = false
+int_types = "long"
