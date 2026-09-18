@@ -284,6 +284,42 @@ fn guard_fails_when_the_account_is_not_a_token_account() {
     );
 }
 
+#[test]
+fn guard_fails_when_the_token_account_is_owned_by_another_program() {
+    let (mut svm, payer) = new_svm_with_payer();
+    let authority = Keypair::new();
+    let mint = Keypair::new().pubkey();
+    let token_account = Keypair::new().pubkey();
+    set_mint(&mut svm, mint, 1_000_000);
+    set_token_account(&mut svm, token_account, mint, authority.pubkey(), 1_000);
+
+    // A valid 165-byte token-account layout, but re-owned by the System
+    // program instead of SPL Token: the runtime must reject the account
+    // before the token program ever decodes its data.
+    let mut account = svm
+        .get_account(&token_account)
+        .expect("token account exists");
+    account.owner = system_program_address();
+    svm.set_account(token_account, account)
+        .expect("re-set the token account under the wrong owning program");
+
+    let guard = FinalBalanceGuard {
+        token_account: Pubkey32::from_bytes(token_account.to_bytes()),
+        owner: Pubkey32::from_bytes(authority.pubkey().to_bytes()),
+        min_balance: 1_000,
+    };
+    let ix = to_sdk(&guard.instruction(&token_program_pubkey32()));
+
+    let result = send(&mut svm, &payer, &[&authority], &[ix]);
+    let err = result.expect_err("expected Err when the account is owned by another program");
+    let debug = format!("{err:?}");
+    assert!(
+        debug.contains("InstructionError(0, IncorrectProgramId)"),
+        "expected IncorrectProgramId when the account's owning program is not \
+         SPL Token, got: {debug}"
+    );
+}
+
 /// litesvm (like the real Agave runtime it embeds) checks that every
 /// referenced program account exists and is executable for the WHOLE
 /// transaction before it runs any instruction: a transaction cannot be
@@ -295,9 +331,10 @@ fn guard_fails_when_the_account_is_not_a_token_account() {
 /// instruction conversion is structurally complete and reaches the SAME
 /// whole-transaction program-loading check that a real Whirlpool deployment
 /// would also have to pass — it fails for exactly one reason (the Whirlpool
-/// program is not loaded into this offline harness), not for a decoding or
-/// account-layout defect introduced by this plan. This is NOT a full-route
-/// success fixture — see ARB-029's remaining acceptance note.
+/// program is not loaded into this offline harness): no instruction
+/// executed, so the swap-leg encoding and account layout remain unproven in
+/// this harness. This is NOT a full-route success fixture — see ARB-029's
+/// remaining acceptance note.
 #[test]
 fn compute_budget_prefix_alone_is_accepted_by_a_real_runtime() {
     let (mut svm, payer) = new_svm_with_payer();
@@ -319,6 +356,15 @@ fn full_plan_reaches_the_program_loading_check_and_fails_only_on_the_unloaded_wh
     let (mut svm, payer) = new_svm_with_payer();
     let authority = Keypair::new();
     let starting_token_account = Keypair::new().pubkey();
+    let whirlpool_program = Address::from(
+        *Pubkey32::from_base58(arb_solana::WHIRLPOOL_PROGRAM)
+            .unwrap()
+            .as_bytes(),
+    );
+    assert!(
+        svm.get_account(&whirlpool_program).is_none(),
+        "precondition: the Whirlpool program must not be loaded into this offline harness"
+    );
 
     let key = |byte: u8| Pubkey32::from_bytes([byte; 32]);
     let plan = SolanaPlan {
