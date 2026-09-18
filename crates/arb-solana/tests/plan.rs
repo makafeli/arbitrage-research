@@ -1,10 +1,10 @@
 //! Fixtures and rejection cases for the research-only Solana transaction plan.
 
-use arb_solana::WHIRLPOOL_PROGRAM;
 use arb_solana::plan::{
-    COMPUTE_BUDGET_PROGRAM, ComputeBudget, FinalBalanceGuard, GUARD_PROGRAM_PLACEHOLDER,
-    PlanRejection, Pubkey32, SolanaPlan, WhirlpoolSwapLeg, swap_discriminator,
+    COMPUTE_BUDGET_PROGRAM, ComputeBudget, FinalBalanceGuard, PlanRejection, Pubkey32, SolanaPlan,
+    WhirlpoolSwapLeg, swap_discriminator,
 };
+use arb_solana::{TOKEN_PROGRAM, WHIRLPOOL_PROGRAM};
 use sha2::{Digest, Sha256};
 
 fn key(byte: u8) -> Pubkey32 {
@@ -15,7 +15,9 @@ fn valid_leg0() -> WhirlpoolSwapLeg {
     WhirlpoolSwapLeg {
         whirlpool: key(7),
         token_authority: key(2),
-        token_owner_account_a: key(10),
+        // a_to_b: true, so this is the leg's input account — must equal the
+        // plan's starting_token_account (key(4)).
+        token_owner_account_a: key(4),
         token_vault_a: key(11),
         token_owner_account_b: key(12),
         token_vault_b: key(13),
@@ -33,7 +35,9 @@ fn valid_leg1() -> WhirlpoolSwapLeg {
     WhirlpoolSwapLeg {
         whirlpool: key(8),
         token_authority: key(2),
-        token_owner_account_a: key(18),
+        // a_to_b: false, so this is the leg's output account — must equal
+        // the plan's starting_token_account (key(4)), closing the cycle.
+        token_owner_account_a: key(4),
         token_vault_a: key(19),
         token_owner_account_b: key(20),
         token_vault_b: key(21),
@@ -53,7 +57,7 @@ fn valid_plan() -> SolanaPlan {
         authority: key(2),
         starting_mint: key(3),
         starting_token_account: key(4),
-        token_program: key(5),
+        token_program: Pubkey32::from_base58(TOKEN_PROGRAM).unwrap(),
         compute_budget: ComputeBudget {
             units: 200_000,
             micro_lamports_per_unit: 1,
@@ -79,7 +83,7 @@ fn valid_allowlist() -> arb_solana::plan::ProgramAllowlist {
         programs: vec![
             Pubkey32::from_base58(COMPUTE_BUDGET_PROGRAM).unwrap(),
             Pubkey32::from_base58(WHIRLPOOL_PROGRAM).unwrap(),
-            GUARD_PROGRAM_PLACEHOLDER,
+            Pubkey32::from_base58(TOKEN_PROGRAM).unwrap(),
         ],
         whirlpools: vec![key(7), key(8)],
         mints: vec![key(3), key(6)],
@@ -116,8 +120,11 @@ fn valid_plan_has_five_instructions_and_a_stable_changing_digest() {
         assert_eq!(&swap_ix.data[..8], &expected_discriminator);
     }
 
-    // Guard instruction last.
-    assert_eq!(instructions[4].program_id, GUARD_PROGRAM_PLACEHOLDER);
+    // Guard instruction last, running under the plan's token program.
+    assert_eq!(
+        instructions[4].program_id,
+        Pubkey32::from_base58(TOKEN_PROGRAM).unwrap()
+    );
 
     // Digest is stable across two independently built, identical plans.
     let digest_a = plan.digest();
@@ -142,13 +149,12 @@ fn rejects_unsupported_program_whirlpool_and_mint() {
     let leg_mints = valid_leg_mints();
 
     let mut missing_program = valid_allowlist();
-    missing_program
-        .programs
-        .retain(|p| *p != GUARD_PROGRAM_PLACEHOLDER);
+    let token_program = Pubkey32::from_base58(TOKEN_PROGRAM).unwrap();
+    missing_program.programs.retain(|p| *p != token_program);
     assert_eq!(
         plan.validate(&missing_program, &leg_mints),
         Err(PlanRejection::UnsupportedProgram {
-            program: GUARD_PROGRAM_PLACEHOLDER
+            program: token_program
         })
     );
 
@@ -184,6 +190,43 @@ fn rejects_authority_and_guard_owner_mismatch() {
     assert_eq!(
         bad_guard_owner.validate(&allowlist, &leg_mints),
         Err(PlanRejection::GuardOwnerMismatch)
+    );
+}
+
+#[test]
+fn rejects_guard_watching_a_different_account_than_the_starting_token_account() {
+    let leg_mints = valid_leg_mints();
+    let allowlist = valid_allowlist();
+
+    let mut watches_wrong_account = valid_plan();
+    watches_wrong_account.guard.token_account = key(98);
+    assert_eq!(
+        watches_wrong_account.validate(&allowlist, &leg_mints),
+        Err(PlanRejection::GuardAccountMismatch)
+    );
+}
+
+#[test]
+fn rejects_starting_account_not_bound_to_the_legs() {
+    let leg_mints = valid_leg_mints();
+    let allowlist = valid_allowlist();
+
+    // Leg 0's input account (a_to_b: true -> token_owner_account_a) no
+    // longer matches starting_token_account.
+    let mut leg0_input_mismatch = valid_plan();
+    leg0_input_mismatch.legs[0].token_owner_account_a = key(97);
+    assert_eq!(
+        leg0_input_mismatch.validate(&allowlist, &leg_mints),
+        Err(PlanRejection::StartingAccountMismatch)
+    );
+
+    // Leg 1's output account (a_to_b: false -> token_owner_account_a) no
+    // longer matches starting_token_account.
+    let mut leg1_output_mismatch = valid_plan();
+    leg1_output_mismatch.legs[1].token_owner_account_a = key(97);
+    assert_eq!(
+        leg1_output_mismatch.validate(&allowlist, &leg_mints),
+        Err(PlanRejection::StartingAccountMismatch)
     );
 }
 
@@ -274,20 +317,34 @@ fn canonical_bytes_length_matches_hand_computed_sum() {
     // Whirlpool swap: 11 accounts; data = 8-byte discriminator + u64 + u64 + u128 + bool + bool.
     let swap_data_len = 8 + 8 + 8 + 16 + 1 + 1;
     let swap_len = HEADER + 11 * PER_ACCOUNT + DATA_LEN_FIELD + swap_data_len;
-    // Guard: 2 accounts (token_account, owner); data = b"guard" (5 bytes) + u64.
-    let guard_data_len = 5 + 8;
-    let guard_len = HEADER + 2 * PER_ACCOUNT + DATA_LEN_FIELD + guard_data_len;
+    // Guard: an SPL Token Transfer with 3 accounts (token_account twice, owner);
+    // data = 1 discriminator byte + u64 amount.
+    let guard_data_len = 1 + 8;
+    let guard_len = HEADER + 3 * PER_ACCOUNT + DATA_LEN_FIELD + guard_data_len;
 
     let expected = cu_limit_len + cu_price_len + 2 * swap_len + guard_len;
     assert_eq!(plan.canonical_bytes().len(), expected);
 }
 
 #[test]
-fn guard_instruction_uses_placeholder_program_and_expected_data() {
+fn guard_instruction_is_an_spl_token_self_transfer() {
     let plan = valid_plan();
-    let ix = plan.guard.instruction();
-    assert_eq!(ix.program_id, GUARD_PROGRAM_PLACEHOLDER);
-    let mut expected_data = b"guard".to_vec();
+    let ix = plan.guard.instruction(&plan.token_program);
+
+    assert_eq!(ix.program_id, Pubkey32::from_base58(TOKEN_PROGRAM).unwrap());
+
+    assert_eq!(ix.accounts.len(), 3);
+    assert_eq!(ix.accounts[0].pubkey, plan.guard.token_account);
+    assert!(!ix.accounts[0].is_signer);
+    assert!(ix.accounts[0].is_writable);
+    assert_eq!(ix.accounts[1].pubkey, plan.guard.token_account);
+    assert!(!ix.accounts[1].is_signer);
+    assert!(ix.accounts[1].is_writable);
+    assert_eq!(ix.accounts[2].pubkey, plan.guard.owner);
+    assert!(ix.accounts[2].is_signer);
+    assert!(!ix.accounts[2].is_writable);
+
+    let mut expected_data = vec![3u8];
     expected_data.extend_from_slice(&plan.guard.min_balance.to_le_bytes());
     assert_eq!(ix.data, expected_data);
 }
