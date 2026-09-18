@@ -64,6 +64,24 @@ test('STOP stays pending until API ACK and then exposes DRAINING instead of inve
   await expect(card.getByText(/A stop cannot recall an emitted transaction/)).toBeVisible();
 });
 
+test('Resume is only available for a valid PAUSED session; a running session cannot resume or restart', async ({ page }) => {
+  const paused = { ...running, session_id: 'session-paused', observed_state: 'PAUSED' };
+  await stub(page, async (route, path) => {
+    if (path === '/v1/sessions') { await route.fulfill({ json: { items: [running, paused], next_cursor: null } }); return true; }
+    return false;
+  });
+  const runningCard = page.getByRole('region', { name: 'Session session-base' });
+  await expect(runningCard.getByRole('button', { name: 'Start', exact: true })).toBeDisabled();
+  await expect(runningCard.getByRole('button', { name: 'Pause', exact: true })).toBeEnabled();
+  await expect(runningCard.getByRole('button', { name: 'Resume', exact: true })).toBeDisabled();
+  await expect(runningCard.getByRole('button', { name: 'Stop', exact: true })).toBeEnabled();
+  const pausedCard = page.getByRole('region', { name: 'Session session-paused' });
+  await expect(pausedCard.getByRole('button', { name: 'Start', exact: true })).toBeDisabled();
+  await expect(pausedCard.getByRole('button', { name: 'Pause', exact: true })).toBeDisabled();
+  await expect(pausedCard.getByRole('button', { name: 'Resume', exact: true })).toBeEnabled();
+  await expect(pausedCard.getByRole('button', { name: 'Stop', exact: true })).toBeEnabled();
+});
+
 test('transport failure retries the exact idempotent command without a new receipt claim', async ({ page }) => {
   const requests: { key: string; body: unknown }[] = [];
   await stub(page, async (route, path) => {
@@ -83,6 +101,23 @@ test('transport failure retries the exact idempotent command without a new recei
   await card.getByRole('button', { name: 'Retry same request', exact: true }).click();
   await expect(card.getByText('STOP · PENDING', { exact: true })).toBeVisible();
   expect(requests).toHaveLength(3); expect(requests[0]).toEqual(requests[1]); expect(requests[1]).toEqual(requests[2]);
+});
+
+test('a synchronous double-click on Stop sends exactly one command with one idempotency key', async ({ page }) => {
+  const requests: { key: string }[] = [];
+  await stub(page, async (route, path) => {
+    if (path !== '/v1/sessions/session-base/commands') return false;
+    requests.push({ key: route.request().headers()['idempotency-key'] });
+    await route.fulfill({ status: 202, json: pending }); return true;
+  });
+  const card = page.getByRole('region', { name: 'Session session-base' });
+  const stopButton = card.getByRole('button', { name: 'Stop', exact: true });
+  // Two `.click()` calls in one evaluate() dispatch synchronously, before React
+  // can re-render the disabled attribute: this exercises the in-memory
+  // `sending` guard in send(), not just the DOM disabled state.
+  await stopButton.evaluate(button => { (button as HTMLButtonElement).click(); (button as HTMLButtonElement).click(); });
+  await expect(card.getByText('STOP · PENDING', { exact: true })).toBeVisible();
+  expect(requests).toHaveLength(1);
 });
 
 test('view filter does not change stop-all scope and partial rejection stays on its session', async ({ page }) => {
