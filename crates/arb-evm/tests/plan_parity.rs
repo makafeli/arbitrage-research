@@ -1,16 +1,27 @@
 //! Byte-for-byte parity between `BasePlan::canonical_bytes` (Rust) and
 //! `PlanEncoding.canonicalBytes` (Solidity, `contracts/base-guard/src/PlanEncoding.sol`).
-//! Both sides parse the same literal, committed fixture and derive their own
-//! digest from it; this test only checks the Rust side against the fixture's
-//! `expected_digest`. `contracts/base-guard/test/PlanEncoding.t.sol` performs
-//! the matching Solidity-side check against the same file, so neither
-//! encoding can silently drift from the other without one of these tests
-//! failing.
+//! Both sides parse the same literal, committed fixtures and derive their own
+//! digest from them; this test only checks the Rust side against each
+//! fixture's `expected_digest`. `contracts/base-guard/test/PlanEncoding.t.sol`
+//! performs the matching Solidity-side check against the same files, so
+//! neither encoding can silently drift from the other without one of these
+//! tests failing.
+//!
+//! Two fixtures, not one: `plan-digest.json` ("regular") happens to have
+//! `principal == legs[0].exact_in`, one allowance per leg and
+//! `callback_authorization.pools` equal to the leg pools in leg order — so it
+//! cannot by itself catch a bug that silently swaps `principal` for
+//! `legs[0].exact_in`, or that encodes callback pools in the wrong order or
+//! count. `plan-digest-irregular.json` deliberately breaks every one of
+//! those coincidences (zero principal, one allowance across three legs, a
+//! reordered and partial callback pool set).
 use arb_evm::plan::{Allowance, BasePlan, CallbackAuthorization, SpendingAccount, SwapLeg};
 use primitive_types::{H160 as Address20, U256};
 use serde_json::Value;
 
 const FIXTURE: &str = include_str!("../../../contracts/base-guard/test/fixtures/plan-digest.json");
+const FIXTURE_IRREGULAR: &str =
+    include_str!("../../../contracts/base-guard/test/fixtures/plan-digest-irregular.json");
 
 fn addr(s: &str) -> Address20 {
     let bytes = hex::decode(s.trim_start_matches("0x")).expect("valid hex address");
@@ -79,9 +90,8 @@ fn plan_from_fixture(value: &Value) -> BasePlan {
     }
 }
 
-#[test]
-fn fixture_digest_matches_expected() {
-    let value: Value = serde_json::from_str(FIXTURE).expect("fixture must be valid JSON");
+fn assert_fixture_digest_matches(fixture: &str) {
+    let value: Value = serde_json::from_str(fixture).expect("fixture must be valid JSON");
     let plan = plan_from_fixture(&value);
 
     let expected_digest = str_field(&value, "expected_digest").to_string();
@@ -93,12 +103,11 @@ fn fixture_digest_matches_expected() {
 }
 
 #[test]
-fn fixture_round_trips_through_json() {
-    // The fixture cannot silently drift between edits: re-serializing and
-    // re-parsing the same value must reproduce an identical structure.
-    let value: Value = serde_json::from_str(FIXTURE).expect("fixture must be valid JSON");
-    let serialized = serde_json::to_string(&value).expect("fixture must re-serialize");
-    let reparsed: Value =
-        serde_json::from_str(&serialized).expect("re-serialized JSON must re-parse");
-    assert_eq!(value, reparsed);
+fn fixture_digest_matches_expected() {
+    assert_fixture_digest_matches(FIXTURE);
+}
+
+#[test]
+fn irregular_fixture_digest_matches_expected() {
+    assert_fixture_digest_matches(FIXTURE_IRREGULAR);
 }

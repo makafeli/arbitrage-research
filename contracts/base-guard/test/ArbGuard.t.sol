@@ -6,6 +6,7 @@ import {ArbGuard, Plan, Leg} from "../src/ArbGuard.sol";
 import {PlanEncoding} from "../src/PlanEncoding.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV3Pool} from "./mocks/MockV3Pool.sol";
+import {GreedyV3Pool} from "./mocks/GreedyV3Pool.sol";
 
 /// Offline harness for `ArbGuard`: every pool is a `MockV3Pool`, every token
 /// a `MockERC20`, no RPC, no fork, no `--fork-url`, no deploy script. Proves
@@ -169,9 +170,149 @@ contract ArbGuardTest is Test {
         // still ends in the starting asset so the cyclic check passes first.
         plan.legs[1].tokenIn = address(0xBEEF);
 
-        vm.expectRevert(abi.encodeWithSelector(ArbGuard.LegDiscontinuity.selector, uint256(0)));
+        // Reports the LATER leg's index (1), mirroring
+        // `crates/arb-evm/src/plan.rs`'s `LegDiscontinuity { index: index + 1 }`.
+        vm.expectRevert(abi.encodeWithSelector(ArbGuard.LegDiscontinuity.selector, uint256(1)));
         vm.prank(owner);
         guard.execute(plan);
+    }
+
+    function test_revertsRouteTooShort() public {
+        Leg[] memory legs = new Leg[](1);
+        legs[0] = Leg({
+            pool: address(poolAB),
+            tokenIn: address(tokenA),
+            tokenOut: address(tokenB),
+            exactIn: PRINCIPAL,
+            minOut: 1900
+        });
+        Plan memory plan = Plan({
+            spendingAccount: spender,
+            startingAsset: address(tokenA),
+            legs: legs,
+            deadline: block.timestamp + 1 days,
+            minFinalBalance: 0
+        });
+
+        vm.expectRevert(abi.encodeWithSelector(ArbGuard.RouteTooShort.selector));
+        vm.prank(owner);
+        guard.execute(plan);
+    }
+
+    function test_revertsExactInMismatchWhenLegDoesNotSpendFullReceivedAmount() public {
+        Plan memory plan = _validPlan();
+        // A later leg must spend exactly what the previous leg produced
+        // (LEG0_OUT), not merely "enough": leaving anything less stranded in
+        // the guard is rejected even though it is technically <= received.
+        plan.legs[1].exactIn = LEG0_OUT - 1;
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ArbGuard.ExactInMismatch.selector, uint256(1), LEG0_OUT, LEG0_OUT - 1
+            )
+        );
+        vm.prank(owner);
+        guard.execute(plan);
+    }
+
+    function test_deadlineEqualToBlockTimestampSucceeds() public {
+        vm.warp(500);
+        Plan memory plan = _validPlan();
+        plan.deadline = 500; // exactly equal, not passed
+
+        vm.prank(owner);
+        guard.execute(plan);
+
+        assertEq(tokenA.balanceOf(spender), PRINCIPAL + 50);
+    }
+
+    function test_revertsWhenPoolInvokesCallbackTwiceInOneSwap() public {
+        (address token0, address token1) = _sorted(address(tokenA), address(tokenB));
+        GreedyV3Pool greedyPool = new GreedyV3Pool(token0, token1, 2, 1);
+        greedyPool.setRepeatCallback(true);
+        tokenB.mint(address(greedyPool), LEG0_OUT);
+
+        address[] memory allowedPools = new address[](2);
+        allowedPools[0] = address(greedyPool);
+        allowedPools[1] = address(poolBA);
+        ArbGuard greedyGuard = new ArbGuard(owner, allowedPools);
+
+        vm.prank(spender);
+        tokenA.approve(address(greedyGuard), PRINCIPAL);
+
+        Plan memory plan = _validPlan();
+        plan.legs[0].pool = address(greedyPool);
+
+        // The pool's first callback is legitimate and gets paid; its second
+        // callback in the same swap finds `activePool` already cleared and
+        // is rejected, reverting the whole route atomically.
+        vm.expectRevert(
+            abi.encodeWithSelector(ArbGuard.UnauthorizedCallback.selector, address(greedyPool))
+        );
+        vm.prank(owner);
+        greedyGuard.execute(plan);
+
+        assertEq(tokenA.balanceOf(spender), PRINCIPAL);
+    }
+
+    function test_revertsCallbackAmountMismatchWhenPoolLiesAboutAmountIn() public {
+        (address token0, address token1) = _sorted(address(tokenA), address(tokenB));
+        GreedyV3Pool lyingPool = new GreedyV3Pool(token0, token1, 2, 1);
+        lyingPool.setLiedAmountIn(PRINCIPAL + 1); // real committed exactIn is PRINCIPAL
+        tokenB.mint(address(lyingPool), LEG0_OUT);
+
+        address[] memory allowedPools = new address[](2);
+        allowedPools[0] = address(lyingPool);
+        allowedPools[1] = address(poolBA);
+        ArbGuard lyingGuard = new ArbGuard(owner, allowedPools);
+
+        vm.prank(spender);
+        tokenA.approve(address(lyingGuard), PRINCIPAL);
+
+        Plan memory plan = _validPlan();
+        plan.legs[0].pool = address(lyingPool);
+
+        // The check compares the pool's reported delta against the amount
+        // `_swapLeg` itself committed to (`activeExactIn`), never against
+        // attacker-suppliable callback data, so a pool that lies is caught.
+        vm.expectRevert(abi.encodeWithSelector(ArbGuard.CallbackAmountMismatch.selector));
+        vm.prank(owner);
+        lyingGuard.execute(plan);
+
+        assertEq(tokenA.balanceOf(spender), PRINCIPAL);
+    }
+
+    function test_revertsSweepFailedWhenResidualTransferFails() public {
+        Plan memory plan = _validPlan();
+        tokenA.setFailTransfers(true, spender);
+
+        vm.expectRevert(abi.encodeWithSelector(ArbGuard.SweepFailed.selector));
+        vm.prank(owner);
+        guard.execute(plan);
+
+        // Atomic rollback: nothing was pulled from spender either.
+        assertEq(tokenA.balanceOf(spender), PRINCIPAL);
+    }
+
+    function test_revertsExactInTooLargeToCastToInt256() public {
+        uint256 hugeAmount = uint256(type(int256).max) + 1;
+        tokenA.mint(spender, hugeAmount);
+        vm.prank(spender);
+        tokenA.approve(address(guard), hugeAmount);
+
+        Plan memory plan = _validPlan();
+        plan.legs[0].exactIn = hugeAmount;
+
+        vm.expectRevert(abi.encodeWithSelector(ArbGuard.ExactInTooLarge.selector));
+        vm.prank(owner);
+        guard.execute(plan);
+    }
+
+    function test_constructorRevertsZeroOwner() public {
+        address[] memory pools = new address[](0);
+
+        vm.expectRevert(abi.encodeWithSelector(ArbGuard.ZeroOwner.selector));
+        new ArbGuard(address(0), pools);
     }
 
     function test_revertsInsufficientOutput() public {
