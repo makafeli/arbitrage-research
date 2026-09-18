@@ -65,8 +65,23 @@ fn exact_integer_quote_matches_independent_constant_liquidity_vector() {
         assert_eq!(q.amount_out, "9969");
         assert_eq!(q.pool_fee_in_input_asset, "30");
         assert_eq!(q.evidence, "CANDIDATE");
+        // Exact input/output asset identities are the full mint addresses, never a
+        // ticker or symbol, so a same-looking symbol cannot be matched by accident.
+        let (expected_input, expected_output) = if direction {
+            (s.state.mint_a.clone(), s.state.mint_b.clone())
+        } else {
+            (s.state.mint_b.clone(), s.state.mint_a.clone())
+        };
+        assert_eq!(q.input_asset, expected_input);
+        assert_eq!(q.output_asset, expected_output);
     }
     assert!(!s.quality.quote_implementation_qualified);
+}
+#[test]
+fn empty_liquidity_is_rejected_before_entering_core_math() {
+    let mut s = snapshot(1);
+    s.state.liquidity = "0".into();
+    assert!(quote_exact_input_math(&s, 10000, true).is_err());
 }
 #[test]
 fn cycle_composition_keeps_pool_fees_once_and_no_net_profit_claim() {
