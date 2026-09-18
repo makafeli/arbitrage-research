@@ -23,6 +23,7 @@ cargo build --locked -p control-api
 cargo test --workspace --locked      # needs TEST_DATABASE_URL + ARB_TEST_CONTROL_API_BIN, see README
 python scripts/validate_specs.py && python scripts/validate_project.py
 npm test --prefix apps/web && npm run build --prefix apps/web
+cd contracts/base-guard && forge fmt --check && forge build --sizes && forge test -vv   # foundry 1.8.3, offline
 ```
 
 Rust is pinned to 1.90.0 in `rust-toolchain.toml` (rustup). Web needs Node 24+. `TEST_DATABASE_URL` must never point at production. Skipping a test for a missing PostgreSQL or Docker is not a passing test.

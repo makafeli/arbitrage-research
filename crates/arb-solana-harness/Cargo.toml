@@ -1,0 +1,28 @@
+[package]
+name = "arb-solana-harness"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "Offline litesvm harness for research-only Solana plans (ARB-029). Test-only: ephemeral in-memory keypairs, no RPC, no persisted key, no submission."
+
+[lints]
+workspace = true
+
+[dependencies]
+arb-solana = { path = "../arb-solana" }
+
+[dev-dependencies]
+# In-process Solana VM with the SPL programs embedded. Everything runs offline.
+litesvm = "=0.15.2"
+# Agave 4.2.x uses std APIs that are unstable on the pinned Rust 1.90.0; hold the
+# runtime family at 4.1.x through its shared pin (the other agave crates use `=` deps).
+solana-syscalls = "=4.1.2"
+# Modular SDK crates at the exact versions litesvm 0.15.2 resolves against.
+solana-account = "=4.3.2"
+solana-address = "=2.6.1"
+solana-instruction = "=3.4.1"
+solana-keypair = "=3.1.2"
+solana-message = "=4.2.4"
+solana-signer = "=3.0.1"
+solana-transaction = "=4.1.6"

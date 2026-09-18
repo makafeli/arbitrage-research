@@ -8,6 +8,7 @@ members = [
   "crates/arb-capture",
   "crates/arb-evm",
   "crates/arb-solana",
+  "crates/arb-solana-harness",
   "crates/arb-scheduler",
   "crates/arb-paper",
   "crates/arb-engine",
