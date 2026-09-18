@@ -1139,6 +1139,7 @@ mod tests {
         let config = config(&mut pools, &[1_000_000]);
         let traces = evaluate(&request(&config, &pools), &gate()).unwrap();
         assert_eq!(traces.len(), 2);
+        let start = config.starting_asset(NetworkId::BaseMainnet).unwrap();
         for trace in traces {
             let DecisionResult::Quoted {
                 gross_delta_minor, ..
@@ -1147,6 +1148,15 @@ mod tests {
                 panic!("actual protocol math must quote");
             };
             assert!(gross_delta_minor.to_string().starts_with('-'));
+            // Criterion: every route closes to its starting asset and never
+            // crosses networks, through two distinct pools.
+            assert_eq!(trace.route.len(), 2);
+            assert_ne!(trace.route[0].pool_id, trace.route[1].pool_id);
+            assert_eq!(&trace.route[0].asset_in, start);
+            assert_eq!(trace.route[0].asset_out, trace.route[1].asset_in);
+            assert_eq!(&trace.route[1].asset_out, start);
+            assert_eq!(trace.route[0].pool_id.network(), NetworkId::BaseMainnet);
+            assert_eq!(trace.route[1].pool_id.network(), NetworkId::BaseMainnet);
             let opportunity = trace.to_opportunity().unwrap().unwrap();
             assert_eq!(opportunity.evidence_label, arb_domain::Evidence::Candidate);
             assert!(opportunity.net_after_explicit_costs_minor.is_none());
@@ -1228,14 +1238,99 @@ mod tests {
         let config = config(&mut pools, &[100_000]);
         let empty = evaluate(&request(&config, &[]), &gate()).unwrap();
         assert!(matches!(
-            empty[0].result,
-            DecisionResult::DataUnavailable { .. }
+            &empty[0].result,
+            DecisionResult::DataUnavailable { reason_codes }
+                if reason_codes == &["NO_CAPTURE_INPUTS".to_string()]
         ));
         assert!(empty[0].capture_refs.is_empty());
+        // A single pool cannot close a cycle back to the starting asset: the
+        // same pool can never occupy both legs of a Phase 1 route.
         let one = evaluate(&request(&config, &pools[..1]), &gate()).unwrap();
-        assert!(matches!(one[0].result, DecisionResult::NoRoute { .. }));
+        assert!(matches!(
+            &one[0].result,
+            DecisionResult::NoRoute { reason_codes }
+                if reason_codes == &["NO_ELIGIBLE_POOL_PAIRS".to_string()]
+        ));
         assert_eq!(one[0].capture_refs.len(), 1);
         assert!(one[0].amount_in_minor.is_none());
+    }
+    #[test]
+    fn cross_network_pool_input_is_rejected_before_any_route_is_built() {
+        let mut pools = vec![base_pool(3), base_pool(4)];
+        let config = config(&mut pools, &[100_000]);
+        let mut mixed = pools.clone();
+        let mut solana = solana_pool(5);
+        solana.configuration_digest = config.digest().into();
+        mixed[1] = solana;
+        assert_eq!(
+            evaluate(&request(&config, &mixed), &gate())
+                .unwrap_err()
+                .code,
+            "CAPTURE_IDENTITY_MISMATCH"
+        );
+    }
+    #[test]
+    fn pool_count_over_the_bound_is_rejected_without_building_any_route() {
+        let mut pools = (3..=11).map(base_pool).collect::<Vec<_>>();
+        assert_eq!(pools.len(), MAX_POOLS + 1);
+        let config = config(&mut pools, &[100_000]);
+        let result = evaluate(&request(&config, &pools), &gate()).unwrap();
+        assert_eq!(result.len(), 1);
+        assert!(matches!(
+            &result[0].result,
+            DecisionResult::DataUnavailable { reason_codes }
+                if reason_codes == &["MAX_POOL_BOUND_EXCEEDED".to_string()]
+        ));
+        assert!(result[0].route.is_empty());
+        assert!(result[0].capture_refs.is_empty());
+    }
+    #[test]
+    fn observe_mode_without_a_configured_start_asset_yields_no_route_diagnostics() {
+        let mut pools = vec![base_pool(3), base_pool(4)];
+        let base_config = config(&mut pools, &[100_000]);
+        let mut value: serde_json::Value =
+            serde_json::from_str(base_config.effective_json()).unwrap();
+        value["deployment"]["mode"] = serde_json::json!("OBSERVE");
+        value["networks"]["base"]["starting_asset_id"] = serde_json::Value::Null;
+        let observe_config = ValidatedConfig::from_effective_json(&value.to_string()).unwrap();
+        for pool in &mut pools {
+            pool.configuration_digest = observe_config.digest().into();
+        }
+        let result = evaluate(&request(&observe_config, &pools), &gate()).unwrap();
+        assert_eq!(result.len(), 1);
+        assert!(matches!(
+            &result[0].result,
+            DecisionResult::NoRoute { reason_codes }
+                if reason_codes == &["NO_CONFIGURED_START_ASSET".to_string()]
+        ));
+        assert!(result[0].route.is_empty());
+        assert!(result[0].amount_in_minor.is_none());
+        assert_eq!(result[0].capture_refs.len(), 2);
+        assert!(result[0].to_opportunity().unwrap().is_none());
+    }
+    #[test]
+    fn observe_mode_without_configured_trade_sizes_yields_no_route_diagnostics() {
+        let mut pools = vec![base_pool(3), base_pool(4)];
+        let base_config = config(&mut pools, &[100_000]);
+        let mut value: serde_json::Value =
+            serde_json::from_str(base_config.effective_json()).unwrap();
+        value["deployment"]["mode"] = serde_json::json!("OBSERVE");
+        value["research"]["trade_sizes_minor"] = serde_json::json!([]);
+        let observe_config = ValidatedConfig::from_effective_json(&value.to_string()).unwrap();
+        for pool in &mut pools {
+            pool.configuration_digest = observe_config.digest().into();
+        }
+        let result = evaluate(&request(&observe_config, &pools), &gate()).unwrap();
+        assert_eq!(result.len(), 1);
+        assert!(matches!(
+            &result[0].result,
+            DecisionResult::NoRoute { reason_codes }
+                if reason_codes == &["NO_CONFIGURED_TRADE_SIZES".to_string()]
+        ));
+        assert!(result[0].route.is_empty());
+        assert!(result[0].amount_in_minor.is_none());
+        assert_eq!(result[0].capture_refs.len(), 2);
+        assert!(result[0].to_opportunity().unwrap().is_none());
     }
     #[test]
     fn capture_timestamp_must_fit_the_original_batch_interval() {
