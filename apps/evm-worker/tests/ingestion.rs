@@ -15,6 +15,11 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+/// Disambiguates fixture temp directories created in the same wall-clock instant.
+/// `SystemTime` resolution is coarse enough on some platforms that concurrent
+/// `Fixture::new()` calls from parallel test threads can otherwise collide.
+static FIXTURE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
 fn hash(n: u64) -> String {
     format!("0x{n:064x}")
 }
@@ -46,7 +51,11 @@ impl Fixture {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let root = std::env::temp_dir().join(format!("arb-ingestion-{unique}"));
+        let sequence = FIXTURE_SEQUENCE.fetch_add(1, Ordering::SeqCst);
+        let root = std::env::temp_dir().join(format!(
+            "arb-ingestion-{}-{unique}-{sequence}",
+            std::process::id()
+        ));
         std::fs::create_dir(&root).unwrap();
         let mut pools: Value = serde_json::from_str(include_str!(
             "../../../crates/arb-evm/tests/fixtures/batch-registries.json"
@@ -84,6 +93,11 @@ impl Fixture {
                     }
                     Err(_) => break,
                 };
+                // BSD-derived kernels (including macOS) can hand accept() a socket
+                // that inherits the listener's O_NONBLOCK flag; force it back to
+                // blocking so the read timeout below actually bounds the wait
+                // instead of the read call returning WouldBlock immediately.
+                socket.set_nonblocking(false).unwrap();
                 socket
                     .set_read_timeout(Some(Duration::from_secs(3)))
                     .unwrap();
@@ -192,7 +206,7 @@ impl Fixture {
         Self {
             endpoint,
             root,
-            operator: format!("executable-{unique}"),
+            operator: format!("executable-{}-{unique}-{sequence}", std::process::id()),
             tip,
             calls,
             observed,
