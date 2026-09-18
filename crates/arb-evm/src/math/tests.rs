@@ -204,6 +204,23 @@ fn full_input_is_required_and_extreme_inputs_terminate_at_both_window_edges() {
 }
 
 #[test]
+fn maximum_supported_input_boundary_is_the_exact_positive_int256_limit() {
+    let (snapshot, registry) = fixture(0, 1_000_000_000_000, -1, 1);
+    let max_signed = U256::MAX >> 1;
+    let at_limit: AtomicAmount = max_signed.to_string().parse().unwrap();
+    let over_limit: AtomicAmount = (max_signed + U256::one()).to_string().parse().unwrap();
+    let rejection = "Uniswap V3 exact input must fit positive int256";
+    // The maximum supported amount is accepted past the bound check itself; the
+    // captured window is far too small to absorb it, so it fails downstream for
+    // an unrelated, already-covered reason rather than the int256 bound.
+    let at_limit_error = quote_exact_input_math(&snapshot, &registry, at_limit, true).unwrap_err();
+    assert_ne!(at_limit_error.0, rejection, "{}", at_limit_error.0);
+    let over_limit_error =
+        quote_exact_input_math(&snapshot, &registry, over_limit, true).unwrap_err();
+    assert_eq!(over_limit_error.0, rejection);
+}
+
+#[test]
 fn liquidity_crossing_underflow_and_overflow_fail_closed() {
     let (mut lower, registry) = fixture(0, 1000, -1, 1);
     initialize(&mut lower, &registry, 0, 2000, 2000);
