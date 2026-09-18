@@ -36,6 +36,39 @@ test('connected mode shows unsupported capture, rejects synthetic substitution a
   await expect(page.getByText('No synthetic records have been substituted.')).toBeVisible();
 });
 
+test('session creation cannot enable LIVE via a URL parameter or a tampered hidden field', async ({ page }) => {
+  let request: unknown;
+  await stub(page, async (route, path) => {
+    if (path !== '/v1/sessions' || route.request().method() !== 'POST') return false;
+    request = route.request().postDataJSON();
+    await route.fulfill({ status: 201, json: { ...running, session_id: 'live-guard-session', observed_state: 'RECOVERING', health: 'UNKNOWN', desired_revision: '0', applied_revision: '0' } });
+    return true;
+  });
+  // A URL parameter has no wiring into any component state; this only proves
+  // that adding one cannot change what gets submitted.
+  await page.goto('/?mode=LIVE&network_id=LIVE');
+  await page.getByRole('navigation').getByRole('button', { name: 'Experiments', exact: true }).click();
+  const configOptions = await page.getByLabel('Validated configuration', { exact: true }).locator('option').allTextContents();
+  expect(configOptions.some(text => text.includes('LIVE'))).toBe(false);
+  await page.getByLabel('Validated configuration', { exact: true }).selectOption('sha256:browser-config');
+  await page.getByLabel('Session network', { exact: true }).selectOption('base-mainnet');
+  await page.getByLabel('Experiment reference', { exact: true }).fill('live-guard-experiment');
+  // Tamper: inject a hidden "mode=LIVE" field into the real form. The submit
+  // handler builds the request body from React state (the chosen configuration's
+  // own mode), never from raw form field values, so this must have no effect.
+  await page.evaluate(() => {
+    const form = document.querySelector('form.connected-form');
+    const hidden = document.createElement('input');
+    hidden.type = 'hidden'; hidden.name = 'mode'; hidden.value = 'LIVE';
+    form?.appendChild(hidden);
+  });
+  await page.getByRole('checkbox').check();
+  await page.getByRole('button', { name: 'Create research session', exact: true }).click();
+  await expect(page.getByText('Created live-guard-session · RECOVERING. No start command was sent.', { exact: true })).toBeVisible();
+  expect(request).toMatchObject({ mode: 'PAPER' });
+  expect((request as { mode: string }).mode).not.toBe('LIVE');
+});
+
 test('STOP stays pending until API ACK and then exposes DRAINING instead of inventing STOPPED', async ({ page }) => {
   let posted = false; let applied = false; let posts = 0;
   await stub(page, async (route, path) => {
