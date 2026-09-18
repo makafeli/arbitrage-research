@@ -312,4 +312,46 @@ mod tests {
             RegistryDocument::from_bytes(&document(vec![pool()]), NetworkId::BaseMainnet).unwrap();
         assert!(registry.authorize(&config).is_err());
     }
+    /// A registry document is authorized purely against digest/allowlist/genesis
+    /// evidence; it never requires that its pools form a tradable route back to a
+    /// starting asset. Two pools sharing only their middle asset (X,Y) and (Y,Z)
+    /// cannot complete a two-leg cycle from X, yet the document still authorizes:
+    /// route-eligibility (or its NO_ELIGIBLE_POOL_PAIRS diagnostic) is an
+    /// evaluation-time (arb-engine) concern, not a registry-activation gate.
+    #[test]
+    fn authorized_registry_can_have_pools_with_no_shared_eligible_route() {
+        let mut first = pool();
+        first["pool"] = json!("0x0303030303030303030303030303030303030303");
+        first["token0"] = json!("0x0101010101010101010101010101010101010101");
+        first["token1"] = json!("0x0202020202020202020202020202020202020202");
+        let mut second = pool();
+        second["pool"] = json!("0x0505050505050505050505050505050505050505");
+        second["token0"] = json!("0x0202020202020202020202020202020202020202");
+        second["token1"] = json!("0x0404040404040404040404040404040404040404");
+        let bytes = document(vec![first, second]);
+        let registry = RegistryDocument::from_bytes(&bytes, NetworkId::BaseMainnet).unwrap();
+
+        let inert =
+            ValidatedConfig::from_toml(include_str!("../../../config/research.example.toml"))
+                .unwrap();
+        let mut effective: Value = serde_json::from_str(inert.effective_json()).unwrap();
+        effective["research"]["trade_sizes_minor"] = json!(["100000"]);
+        effective["networks"]["base"]["enabled"] = json!(true);
+        effective["networks"]["base"]["rpc_secret_reference"] = json!("env:BASE_RPC_URL");
+        effective["networks"]["base"]["verified_pool_ids"] = json!([
+            "base-mainnet:0x0303030303030303030303030303030303030303",
+            "base-mainnet:0x0505050505050505050505050505050505050505",
+        ]);
+        effective["networks"]["base"]["verified_asset_ids"] = json!([
+            "base-mainnet:0x0101010101010101010101010101010101010101",
+            "base-mainnet:0x0202020202020202020202020202020202020202",
+            "base-mainnet:0x0404040404040404040404040404040404040404",
+        ]);
+        effective["networks"]["base"]["starting_asset_id"] =
+            json!("base-mainnet:0x0101010101010101010101010101010101010101");
+        effective["networks"]["base"]["registry_qualification_digest"] = json!(registry.digest());
+        let config = ValidatedConfig::from_effective_json(&effective.to_string()).unwrap();
+
+        assert!(registry.authorize(&config).is_ok());
+    }
 }
