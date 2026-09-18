@@ -42,5 +42,5 @@ Rust is pinned to 1.90.0 in `rust-toolchain.toml` (rustup). Web needs Node 24+. 
 
 ### Hooks (`.claude/settings.json`)
 
-- `hooks/guard-prod.py` blocks force-push, push to `main`, Railway mutations and Railway secret listing. Run those yourself in a terminal.
+- `hooks/guard-prod.py` blocks force-push, push to `main`, Railway mutations and Railway secret listing, also through subshells, `sh -c`, `eval` and wrappers. Run those yourself in a terminal. Test: `python3 .claude/hooks/test_guard_prod.py` (also in CI).
 - `hooks/rustfmt.sh` formats `.rs` files after every edit.
