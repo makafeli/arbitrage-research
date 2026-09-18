@@ -10,8 +10,8 @@ Design: fail closed. The command is split on every shell separator (including
 subshells, braces and backticks), wrappers such as `rtk`, `exec`, `nohup`,
 `timeout N` are stripped, `sh -c "..."` and `eval ...` are scanned recursively,
 executables match by basename, and a variable in command position (`$x ...`)
-or a shell reading a script from stdin is blocked when the raw text mentions
-railway or push. A hook crash also blocks.
+or a shell reading a script from stdin is always blocked because it cannot be
+checked. A hook crash also blocks.
 
 Exit 2 blocks the tool call and shows the message to Claude. Exit 0 allows it.
 """
@@ -30,12 +30,10 @@ RAILWAY_READ = {
     "metrics", "help", "completion", "--help", "-h", "--version", "-V",
     "ssh", "connect", "api",
 }
-# Subcommand groups whose default action is a read; only these second words mutate.
+# Subcommand groups: only these verbs are reads, anything else in the group blocks.
 RAILWAY_GROUPS = {"service", "environment", "env", "deployment", "deployments", "volume"}
-RAILWAY_GROUP_MUTATING = {
-    "delete", "rm", "remove", "redeploy", "restart", "scale", "source",
-    "files", "file", "new", "create", "up", "deploy", "detach", "update", "restore",
-}
+RAILWAY_GROUP_READ = {"list", "ls", "status", "logs", "info", "help", "--help", "-h"}
+RAILWAY_SUBGROUPS = {"backup", "backups"}
 # Subcommands that print secrets into the transcript.
 RAILWAY_SECRET = {"variable", "variables", "vars", "shell", "run", "local"}
 GRAPHQL_MUTATION = re.compile(r"\bmutation\b", re.IGNORECASE)
@@ -50,11 +48,13 @@ SPLIT = re.compile(r"(?:\|\||&&|\||;|&|\n|\$\(|`|\(|\)|\{|\})")
 # Leading tokens that wrap a real command.
 WRAPPERS = {"rtk", "sudo", "doas", "time", "env", "command", "builtin", "exec",
             "nohup", "nice", "caffeinate", "xargs"}
-WRAPPERS_WITH_VALUE = {"timeout"}
+# `timeout [opts] DURATION cmd`; these options take a separate value.
+TIMEOUT_OPTS_WITH_VALUE = {"-k", "--kill-after", "-s", "--signal"}
 SHELLS = {"sh", "bash", "zsh", "dash", "ksh"}
 # Git global options that take a value and sit before the verb.
-GIT_OPTS_WITH_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path"}
-RAW_SENSITIVE = re.compile(r"\brailway\b|\bpush\b", re.IGNORECASE)
+GIT_OPTS_WITH_VALUE = {
+    "-C", "-c", "--config-env", "--git-dir", "--work-tree", "--namespace", "--exec-path",
+}
 
 
 def block(msg: str) -> None:
@@ -108,12 +108,23 @@ def check_railway(argv: list[str], raw: str) -> None:
         block("'railway api' with a GraphQL mutation can change production.")
     if sub in RAILWAY_READ:
         return
-    if sub in RAILWAY_GROUPS and not RAILWAY_GROUP_MUTATING.intersection(argv[2:4]):
-        return
+    if sub in RAILWAY_GROUPS:
+        verbs = [a for a in argv[2:4] if not a.startswith("-")] or ["list"]
+        verb = verbs[0]
+        if verb in RAILWAY_SUBGROUPS:
+            verb = verbs[1] if len(verbs) > 1 else "list"
+        if verb in RAILWAY_GROUP_READ:
+            return
     if sub in RAILWAY_SECRET:
         block(f"'railway {sub}' exposes production secrets or a production shell.")
     shown = f"railway {sub} {sub2}".strip()
     block(f"'{shown}' can change production. Changes go through GitHub main and ticket #58.")
+
+
+def strip_timeout(argv: list[str]) -> list[str]:
+    while argv and argv[0].startswith("-"):
+        argv = argv[2:] if argv[0] in TIMEOUT_OPTS_WITH_VALUE else argv[1:]
+    return argv[1:]  # drop DURATION
 
 
 def strip_wrappers(argv: list[str]) -> list[str]:
@@ -121,8 +132,8 @@ def strip_wrappers(argv: list[str]) -> list[str]:
         head = argv[0]
         if head in WRAPPERS or "=" in head:
             argv = argv[1:]
-        elif head in WRAPPERS_WITH_VALUE:
-            argv = argv[2:]
+        elif head == "timeout":
+            argv = strip_timeout(argv[1:])
         else:
             break
     return argv
@@ -139,15 +150,12 @@ def scan(cmd: str, cwd: str, raw: str) -> None:
             continue
         exe = os.path.basename(argv[0])
         if argv[0].startswith("$") or "$" in exe:
-            if RAW_SENSITIVE.search(raw):
-                block("a variable in command position cannot be checked.")
-            continue
+            block("a variable in command position cannot be checked.")
         if exe in SHELLS:
-            if "-c" in argv:
-                for inner in argv[argv.index("-c") + 1:]:
-                    scan(inner, cwd, raw)
-            elif RAW_SENSITIVE.search(raw):
+            if "-c" not in argv:
                 block("a shell reading a script from stdin or a file cannot be checked.")
+            for inner in argv[argv.index("-c") + 1:]:
+                scan(inner, cwd, raw)
             continue
         if exe == "eval":
             scan(" ".join(argv[1:]), cwd, raw)
