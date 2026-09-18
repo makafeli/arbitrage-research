@@ -1,4 +1,4 @@
-//! Orca Whirlpool legacy SPL-token and fixed tick-array decoder. No transaction construction.
+//! Orca Whirlpool legacy SPL-token and fixed tick-array decoder, plus a research-only unsigned transaction plan (`plan`). No signing, no submission.
 pub mod math;
 pub mod plan;
 

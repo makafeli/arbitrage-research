@@ -330,7 +330,10 @@ impl SolanaPlan {
         if self.guard.owner != self.authority {
             return Err(PlanRejection::GuardOwnerMismatch);
         }
-        if leg_mints[1].1 != self.starting_mint {
+        if leg_mints[0].0 != self.starting_mint
+            || leg_mints[0].1 != leg_mints[1].0
+            || leg_mints[1].1 != self.starting_mint
+        {
             return Err(PlanRejection::RouteNotCyclic);
         }
         let guaranteed = if self.legs[1].amount_specified_is_input {

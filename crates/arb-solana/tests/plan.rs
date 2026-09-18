@@ -198,6 +198,29 @@ fn rejects_non_cyclic_route() {
         plan.validate(&allowlist, &non_cyclic),
         Err(PlanRejection::RouteNotCyclic)
     );
+
+    // Leg 0's input mint no longer matches the plan's starting mint, even
+    // though every mint involved stays allowlisted.
+    let leg0_input_not_starting = [(key(6), key(6)), (key(6), key(3))];
+    assert_eq!(
+        plan.validate(&allowlist, &leg0_input_not_starting),
+        Err(PlanRejection::RouteNotCyclic)
+    );
+}
+
+#[test]
+fn rejects_broken_middle_of_route() {
+    let plan = valid_plan();
+    let allowlist = valid_allowlist();
+    // Leg 0 starts at the starting mint and leg 1 ends at it, but leg 0's
+    // output mint does not match leg 1's input mint: the two legs do not
+    // actually compose into one route. All mints stay allowlisted so this
+    // isolates RouteNotCyclic from UnsupportedMint.
+    let broken_middle = [(key(3), key(6)), (key(3), key(3))];
+    assert_eq!(
+        plan.validate(&allowlist, &broken_middle),
+        Err(PlanRejection::RouteNotCyclic)
+    );
 }
 
 #[test]
