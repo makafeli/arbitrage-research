@@ -495,6 +495,9 @@ mod tests {
         bad.net_after_explicit_costs_minor = Some("60000".parse().unwrap());
         assert!(bad.validate().is_err());
         let mut bad = sample();
+        bad.quoted_output_includes_pool_fees_and_price_impact = false;
+        assert!(bad.validate().is_err());
+        let mut bad = sample();
         bad.route[1].pool_id = bad.route[0].pool_id.clone();
         assert!(bad.validate().is_err());
         let mut bad = sample();

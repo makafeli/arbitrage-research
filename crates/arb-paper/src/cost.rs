@@ -594,4 +594,44 @@ mod tests {
             .is_err()
         );
     }
+    #[test]
+    fn allocated_overhead_without_disclosed_method_version_or_reference_is_rejected() {
+        let quote = Quote {
+            starting_asset: base_asset(),
+            amount_in: 100.into(),
+            amount_out: 110.into(),
+            includes_pool_fees_and_impact: true,
+            quote_reference: "synthetic".into(),
+        };
+        for undisclosed in [
+            OverheadAllocation::Allocated {
+                amount_in_start_asset: 1.into(),
+                method: "".into(),
+                version: "1".into(),
+                reference: "synthetic-overhead-run".into(),
+            },
+            OverheadAllocation::Allocated {
+                amount_in_start_asset: 1.into(),
+                method: "equal-per-evaluated-attempt".into(),
+                version: "".into(),
+                reference: "synthetic-overhead-run".into(),
+            },
+            OverheadAllocation::Allocated {
+                amount_in_start_asset: 1.into(),
+                method: "equal-per-evaluated-attempt".into(),
+                version: "1".into(),
+                reference: "".into(),
+            },
+        ] {
+            assert!(
+                evaluate_costs(
+                    &quote,
+                    &[],
+                    FundingAssumption::OwnVirtualCapital,
+                    undisclosed
+                )
+                .is_err()
+            );
+        }
+    }
 }
