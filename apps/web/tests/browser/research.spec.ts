@@ -130,6 +130,13 @@ test('paper balances preserve huge units and distinguish original budgets from r
   expect(exported.data.items[0].event.postings[0].amount).toBe(huge);
   await expect(page.getByRole('button', { name: /settle|reset ledger/i })).toHaveCount(0);
 });
+test('an unsupported token or pool cannot be selected for paper creation', async ({ page }) => {
+  await stub(page); await openPaper(page);
+  const tokenSelect = page.getByLabel('Validated principal asset', { exact: true });
+  await expect(tokenSelect.locator('option')).toHaveCount(2);
+  await expect(tokenSelect.locator('option', { hasText: principalAsset.identity })).toHaveCount(1);
+  await expect(tokenSelect.locator('option', { hasText: 'unsupported-pool' })).toHaveCount(0);
+});
 test('uncertain paper creation locks immutable scope and retries exact request after navigation', async ({ page }) => {
   const requests: { key: string; body: { initial_balances: { asset: typeof principalAsset | typeof nativeAsset; amount: string }[] }; path: string }[] = [];
   let created: ReturnType<typeof paperRun> | null = null;
@@ -227,6 +234,12 @@ test('stopped paper sessions with a rejected command and revision gap can reques
   await expect(page.getByRole('button', { name: 'Create hypothetical paper run', exact: true })).toBeEnabled();
   await page.getByRole('button', { name: 'Create hypothetical paper run', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Paper run created', exact: true })).toBeDisabled();
+  expect(creationRequests).toBe(1);
+  const creation = page.getByRole('region', { name: 'Initialize a new hypothetical run' });
+  await expect(creation.getByLabel('Validated principal asset', { exact: true })).toBeDisabled();
+  await expect(creation.getByLabel('Initial token principal · exact minor units', { exact: true })).toBeDisabled();
+  await expect(creation.getByLabel('Initial native fee reserve · exact minor units', { exact: true })).toBeDisabled();
+  await creation.locator('form').evaluate(form => (form as HTMLFormElement).requestSubmit());
   expect(creationRequests).toBe(1);
 });
 
