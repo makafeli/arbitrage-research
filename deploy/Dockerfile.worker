@@ -20,8 +20,9 @@ COPY deploy/worker-entrypoint.sh /usr/local/bin/worker-entrypoint
 COPY deploy/worker-volume-check.sh /usr/local/bin/worker-volume-check
 COPY deploy/worker-readiness-check.sh /usr/local/bin/worker-readiness-check
 COPY deploy/worker-prepare-base.sh /usr/local/bin/worker-prepare-base
-COPY scripts/worker_ci_gate.py scripts/worker_readiness.py /usr/local/lib/arb/
-RUN chmod 755 /usr/local/bin/worker-entrypoint /usr/local/bin/worker-volume-check /usr/local/bin/worker-readiness-check /usr/local/bin/worker-prepare-base \
+COPY scripts/worker_ci_gate.py scripts/worker_readiness.py scripts/worker_launch_base.py /usr/local/lib/arb/
+COPY deploy/worker-launch-base.sh /usr/local/bin/worker-launch-base
+RUN chmod 755 /usr/local/bin/worker-entrypoint /usr/local/bin/worker-volume-check /usr/local/bin/worker-readiness-check /usr/local/bin/worker-prepare-base /usr/local/bin/worker-launch-base \
     && base-ingest --check && worker-session
 ENTRYPOINT ["worker-entrypoint"]
 CMD ["research-worker"]

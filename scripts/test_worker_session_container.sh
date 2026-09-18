@@ -83,6 +83,18 @@ expect_failure BASE_SESSION_NOT_REGISTERED "${run[@]}" -e ARB_OPERATOR_ID=operat
 "${run[@]}" -e ARB_OPERATOR_ID=operator "$image" worker-session --register /data/runtime/base-v1 > "$work/first.json"
 "${run[@]}" -e ARB_OPERATOR_ID=operator "$image" worker-session --register /data/runtime/base-v1 > "$work/reused.json"
 "${run[@]}" -e ARB_OPERATOR_ID=operator "$image" worker-session --status /data/runtime/base-v1 > "$work/status.json"
+# The shipped launch wrapper never initializes a missing source on normal startup.
+# The reserved .invalid endpoint cannot receive requests; the missing-source check
+# must happen before the existing worker is executed.
+expect_failure EXISTING_SOURCE_REQUIRED "${run[@]}" -e ARB_OPERATOR_ID=operator \
+    -e ARB_BASE_RPC_URL=https://rpc.invalid/unused -e ARB_RPC_MIN_INTERVAL_MS=75 \
+    "$image" worker-launch-base --start
+"${run[@]}" -e ARB_OPERATOR_ID=operator "$image" worker-launch-base --check > "$work/launch-inert.json"
+python3 - "$work/launch-inert.json" <<'PYLAUNCH'
+import json,sys
+v=json.load(open(sys.argv[1])); assert v == dict(status='NOT_STARTED', provider_requests=0,
+    database_requests=0, execution_authorized=False)
+PYLAUNCH
 # Same-key first-use races must retain only one session, with no provider endpoint.
 "${run[@]}" -e ARB_OPERATOR_ID=race "$image" worker-session --register /data/runtime/base-v1 > "$work/race1.json" &
 a=$!
