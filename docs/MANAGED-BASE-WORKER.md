@@ -49,9 +49,11 @@ session and one capture volume. There is no automatic session discovery here.
    Base block. It validates the complete original shared quote transcript.
 3. `recover_logs_bounded` verifies the original checkpoint and the precise captured
    target against the node. A newer finalized tip does not shift the target. It
-   fetches missing logs with one ranged `eth_getLogs` call per step, attributes
-   each returned log to its own header-verified block, checks ancestry and pool
-   runtime code at the step's first and last block, and rechecks canonicality.
+   fetches missing logs with ranged `eth_getLogs` calls per step, chunked to at
+   most 10 blocks each since issue #202 (2026-09-19) to stay under a provider
+   free-tier range cap observed rejecting wider spans, attributes each returned
+   log to its own header-verified block, checks ancestry and pool runtime code
+   at the step's first and last block, and rechecks canonicality.
    An empty ranged result is valid evidence of no returned logs, not proof of
    all historical market coverage — see `docs/BASE-LOG-RECOVERY.md`'s "Residual
    risk of the ranged fetch" for what an absent log does and does not prove.

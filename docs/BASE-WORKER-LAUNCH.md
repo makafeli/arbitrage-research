@@ -77,9 +77,10 @@ SIGTERM during preparation cancels the child and never proceeds to exec.
 
 One configured source and session remain the scope. The existing 32-block
 recovery limit, shared RPC time/byte/request budgets, capture quota and
-invalidation rules are unchanged. Recovery fetches each step with one ranged
-`eth_getLogs` call (`fromBlock`/`toBlock` over the pool addresses) instead of
-one call per block, and checks factory/pool runtime code only at the step's
+invalidation rules are unchanged. Recovery fetches each step with ranged
+`eth_getLogs` calls (`fromBlock`/`toBlock` over the pool addresses, at most
+10 blocks per call since #202) instead of one call per block, and checks
+factory/pool runtime code only at the step's
 first and last block instead of at every block (Base runs Cancun/EIP-6780, so
 identity at both ends implies identity in between; issue #180, 2026-09-19).
 `plan.quota_bytes` itself is part of the session's `configuration_digest` and

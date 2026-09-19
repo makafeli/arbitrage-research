@@ -23,14 +23,31 @@ proves finality. Removed logs remain explicitly marked for invalidation.
 starting checkpoint, explicit limits, the existing `ReadRpc` and a cancellation
 predicate. It checks Base chain identity and the checkpoint, reads a finalized
 upper bound, then walks every intervening header in order to verify ancestry.
-Logs for the whole step are requested with **one ranged `eth_getLogs` call**
-(`fromBlock` = checkpoint + 1, `toBlock` = target, `address` = the pool list),
-not one call per block. Factory and pool runtime code are checked only at the
+Logs for the whole step are requested with **ranged `eth_getLogs` calls**
+(`fromBlock`/`toBlock` spanning the step, `address` = the pool list), not one
+call per block. Factory and pool runtime code are checked only at the
 step's two bounds — the checkpoint block itself (`from`) and the target block
 (`through`) — each pinned by blockHash with `requireCanonical: true`, not at
 every intervening block; see "Residual risk of the ranged fetch" below for
 what this does and does not prove. The target and starting checkpoint are
 rechecked after the complete range.
+
+Since issue #202 (2026-09-19), the ranged fetch is split into consecutive
+chunks of at most `LOG_RANGE_CHUNK_BLOCKS` (10) blocks each, concatenated in
+ascending order before the grouping/order/conflict checks above ever see
+them; a step of 10 blocks or fewer still issues exactly one `eth_getLogs`
+call. The chunk size matches the free-tier range cap a live Base RPC provider
+was observed enforcing: a probe found spans wider than 10 blocks rejected
+with JSON-RPC `-32600` ("Under the Free tier plan, you can make eth_getLogs
+requests with up to a 10 block range"), which `HttpReadRpc` surfaces as
+`RPC HTTP error: bad request (details redacted)` — the exact symptom
+(`acquisition-rpc-failed method=EthGetLogs`) that halted every catch-up step
+wider than 10 blocks after #187 doubled the default step to 32 blocks, until
+this chunking fix landed. A paid plan raises the provider's own cap;
+`LOG_RANGE_CHUNK_BLOCKS` may be raised to match it, up to
+`BackfillLimits::max_blocks`, without any other change here. A failure on any
+chunk still stops the attempt immediately with `GapReason::ProviderFailure`
+and the untouched checkpoint — there is no retry within or across chunks.
 
 Defaults are 32 blocks, 256 logs per block and 2,048 logs per attempt. Hard
 maximums are 32 blocks, 512 logs per block, 4,096 logs total and the existing
@@ -38,11 +55,13 @@ eight-pool limit (issue #180, 2026-09-19: the default recovery range doubled
 from 16 to 32 blocks and now equals the hard maximum; the default log-per-
 attempt budget doubled from 1,024 to 2,048 in step, keeping ~64 logs/block of
 headroom — the hard maximum of 4,096 is unchanged). With B recovered blocks
-and P pools, a successful nonempty attempt uses `6 + 2 * (P + 1) + B + 1` RPC
-calls — 6 fixed calls (chain id, checkpoint header, finalized header, target
-confirmation, final target recheck, final checkpoint recheck), two bound code
-checks of `P + 1` calls each, one ancestry header per recovered block, and one
-ranged `eth_getLogs` — at most 57 at P = 8, B = 32. Existing HTTP
+and P pools, a successful nonempty attempt uses
+`6 + 2 * (P + 1) + B + ceil(B / LOG_RANGE_CHUNK_BLOCKS)` RPC calls — 6 fixed
+calls (chain id, checkpoint header, finalized header, target confirmation,
+final target recheck, final checkpoint recheck), two bound code checks of
+`P + 1` calls each, one ancestry header per recovered block, and one ranged
+`eth_getLogs` call per 10-block chunk (issue #202, 2026-09-19; a single call
+before that fix) — at most 60 at P = 8, B = 32. Existing HTTP
 response/cumulative byte, request and 60-second capture limits still apply.
 Configured request pacing is inherited; this component has no retries,
 endpoint changes or quota reset. Cancellation is checked before and after
@@ -66,8 +85,9 @@ returned as success, and the function never advances an external cursor. The
 caller must persist the entire result before committing `through` as its new
 checkpoint. Versioned output retains Base identity, exact registry digest, pinned
 ABI revision and complete per-block event metadata. This function itself still
-has no retry: any RPC error during a step, including one `eth_getLogs` call,
-stops that attempt with `GapReason::ProviderFailure` and the untouched
+has no retry: any RPC error during a step, including any one of its
+(possibly chunked) `eth_getLogs` calls, stops that attempt with
+`GapReason::ProviderFailure` and the untouched
 checkpoint (issue #197, 2026-09-19). The retry is the caller's next attempt,
 not a loop in here — the research-worker caller (`managed_ingestion::recover`
 in `apps/research-worker/src/managed_ingestion.rs`) now treats

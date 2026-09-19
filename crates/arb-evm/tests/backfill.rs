@@ -3,12 +3,16 @@
 //! Call shape pinned by issue #180 (owner decision 2026-09-19, option 1): code
 //! identity is verified only at the two ends of a step (Base is Cancun,
 //! EIP-6780 means a pre-existing contract's code cannot change block to
-//! block), and one ranged `eth_getLogs(fromBlock..toBlock)` replaces the old
-//! per-block filter. A step of N blocks over P pools costs
-//! `6 + 2*(P+1) + N + 1` requests when the caller supplies an explicit
-//! target (`recover_logs_through`/`recover_logs_bounded`); plain
-//! `recover_logs` folds "finalized" and "target resolution" into one call,
-//! so it costs one less.
+//! block), and ranged `eth_getLogs(fromBlock..toBlock)` calls replace the old
+//! per-block filter. Since issue #202 (2026-09-19) those ranged calls are
+//! chunked to at most `LOG_RANGE_CHUNK_BLOCKS` (10) blocks each, so a step of
+//! N blocks issues `ceil(N / LOG_RANGE_CHUNK_BLOCKS)` `eth_getLogs` calls
+//! (still 1 for N <= 10) instead of exactly 1. A step of N blocks over P
+//! pools therefore costs `6 + 2*(P+1) + N + ceil(N / LOG_RANGE_CHUNK_BLOCKS)`
+//! requests when the caller supplies an explicit target
+//! (`recover_logs_through`/`recover_logs_bounded`); plain `recover_logs`
+//! folds "finalized" and "target resolution" into one call, so it costs one
+//! less.
 use arb_adapter_api::{AdapterError, ReadMethod, ReadRpc, RpcRecord, TranscriptRpc};
 use arb_evm::{
     PoolRegistry, UNISWAP_V3_FACTORY,
@@ -50,6 +54,19 @@ fn default_logs(checkpoint_n: u64, target_n: u64) -> Vec<Value> {
         .map(|n| event(n, 0))
         .collect()
 }
+/// The block number an `event()`-shaped log fixture carries, used only to
+/// sort a step's logs into the `eth_getLogs` chunk that would have returned
+/// them.
+fn log_block_number(entry: &Value) -> u64 {
+    u64::from_str_radix(
+        entry["blockNumber"]
+            .as_str()
+            .and_then(|s| s.strip_prefix("0x"))
+            .expect("fixture log entries carry a hex blockNumber"),
+        16,
+    )
+    .expect("fixture blockNumber is valid hex")
+}
 fn push(records: &mut Vec<RpcRecord>, method: ReadMethod, params: Value, result: Value) -> usize {
     let sequence = records.len() as u64;
     let index = records.len();
@@ -80,8 +97,15 @@ struct Step {
     code_checks: Vec<usize>,
     /// One `eth_getBlockByNumber` per historical block, `checkpoint_n+1..=target_n`.
     block_headers: Vec<usize>,
-    /// The single ranged `eth_getLogs` call, absent when the step is empty.
+    /// The first (and, for a step of `LOG_RANGE_CHUNK_BLOCKS` blocks or
+    /// fewer, only) ranged `eth_getLogs` call; absent when the step is
+    /// empty. Kept alongside `log_chunks` so single-chunk tests can keep
+    /// indexing this field directly.
     logs: Option<usize>,
+    /// Every ranged `eth_getLogs` call for the step, in ascending order,
+    /// each covering at most `LOG_RANGE_CHUNK_BLOCKS` blocks; empty when the
+    /// step is empty.
+    log_chunks: Vec<usize>,
     final_target_recheck: usize,
     final_checkpoint_recheck: Option<usize>,
 }
@@ -160,18 +184,36 @@ fn step_with_logs(
             )
         })
         .collect();
-    let logs_index = (distance > 0).then(|| {
-        push(
+    // One eth_getLogs call per LOG_RANGE_CHUNK_BLOCKS-sized slice of the
+    // step (issue #202): for a 32-block step over checkpoint c that is
+    // c+1..c+10, c+11..c+20, c+21..c+30, c+31..c+32. Each chunk's expected
+    // response is the subset of `logs` whose blockNumber falls in that
+    // chunk's range, mirroring how the production ranged fetch is split.
+    let mut log_chunks = Vec::new();
+    let mut chunk_start = checkpoint_n + 1;
+    while chunk_start <= target_n {
+        let chunk_end = (chunk_start + LOG_RANGE_CHUNK_BLOCKS - 1).min(target_n);
+        let chunk_logs: Vec<Value> = logs
+            .iter()
+            .filter(|entry| {
+                let number = log_block_number(entry);
+                (chunk_start..=chunk_end).contains(&number)
+            })
+            .cloned()
+            .collect();
+        log_chunks.push(push(
             &mut records,
             ReadMethod::EthGetLogs,
             json!([{
-                "fromBlock": format!("0x{:x}", checkpoint_n + 1),
-                "toBlock": format!("0x{:x}", target_n),
+                "fromBlock": format!("0x{chunk_start:x}"),
+                "toBlock": format!("0x{chunk_end:x}"),
                 "address": addresses(),
             }]),
-            json!(logs),
-        )
-    });
+            json!(chunk_logs),
+        ));
+        chunk_start = chunk_end + 1;
+    }
+    let logs_index = log_chunks.first().copied();
     let final_target_recheck = push(
         &mut records,
         ReadMethod::EthGetBlockByNumber,
@@ -194,6 +236,7 @@ fn step_with_logs(
         code_checks,
         block_headers,
         logs: logs_index,
+        log_chunks,
         final_target_recheck,
         final_checkpoint_recheck,
     }
@@ -856,7 +899,11 @@ fn hard_bounds_accept_their_exact_edge_and_refuse_the_next_block_or_log() {
         max_total_logs: 4096,
     };
     let fixture = step(100, 132, 132, false);
-    let expected_calls = 5 + 2 * (p + 1) + 32 + 1;
+    // A 32-block step chunks its logs into ceil(32 / 10) = 4 eth_getLogs
+    // calls (issue #202) instead of the single call a step this long used
+    // to issue.
+    assert_eq!(fixture.log_chunks.len(), 4);
+    let expected_calls = 5 + 2 * (p + 1) + 32 + fixture.log_chunks.len();
     let mut rpc = CountingRpc {
         calls: 0,
         records: fixture.records.into(),
@@ -1173,4 +1220,121 @@ fn exact_target_preserves_cancellation_and_late_reorg_rejection() {
         GapReason::Cancelled
     );
     rpc.finish().unwrap();
+}
+
+/// Issue #202: the provider's free tier rejects a ranged `eth_getLogs` call
+/// wider than 10 blocks, so a 32-block step must fetch its logs in
+/// consecutive chunks of at most `LOG_RANGE_CHUNK_BLOCKS` blocks instead of
+/// one call over the whole step. Pins the exact chunk boundaries and that
+/// concatenating the chunk results still yields every block's logs in order.
+#[test]
+fn a_32_block_step_chunks_its_logs_into_four_calls_with_the_exact_ranges_and_returns_them_in_order()
+{
+    let logs = default_logs(100, 132);
+    let fixture = step_with_logs(100, 132, 132, false, logs.clone());
+    assert_eq!(fixture.log_chunks.len(), 4);
+    for (chunk_index, (from, to)) in
+        fixture
+            .log_chunks
+            .iter()
+            .zip([(101u64, 110u64), (111, 120), (121, 130), (131, 132)])
+    {
+        assert_eq!(
+            fixture.records[*chunk_index].params,
+            json!([{
+                "fromBlock": format!("0x{from:x}"),
+                "toBlock": format!("0x{to:x}"),
+                "address": addresses(),
+            }])
+        );
+    }
+    let batch = run(fixture.records).unwrap();
+    assert_eq!(batch.blocks.len(), 32);
+    let expected: Vec<_> = logs
+        .iter()
+        .map(|value| arb_evm::events::decode_log(value, &pools()[0]).unwrap())
+        .collect();
+    let actual: Vec<_> = batch
+        .blocks
+        .iter()
+        .flat_map(|block| block.logs.clone())
+        .collect();
+    assert_eq!(actual, expected);
+}
+
+/// A step at or under the chunk size still issues exactly one `eth_getLogs`
+/// call — chunking must not split a step that already fits.
+#[test]
+fn a_ten_block_step_still_issues_exactly_one_log_call() {
+    let fixture = step(100, 110, 110, false);
+    assert_eq!(fixture.log_chunks.len(), 1);
+    assert_eq!(
+        fixture.records[fixture.log_chunks[0]].params,
+        json!([{
+            "fromBlock": "0x65",
+            "toBlock": "0x6e",
+            "address": addresses(),
+        }])
+    );
+    let batch = run(fixture.records).unwrap();
+    assert_eq!(batch.blocks.len(), 10);
+}
+
+/// A provider failure partway through the chunked fetch stops the attempt
+/// immediately: no retry, no partial batch, and the caller's checkpoint is
+/// reported unchanged.
+#[test]
+fn a_failure_on_the_third_log_chunk_stops_without_a_partial_batch_and_keeps_the_checkpoint() {
+    let fixture = step(100, 132, 132, false);
+    assert_eq!(fixture.log_chunks.len(), 4);
+    let failure = fixture.log_chunks[2];
+    let mut rpc = CountingRpc {
+        calls: 0,
+        records: fixture.records.into(),
+        fail_at: Some(failure),
+        cancel: None,
+    };
+    let error = recover_logs(
+        &mut rpc,
+        &pools(),
+        &checkpoint(),
+        BackfillLimits::default(),
+        || false,
+    )
+    .unwrap_err();
+    assert_eq!(rpc.calls, failure + 1);
+    assert_eq!(error.reason, GapReason::ProviderFailure);
+    assert_eq!(error.checkpoint, checkpoint());
+    assert!(error.transport_error.unwrap().0.contains("rate limited"));
+}
+
+/// A log a later chunk returns for a block that belongs to an earlier
+/// chunk's already-consumed range is still caught by the existing
+/// ascending-order check: chunking does not weaken it.
+#[test]
+fn a_log_a_later_chunk_returns_for_an_earlier_chunks_block_is_rejected() {
+    let mut fixture = step(100, 115, 115, false);
+    assert_eq!(fixture.log_chunks.len(), 2);
+    let second_chunk = fixture.log_chunks[1];
+    change(&mut fixture.records[second_chunk], |v| {
+        *v = json!([event(105, 0)])
+    });
+    assert_eq!(
+        run(fixture.records).unwrap_err().reason,
+        GapReason::MalformedLog
+    );
+}
+
+/// A chunk whose result is not a JSON array is a malformed answer, even
+/// when the earlier chunks were fine; the attempt stops right there.
+#[test]
+fn a_chunk_that_is_not_an_array_is_rejected_as_malformed() {
+    let mut fixture = step(100, 115, 115, false);
+    assert_eq!(fixture.log_chunks.len(), 2);
+    let second_chunk = fixture.log_chunks[1];
+    change(&mut fixture.records[second_chunk], |v| *v = json!(null));
+    assert_eq!(
+        run(fixture.records).unwrap_err().reason,
+        GapReason::MalformedLog
+    );
 }
