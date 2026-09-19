@@ -32,13 +32,13 @@ function receipt(overrides: Partial<CommandReceipt> = {}): CommandReceipt {
 
 // ---- Block 1: Status ----
 test('status: empty (no session) renders not-available-yet, not a fabricated state', () => {
-  const result = statusSummary(null, null, [], NOW, 'en');
+  const result = statusSummary(null, null, [], NOW, false, 'en');
   assert.equal(result.hasSession, false);
   assert.match(result.modeLabel, /not available yet/);
   assert.match(result.lastCommandReceiptLabel, /does not expose a full command history/);
 });
 test('status: healthy session with a recent collection reports caught up', () => {
-  const result = statusSummary(session(), receipt(), [attempt()], NOW, 'en');
+  const result = statusSummary(session(), receipt(), [attempt()], NOW, false, 'en');
   assert.equal(result.modeLabel, 'watching only (OBSERVE)');
   assert.equal(result.stateLabel, 'running');
   assert.equal(result.sourceLagLabel, 'is caught up (recently updated)');
@@ -46,48 +46,77 @@ test('status: healthy session with a recent collection reports caught up', () =>
 });
 test('status: degraded session with a stale collection reports stale in words, matching Health', () => {
   const stale = attempt({ started_at: new Date(NOW - 6 * 60_000).toISOString(), finished_at: new Date(NOW - 6 * 60_000).toISOString() });
-  const result = statusSummary(session({ observed_state: 'FAULTED' }), null, [stale], NOW, 'nl');
+  const result = statusSummary(session({ observed_state: 'FAULTED' }), null, [stale], NOW, false, 'nl');
   assert.equal(result.stateLabel, 'in storing');
   assert.equal(result.sourceLagLabel, 'loopt vast — meer dan 5 minuten geen verzameling');
   assert.equal(result.lastCommandReceiptLabel, 'nog geen commando vanuit dit venster verstuurd; de dienst biedt geen volledige commandogeschiedenis');
 });
+// Regression for a CodeRabbit finding: collection-attempts is oldest-first, so a truncated 24h
+// window only holds the oldest slice of it — its latest item is not a reliable "now", so a fresh
+// collection deep in that truncated set must not be reported as caught up.
+test('status: a truncated attempt window reports indeterminate, even with an in-window collection', () => {
+  const result = statusSummary(session(), receipt(), [attempt()], NOW, true, 'en');
+  assert.equal(result.workerAliveLabel, 'cannot be determined — the attempt window was truncated');
+  assert.equal(result.sourceLagLabel, 'cannot be determined — the attempt window was truncated');
+});
 
 // ---- Block 2: Health ----
 test('health: empty attempts with no fault renders unknown, not invented green/red', () => {
-  const result = healthSummary([], session(), NOW, 'en');
+  const result = healthSummary([], session(), NOW, false, 'en');
   assert.equal(result.level, 'unknown');
   assert.equal(result.collections, 0);
   assert.equal(result.admittedLabel, 'not available yet');
 });
 test('health: healthy window is green with the ok reason', () => {
-  const result = healthSummary([attempt()], session(), NOW, 'en');
+  const result = healthSummary([attempt()], session(), NOW, false, 'en');
   assert.equal(result.level, 'green');
   assert.equal(result.reasonLabel, 'no fault, no backlog and no provider failure seen');
   assert.equal(result.collections, 1);
   assert.equal(result.admittedLabel, '1/1');
 });
 test('health: a fault forces red even with fresh collections', () => {
-  const result = healthSummary([attempt()], session({ observed_state: 'FAULTED' }), NOW, 'en');
+  const result = healthSummary([attempt()], session({ observed_state: 'FAULTED' }), NOW, false, 'en');
   assert.equal(result.level, 'red');
   assert.equal(result.reasonLabel, 'the session is in a fault state');
 });
 test('health: no collection for over 5 minutes is red', () => {
   const stale = attempt({ started_at: new Date(NOW - 6 * 60_000).toISOString(), finished_at: new Date(NOW - 6 * 60_000).toISOString() });
-  const result = healthSummary([stale], session(), NOW, 'en');
+  const result = healthSummary([stale], session(), NOW, false, 'en');
   assert.equal(result.level, 'red');
   assert.equal(result.reasonLabel, 'no collection received for over 5 minutes');
 });
 test('health: a provider failure in the window is amber, not red', () => {
   const failed = attempt({ outcome: 'ACQUISITION_FAILED', reason: 'PROVIDER_UNAVAILABLE' });
-  const result = healthSummary([failed, attempt()], session(), NOW, 'en');
+  const result = healthSummary([failed, attempt()], session(), NOW, false, 'en');
   assert.equal(result.level, 'amber');
   assert.equal(result.reasonLabel, 'a provider failed in this window');
   assert.equal(result.providerFailures, 1);
 });
 test('health: attempts older than 24h are excluded from the window counts', () => {
   const old = attempt({ started_at: new Date(NOW - 25 * 60 * 60_000).toISOString(), finished_at: new Date(NOW - 25 * 60 * 60_000).toISOString() });
-  const result = healthSummary([old], session(), NOW, 'en');
+  const result = healthSummary([old], session(), NOW, false, 'en');
   assert.equal(result.collections, 0);
+});
+// Regression for a CodeRabbit finding: a FAULTED session with zero collection attempts previously
+// hit the "no data" branch before the fault check ever ran, hiding a known fault behind "unknown".
+test('health: a fault with zero collection attempts is still red, not unknown', () => {
+  const result = healthSummary([], session({ observed_state: 'FAULTED' }), NOW, false, 'en');
+  assert.equal(result.level, 'red');
+  assert.equal(result.reasonLabel, 'the session is in a fault state');
+});
+// Regression for a CodeRabbit finding: collection-attempts is oldest-first, so a truncated 24h
+// window (more attempts than fetchWindow's page cap) only holds the *oldest* slice of that window.
+// Its latest attempt can therefore look old even while the source is current, so freshness must be
+// reported as indeterminate rather than derived from the partial window — unless a fault overrides it.
+test('health: a truncated attempt window reports unknown, not a guessed stale/green level', () => {
+  const result = healthSummary([attempt()], session(), NOW, true, 'en');
+  assert.equal(result.level, 'unknown');
+  assert.equal(result.reasonLabel, 'the attempt window was truncated, so status cannot be judged');
+});
+test('health: a fault still wins over a truncated window', () => {
+  const result = healthSummary([attempt()], session({ observed_state: 'FAULTED' }), NOW, true, 'en');
+  assert.equal(result.level, 'red');
+  assert.equal(result.reasonLabel, 'the session is in a fault state');
 });
 
 // ---- collectionFreshness helper ----

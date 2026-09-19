@@ -41,8 +41,9 @@ export function OwnerOverview({ active, api, sessions, filter, commands }: Props
   const options = sessions.filter(session => filter === 'all' || session.network_id === filter || session.session_id === sessionId);
   const receipt = commands[sessionId]?.receipt ?? null;
 
-  const status = statusSummary(selected, receipt, attempts.data?.items ?? [], now, lang);
-  const health = healthSummary(attempts.data?.items ?? [], selected, now, lang);
+  const attemptsTruncated = attempts.data?.truncated ?? false;
+  const status = statusSummary(selected, receipt, attempts.data?.items ?? [], now, attemptsTruncated, lang);
+  const health = healthSummary(attempts.data?.items ?? [], selected, now, attemptsTruncated, lang);
   const findings = findingsSummary(coverage.data ?? null, groups.data?.items ?? [], decisions.data?.items ?? [], lang);
   const whatIf = selected ? whatIfSummary(stakeInput, selected.network_id, decisions.data?.items ?? [], costAssessments.data?.items ?? [], lang) : null;
   const checklist = roadToLiveChecklist(parseProgressFile(progressFile), lang);

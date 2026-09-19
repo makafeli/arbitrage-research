@@ -17,11 +17,12 @@ export const copy = {
     mode_OBSERVE: 'kijkt alleen mee (OBSERVE)', mode_PAPER: 'oefent met nepgeld (PAPER)', mode_REPLAY: 'speelt oude data af (REPLAY)', mode_LIVE: 'handelt echt (LIVE)',
     state_RECOVERING: 'herstelt van een herstart', state_STOPPED: 'gestopt', state_RUNNING: 'actief', state_PAUSING: 'wordt gepauzeerd', state_PAUSED: 'gepauzeerd', state_DRAINING: 'ronden lopende taken af', state_FAULTED: 'in storing',
     worker_unknown: 'geen verzameling ontvangen sinds de sessie begon',
-    lag_unknown: 'onbekend — nog geen verzameling ontvangen', lag_caught_up: 'is bij (recent bijgewerkt)', lag_catching_up: 'loopt in (haalt achterstand in)', lag_stale: 'loopt vast — meer dan 5 minuten geen verzameling',
+    worker_indeterminate: 'kan niet worden vastgesteld — het venster van pogingen is afgekapt',
+    lag_unknown: 'onbekend — nog geen verzameling ontvangen', lag_caught_up: 'is bij (recent bijgewerkt)', lag_catching_up: 'loopt in (haalt achterstand in)', lag_stale: 'loopt vast — meer dan 5 minuten geen verzameling', lag_indeterminate: 'kan niet worden vastgesteld — het venster van pogingen is afgekapt',
     receipt_none: 'nog geen commando vanuit dit venster verstuurd; de dienst biedt geen volledige commandogeschiedenis',
     receipt_status_PENDING: 'in behandeling', receipt_status_APPLIED: 'toegepast', receipt_status_REJECTED: 'geweigerd', receipt_status_SUPERSEDED: 'ingehaald door een nieuwer commando',
     health_red: 'rood', health_amber: 'oranje', health_green: 'groen', health_unknown: 'onbekend',
-    health_reason_fault: 'de sessie staat in storing', health_reason_stale: 'meer dan 5 minuten geen verzameling ontvangen', health_reason_catching_up: 'de verzameling loopt nog achterstand in', health_reason_provider_failure: 'een provider faalde in dit venster', health_reason_ok: 'geen storing, geen achterstand en geen providerfout gezien', health_reason_no_data: 'nog geen verzameling ontvangen om te beoordelen',
+    health_reason_fault: 'de sessie staat in storing', health_reason_stale: 'meer dan 5 minuten geen verzameling ontvangen', health_reason_catching_up: 'de verzameling loopt nog achterstand in', health_reason_provider_failure: 'een provider faalde in dit venster', health_reason_ok: 'geen storing, geen achterstand en geen providerfout gezien', health_reason_no_data: 'nog geen verzameling ontvangen om te beoordelen', health_reason_truncated: 'het venster van pogingen is afgekapt, dus de status kan niet worden beoordeeld',
     findings_evidence_label: 'kandidaat — niet gesimuleerd',
     whatif_caveat_not_executed: 'OBSERVE-kandidaten worden niet uitgevoerd, niet volledig gesimuleerd en zijn geen winst.',
     whatif_no_leverage: 'Geen hefboom of flashlening getoond: het uitvoerbewakingsharnas (ARB-028/029) is alleen als los onderdeel getest, en een echt kostenmodel (ARB-025) is nog niet geaccepteerd.',
@@ -36,11 +37,12 @@ export const copy = {
     mode_OBSERVE: 'watching only (OBSERVE)', mode_PAPER: 'practicing with fake money (PAPER)', mode_REPLAY: 'replaying old data (REPLAY)', mode_LIVE: 'trading for real (LIVE)',
     state_RECOVERING: 'recovering from a restart', state_STOPPED: 'stopped', state_RUNNING: 'running', state_PAUSING: 'pausing', state_PAUSED: 'paused', state_DRAINING: 'finishing in-flight work', state_FAULTED: 'in a fault state',
     worker_unknown: 'no collection received since this session started',
-    lag_unknown: 'unknown — no collection received yet', lag_caught_up: 'is caught up (recently updated)', lag_catching_up: 'is catching up (working through a backlog)', lag_stale: 'is stuck — no collection for over 5 minutes',
+    worker_indeterminate: 'cannot be determined — the attempt window was truncated',
+    lag_unknown: 'unknown — no collection received yet', lag_caught_up: 'is caught up (recently updated)', lag_catching_up: 'is catching up (working through a backlog)', lag_stale: 'is stuck — no collection for over 5 minutes', lag_indeterminate: 'cannot be determined — the attempt window was truncated',
     receipt_none: 'no command has been sent from this workspace yet; the service does not expose a full command history',
     receipt_status_PENDING: 'pending', receipt_status_APPLIED: 'applied', receipt_status_REJECTED: 'rejected', receipt_status_SUPERSEDED: 'superseded by a newer command',
     health_red: 'red', health_amber: 'amber', health_green: 'green', health_unknown: 'unknown',
-    health_reason_fault: 'the session is in a fault state', health_reason_stale: 'no collection received for over 5 minutes', health_reason_catching_up: 'collection is still catching up', health_reason_provider_failure: 'a provider failed in this window', health_reason_ok: 'no fault, no backlog and no provider failure seen', health_reason_no_data: 'no collection received yet to judge',
+    health_reason_fault: 'the session is in a fault state', health_reason_stale: 'no collection received for over 5 minutes', health_reason_catching_up: 'collection is still catching up', health_reason_provider_failure: 'a provider failed in this window', health_reason_ok: 'no fault, no backlog and no provider failure seen', health_reason_no_data: 'no collection received yet to judge', health_reason_truncated: 'the attempt window was truncated, so status cannot be judged',
     findings_evidence_label: 'candidate, not simulated',
     whatif_caveat_not_executed: 'OBSERVE candidates are not executed, not simulated end-to-end, and are not profit.',
     whatif_no_leverage: 'No leverage or flash loan shown: the execution guard harness (ARB-028/029) has only been tested in isolation, and a real cost model (ARB-025) is not yet accepted.',
@@ -87,12 +89,15 @@ export interface StatusSummary {
   workerAliveLabel: string; sourceLagLabel: string;
   lastCommandReceiptLabel: string;
 }
-export function statusSummary(session: Session | null, receipt: CommandReceipt | null, attempts: readonly CollectionAttempt[], nowMs: number, lang: Lang): StatusSummary {
+export function statusSummary(session: Session | null, receipt: CommandReceipt | null, attempts: readonly CollectionAttempt[], nowMs: number, truncated: boolean, lang: Lang): StatusSummary {
   if (!session) return { hasSession: false, modeLabel: t(lang, 'not_available_yet'), stateLabel: t(lang, 'not_available_yet'), workerAliveLabel: t(lang, 'not_available_yet'), sourceLagLabel: t(lang, 'not_available_yet'), lastCommandReceiptLabel: t(lang, 'receipt_none') };
-  const fresh = collectionFreshness(latestAttemptAt(attempts), nowMs);
-  const workerAliveLabel = fresh.label === 'unknown' ? t(lang, 'worker_unknown') : `${Math.round((fresh.ageMs as number) / 1000)}s`;
+  // A truncated window only holds the oldest slice of the last 24h (see fetchWindow below), so its
+  // latest attempt is not necessarily recent — deriving freshness from it would be able to report a
+  // current source as stale. Report freshness as indeterminate instead of guessing from a partial window.
+  const fresh = truncated ? { ageMs: null, label: 'unknown' as FreshnessLabel } : collectionFreshness(latestAttemptAt(attempts), nowMs);
+  const workerAliveLabel = truncated ? t(lang, 'worker_indeterminate') : fresh.label === 'unknown' ? t(lang, 'worker_unknown') : `${Math.round((fresh.ageMs as number) / 1000)}s`;
   // Status must describe the same freshness Health scores: stale is its own word, never folded into "catching up".
-  const sourceLagLabel = fresh.label === 'stale' ? t(lang, 'lag_stale') : fresh.label === 'catching_up' ? t(lang, 'lag_catching_up') : fresh.label === 'caught_up' ? t(lang, 'lag_caught_up') : t(lang, 'lag_unknown');
+  const sourceLagLabel = truncated ? t(lang, 'lag_indeterminate') : fresh.label === 'stale' ? t(lang, 'lag_stale') : fresh.label === 'catching_up' ? t(lang, 'lag_catching_up') : fresh.label === 'caught_up' ? t(lang, 'lag_caught_up') : t(lang, 'lag_unknown');
   const lastCommandReceiptLabel = receipt ? `${t(lang, `receipt_status_${receipt.status}` as CopyKey)} (${receipt.action})` : t(lang, 'receipt_none');
   return { hasSession: true, modeLabel: t(lang, `mode_${session.mode}` as CopyKey), stateLabel: t(lang, `state_${session.observed_state}` as CopyKey), workerAliveLabel, sourceLagLabel, lastCommandReceiptLabel };
 }
@@ -104,7 +109,7 @@ export interface HealthSummary {
   collections: number; admittedLabel: string; halts: number; faults: number; providerFailures: number;
 }
 export const DAY_MS = 24 * 60 * 60 * 1000;
-export function healthSummary(attempts: readonly CollectionAttempt[], session: Session | null, nowMs: number, lang: Lang): HealthSummary {
+export function healthSummary(attempts: readonly CollectionAttempt[], session: Session | null, nowMs: number, truncated: boolean, lang: Lang): HealthSummary {
   // Window: last 24h. The caller is expected to have already fetched attempts starting near this
   // boundary (see fetchWindow + uuidV7FloorForTimestamp below); this filter is a cheap, redundant
   // guard against the exact boundary rather than the only thing enforcing the window.
@@ -115,12 +120,17 @@ export function healthSummary(attempts: readonly CollectionAttempt[], session: S
   const halts = inWindow.filter(a => a.outcome === 'SUPPRESSED').length;
   const providerFailures = inWindow.filter(a => a.reason === 'PROVIDER_UNAVAILABLE').length;
   const faults = session?.observed_state === 'FAULTED' ? 1 : 0;
-  const fresh = collectionFreshness(latestAttemptAt(attempts), nowMs);
+  // See statusSummary's comment: a truncated window's latest attempt is not necessarily recent, so
+  // it must not be trusted for a stale/caught-up judgment either.
+  const fresh = truncated ? { ageMs: null, label: 'unknown' as FreshnessLabel } : collectionFreshness(latestAttemptAt(attempts), nowMs);
   const admittedLabel = collections > 0 ? `${admitted}/${collections}` : t(lang, 'not_available_yet');
 
   let level: HealthLevel; let reasonKey: CopyKey;
-  if (fresh.label === 'unknown' && collections === 0) { level = 'unknown'; reasonKey = 'health_reason_no_data'; }
-  else if (faults > 0) { level = 'red'; reasonKey = 'health_reason_fault'; }
+  // A known session fault is authoritative regardless of what the (possibly incomplete) attempt
+  // window shows, so it is judged before both the truncation and no-data cases.
+  if (faults > 0) { level = 'red'; reasonKey = 'health_reason_fault'; }
+  else if (truncated) { level = 'unknown'; reasonKey = 'health_reason_truncated'; }
+  else if (fresh.label === 'unknown' && collections === 0) { level = 'unknown'; reasonKey = 'health_reason_no_data'; }
   else if (fresh.label === 'stale') { level = 'red'; reasonKey = 'health_reason_stale'; }
   else if (fresh.label === 'catching_up') { level = 'amber'; reasonKey = 'health_reason_catching_up'; }
   else if (providerFailures > 0) { level = 'amber'; reasonKey = 'health_reason_provider_failure'; }
