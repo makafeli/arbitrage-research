@@ -97,7 +97,7 @@ test('attemptLabel: any other outcome reads the raw outcome with underscores rep
 });
 
 // ---- attemptTone: pin the amber set and the plain (no-tone) outcomes -------------------
-test('attemptTone: EVALUATION_FAILED, DEADLINE_EXCEEDED and IN_PROGRESS are amber; DECISIONS_RECORDED has no tone', () => {
+test('attemptTone: EVALUATION_FAILED, DEADLINE_EXCEEDED and IN_PROGRESS are amber; DECISIONS_RECORDED, SUPPRESSED, WORKER_CANCELLED and READINESS_COMPLETED have no tone', () => {
   const evaluationFailed = parseCollectionAttempt({ ...collectionAttempt(), outcome: 'EVALUATION_FAILED', reason: 'TASK_FAILED' });
   const deadlineExceeded = parseCollectionAttempt({ ...collectionAttempt(), outcome: 'DEADLINE_EXCEEDED', reason: 'ACQUISITION_DEADLINE' });
   const inProgress = parseCollectionAttempt({ ...collectionAttempt(), outcome: 'IN_PROGRESS', reason: null, elapsed_ms: null, finished_at: null });
@@ -105,5 +105,11 @@ test('attemptTone: EVALUATION_FAILED, DEADLINE_EXCEEDED and IN_PROGRESS are ambe
   assert.equal(attemptTone(evaluationFailed), 'amber');
   assert.equal(attemptTone(deadlineExceeded), 'amber');
   assert.equal(attemptTone(inProgress), 'amber');
+  const suppressed = parseCollectionAttempt({ ...collectionAttempt(), outcome: 'SUPPRESSED', reason: 'GENERATION_FENCED' });
+  const workerCancelled = parseCollectionAttempt({ ...collectionAttempt(), outcome: 'WORKER_CANCELLED', reason: 'WORKER_SHUTDOWN' });
+  const readinessCompleted = parseCollectionAttempt({ ...collectionAttempt(), outcome: 'READINESS_COMPLETED', reason: null, purpose: 'READINESS' });
   assert.equal(attemptTone(decisionsRecorded), '');
+  assert.equal(attemptTone(suppressed), '');
+  assert.equal(attemptTone(workerCancelled), '');
+  assert.equal(attemptTone(readinessCompleted), '');
 });
