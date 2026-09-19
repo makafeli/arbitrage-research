@@ -10,8 +10,14 @@ export function ResourceStatus({ resource }: { resource: Resource<unknown> }) {
 export function Pagination({ label, page, canPrevious, canNext, loading, previous, next }: { label: string; page: number; canPrevious: boolean; canNext: boolean; loading: boolean; previous: () => void; next: () => void }) {
   return <nav className="research-actions space-top" aria-label={label + ' pagination'}><button disabled={loading || !canPrevious} onClick={previous}>Previous {label}</button><span className="tiny">Page {page} · up to 25 records</span><button disabled={loading || !canNext} onClick={next}>Next {label}</button></nav>;
 }
-export function OriginBadge({ origin }: { origin: Origin }) {
-  return <span className={'pill ' + (origin === 'RECORDED_LIVE' ? 'blue' : 'amber')}>{origin === 'SYNTHETIC' ? 'SYNTHETIC DATASET' : origin === 'MANUALLY_CONSTRUCTED' ? 'MANUALLY CONSTRUCTED' : 'RECORDED LIVE INPUT'}</span>;
+// `lang` defaults to 'en': the expert pages that already call this (DecisionExplorer.tsx) are
+// deliberately English-only and never pass it, so they keep their existing label text unchanged.
+const originLabels: Record<'nl' | 'en', Record<Origin, string>> = {
+  en: { SYNTHETIC: 'SYNTHETIC DATASET', MANUALLY_CONSTRUCTED: 'MANUALLY CONSTRUCTED', RECORDED_LIVE: 'RECORDED LIVE INPUT' },
+  nl: { SYNTHETIC: 'SYNTHETISCHE DATASET', MANUALLY_CONSTRUCTED: 'HANDMATIG SAMENGESTELD', RECORDED_LIVE: 'VASTGELEGDE LIVE INVOER' },
+};
+export function OriginBadge({ origin, lang = 'en' }: { origin: Origin; lang?: 'nl' | 'en' }) {
+  return <span className={'pill ' + (origin === 'RECORDED_LIVE' ? 'blue' : 'amber')}>{originLabels[lang][origin]}</span>;
 }
 export function ExportButton({ label, scope, data, receivedAt, disabled = false }: { label: string; scope: string; data: unknown; receivedAt: number | null; disabled?: boolean }) {
   const [error, setError] = useState('');

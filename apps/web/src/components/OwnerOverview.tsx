@@ -53,15 +53,20 @@ export function OwnerOverview({ active, api, sessions, filter, commands }: Props
   const groups = useResearchResource(enabled, 'owner-groups:' + sessionId, signal => api.decisionGroups(sessionId, undefined, signal));
   const decisions = useResearchResource(enabled, 'owner-decisions:' + sessionId, signal => api.decisions(sessionId, undefined, signal));
   const costAssessments = useResearchResource(enabled, 'owner-costs:' + sessionId, signal => api.costAssessments(sessionId, undefined, signal));
-  // Live wall-clock time, not a fetch timestamp: ConnectedApp already re-renders this component on
-  // its own 5s poll tick, so the worker-alive/source-lag reading is never frozen at fetch time (H1).
+  // Live wall-clock time for the worker heartbeat only: ConnectedApp re-renders this component on
+  // its own 5s poll tick, and last_heartbeat_at is refreshed on every poll, so the worker-alive
+  // reading is never frozen at fetch time. Collection freshness, however, must use the coverage
+  // resource's OWN fetch time (`collectionCoverage.at`), not this live clock: collection-coverage is
+  // fetched once per session selection, not re-polled, so ageing it against a live clock would turn
+  // a healthy session "stale"/red purely because the page stayed open (F1, a re-break of round-2's H1).
   const now = Date.now();
+  const coverageAtMs = collectionCoverage.at ?? now;
 
   const options = sessions.filter(session => filter === 'all' || session.network_id === filter || session.session_id === sessionId);
   const receipt = commands[sessionId]?.receipt ?? null;
 
-  const status = statusSummary(selected, receipt, collectionCoverage.data ?? null, now, lang);
-  const health = healthSummary(collectionCoverage.data ?? null, selected, now, lang);
+  const status = statusSummary(selected, receipt, collectionCoverage.data ?? null, now, coverageAtMs, lang);
+  const health = healthSummary(collectionCoverage.data ?? null, selected, coverageAtMs, lang);
   const findings = findingsSummary(coverage.data ?? null, groups.data?.items ?? [], decisions.data?.items ?? [], lang);
   const whatIf = selected ? whatIfSummary(stakeInput, selected.network_id, decisions.data?.items ?? [], costAssessments.data?.items ?? [], lang) : null;
   const checklist = roadToLiveChecklist(parseProgressFile(progressFile), lang);
@@ -123,10 +128,13 @@ export function OwnerOverview({ active, api, sessions, filter, commands }: Props
           {(findings.firstBatchAtMs !== null || findings.lastBatchAtMs !== null) && <p className="tiny">{lang === 'nl'
             ? `Eerste batch ${findings.firstBatchAtMs === null ? 'onbekend' : new Date(findings.firstBatchAtMs).toISOString()} · laatste batch ${findings.lastBatchAtMs === null ? 'onbekend' : new Date(findings.lastBatchAtMs).toISOString()}.`
             : `First batch ${findings.firstBatchAtMs === null ? 'unknown' : new Date(findings.firstBatchAtMs).toISOString()} · last batch ${findings.lastBatchAtMs === null ? 'unknown' : new Date(findings.lastBatchAtMs).toISOString()}.`}</p>}
+          {findings.batches.length > 0 && <ul className="tiny">
+            {findings.batches.map((batch, index) => <li key={index}>{new Date(batch.windowStartMs).toISOString()} — {batch.quotedCandidates} {lang === 'nl' ? 'kandidaten' : 'candidates'}</li>)}
+          </ul>}
           {findings.topCandidates.length > 0 && <div className="research-scroll" tabIndex={0} aria-label={lang === 'nl' ? 'Beste kandidaten' : 'Top candidates'}>
             <table className="research-table"><caption>{lang === 'nl' ? `Beste kandidaten op gemodelleerde marge, ${c.top_candidates_source}` : `Top candidates by modeled edge, ${c.top_candidates_source}`}</caption>
               <thead><tr><th>{lang === 'nl' ? 'Observatie' : 'Observation'}</th><th>{lang === 'nl' ? 'Route' : 'Route'}</th><th>{lang === 'nl' ? 'Bruto marge (minor)' : 'Gross edge (minor)'}</th><th>{lang === 'nl' ? 'Bewijsniveau' : 'Evidence ceiling'}</th><th>{lang === 'nl' ? 'Herkomst' : 'Origin'}</th></tr></thead>
-              <tbody>{findings.topCandidates.map(candidate => <tr key={candidate.observationId}><td className="mono">{candidate.observationId}</td><td>{candidate.assetIn} → {candidate.assetOut}</td><td><Exact value={candidate.grossDeltaMinor} /></td><td>{candidate.evidenceLabel}</td><td><OriginBadge origin={candidate.datasetOrigin} /></td></tr>)}</tbody>
+              <tbody>{findings.topCandidates.map(candidate => <tr key={candidate.observationId}><td className="mono">{candidate.observationId}</td><td>{candidate.assetIn} → {candidate.assetOut}</td><td><Exact value={candidate.grossDeltaMinor} /></td><td>{candidate.evidenceLabel}</td><td><OriginBadge origin={candidate.datasetOrigin} lang={lang} /></td></tr>)}</tbody>
             </table>
           </div>}
         </>}
@@ -140,7 +148,7 @@ export function OwnerOverview({ active, api, sessions, filter, commands }: Props
         {whatIf && whatIf.stakeValid && (whatIf.candidates.length === 0 ? <EmptyResearch>{c.whatif_no_candidates}</EmptyResearch> : <div className="research-scroll" tabIndex={0} aria-label={lang === 'nl' ? 'Wat-als kandidaten' : 'What-if candidates'}>
           <table className="research-table"><caption>{lang === 'nl' ? `Gemodelleerde bruto marge bij deze inzet, ${c.top_candidates_source}` : `Modeled gross edge at this stake, ${c.top_candidates_source}`}</caption>
             <thead><tr><th>{lang === 'nl' ? 'Observatie' : 'Observation'}</th><th>{lang === 'nl' ? 'Gemodelleerde bruto marge (minor)' : 'Modeled gross edge (minor)'}</th><th>{lang === 'nl' ? 'Vastgelegde kostenbeoordeling' : 'Recorded cost assessment'}</th><th>{lang === 'nl' ? 'Herkomst' : 'Origin'}</th></tr></thead>
-            <tbody>{whatIf.candidates.map(candidate => <tr key={candidate.observationId}><td className="mono">{candidate.observationId}</td><td><Exact value={candidate.modeledGrossEdgeMinor} /></td><td>{candidate.recordedCostLabel}</td><td><OriginBadge origin={candidate.datasetOrigin} /></td></tr>)}</tbody>
+            <tbody>{whatIf.candidates.map(candidate => <tr key={candidate.observationId}><td className="mono">{candidate.observationId}</td><td><Exact value={candidate.modeledGrossEdgeMinor} /></td><td>{candidate.recordedCostLabel}</td><td><OriginBadge origin={candidate.datasetOrigin} lang={lang} /></td></tr>)}</tbody>
           </table>
         </div>)}
         {whatIf && whatIf.skippedOtherAssetCount > 0 && <p className="tiny">{c.whatif_other_asset} ({whatIf.skippedOtherAssetCount})</p>}
