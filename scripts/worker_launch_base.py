@@ -162,7 +162,8 @@ def prepare(source: dict[str, str], action: str, root: Path = ROOT, runner=call)
         code, _, _ = runner(['/usr/local/bin/worker-session', '--register', str(root)], env)
         require(code == 0, 'GENERATION_SESSION_REGISTRATION_REFUSED')
     # The Rust session checker validates configuration+registry against the external
-    # digest and reads the original idempotent registration. Never register here.
+    # digest and reads the registration. Registration happens only in the
+    # generation >= 2 branch above; --status never registers.
     code, out, _ = runner(['/usr/local/bin/worker-session', '--status', str(root)], env)
     require(code == 0, 'REGISTERED_SESSION_REQUIRED')
     value = json.loads(out, object_pairs_hook=pairs)

@@ -69,8 +69,12 @@ class LaunchTests(unittest.TestCase):
 
     def test_generation_absent_or_one_is_byte_identical(self):
         baseline = launch.prepare(ENV, '--start', self.root, self.runner)
+        calls_absent = [x[0][1] for x in self.calls]
+        self.calls = []
         explicit_one = launch.prepare({**ENV, 'ARB_BASE_GENERATION': '1'}, '--start', self.root, self.runner)
+        calls_one = [x[0][1] for x in self.calls]
         self.assertEqual(baseline, explicit_one)
+        self.assertEqual(calls_absent, calls_one)
         self.assertNotIn('ARB_BASE_GENERATION', explicit_one)
         self.assertEqual(explicit_one['ARB_INGEST_STREAM_ID'], 'railway-base-profile-v1')
         self.assertEqual(explicit_one['ARB_BASE_INGESTION_STREAM'], 'railway-base-profile-v1')

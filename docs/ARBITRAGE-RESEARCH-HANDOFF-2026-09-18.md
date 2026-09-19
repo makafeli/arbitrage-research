@@ -266,7 +266,7 @@ Volumegroottes zijn configuratie, geen gemeten gebruik. Een onveranderlijke dige
 | Sessiemodus | `OBSERVE`, netwerk `base-mainnet` |
 | Sessienummer | `f8dfbc28-2b64-4346-93a9-207dd38393fe` |
 | Configuratiedigest | `sha256:9792c6abb2e19a5b1c8cd1ee76157acf99d5be7d744bc80f150d7d34d98bec11` |
-| Vaste bron-ID voor de launcher | `railway-base-profile-v1` |
+| Vaste bron-ID voor de launcher | `railway-base-profile-v1` (sinds #193: `.g<N>` per generatie) |
 | Aantal voorbereide pools | 2 |
 | Voorbereide kandidaatgrootte | 1 USDC, onderzoeksinvoer; geen gefinancierd handelsbedrag |
 | Capturequota van het profiel | 128 MiB, afzonderlijk van de totale volumesize |
@@ -343,7 +343,7 @@ Een goedgekeurde Base-only release kan deze scope verkleinen. Noem geen nieuw ex
 | Productiecertificaat PostgreSQL | Laatst gecontroleerde servercertificaat heeft `CA:TRUE`; huidige worker vereist strikte serveridentiteitscontrole. | Bestaande reparatie gecontroleerd toepassen, herladen en echte Rust-databaseverbinding bewijzen. | Beheerder + integrator, #58 |
 | Productieherstelpunt en uitvoering | In eerdere native capabilitycontrole geen bruikbare container-exec, SQL/reload of backupfunctie via de ChatGPT-koppeling vastgesteld. | Bestaande bevoegde Railway-SSH/CLI-beheersessie en verifieerbare herstelroute gebruiken; mogelijkheden opnieuw vaststellen in de uitvoerende omgeving. | Beheerder, #58 |
 | CI-gatebewijs | Laatste logselectie bevat `CI_WAIT_EXHAUSTED`, daarna een inspectie; hoofd-CI is geslaagd. | Pogingen en exacte revisie reconcilieren vóór activatie. Geen bypass. | Integrator, #58 |
-| Bron en worker | Originele sessie bestaat; laatste inspectie heeft nul streams en geen lease. (sinds #193: na een gemelde HALT selecteert `ARB_BASE_GENERATION` een nieuwe stream- en sessiegeneratie zonder de gehalte bron te resetten, zie docs/BASE-WORKER-LAUNCH.md §Generation) | Alleen een werkelijk ontbrekende passende bron initialiseren; worker daarna op bestaande sessie starten. | Base / operations, #30, #32, #58 |
+| Bron en worker | Originele sessie bestaat; laatste inspectie heeft nul streams en geen lease. (sinds #193: na een gemelde HALT selecteert `ARB_BASE_GENERATION` een nieuwe stream- en sessiegeneratie zonder de HALTED bron te resetten, zie docs/BASE-WORKER-LAUNCH.md §Generation) | Alleen een werkelijk ontbrekende passende bron initialiseren; worker daarna op bestaande sessie starten. | Base / operations, #30, #32, #58 |
 | Broncontinuïteit bij herstart | 16-blockgrens en terminale HALT-regels blijven actief. (sinds #187: 32 blokken, zie docs/BASE-LOG-RECOVERY.md) | Oud of HALTED sourcecheckpoint niet resetten. Bewijs het gedocumenteerde herstelpad of rapporteer een echte beperking. | Base / platform, #30, #32 |
 | Volledige paperketen | Er zijn boekhoudprimitieven en quotes, maar geen complete automatische keten. | Exacte plannen, complete simulatie, scenarios, kosten en idempotente settlement integreren. | Engine / chain, #39-#49 |
 | Live-uitvoering | Nog geplande aparte laag. | Scope, signer, limieten, journaling, verzending, reconciliatie en onafhankelijke review uitvoeren. | #64-#76 |

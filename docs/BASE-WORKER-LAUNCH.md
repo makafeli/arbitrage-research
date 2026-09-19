@@ -8,7 +8,9 @@ The operator account and existing Base RPC setup are complete. Do not repeat the
 The anchored profile is `/data/runtime/base-v1`. `worker-session --status` reads
 its original registration and validates the exact configuration and registry.
 The launcher uses that real session ID, not an invented ID or the most recent
-session in an unscoped list. It never creates or resets a session or issues START.
+session in an unscoped list. It never resets a session or issues START; it
+registers a session only for generation ≥ 2 on `--initialize-and-start` (see
+Generation).
 
 The first explicitly authorized deployment command is:
 
