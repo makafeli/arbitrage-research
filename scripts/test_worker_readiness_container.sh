@@ -47,6 +47,19 @@ snapshot() {
       "SELECT md5(COALESCE((SELECT jsonb_agg(to_jsonb(t) ORDER BY session_id)::text FROM research_sessions t),'') || COALESCE((SELECT jsonb_agg(to_jsonb(t) ORDER BY stream_id)::text FROM ingestion_streams t),''));"
 }
 snapshot > "$work/before"
+# On Railway the in-container CI gate runs first and fails closed (#58): without
+# repository metadata it must block before the volume check or any inspection.
+status=0
+docker run --rm --pull=never --network none --read-only \
+    --tmpfs /tmp:rw,noexec,nosuid,nodev,size=8m \
+    --mount "type=volume,source=$volume,target=/data" \
+    -e RAILWAY_ENVIRONMENT_ID=disposable-readiness-test \
+    -e ARB_OPERATOR_ID=operator \
+    "$image" worker-readiness-check > "$work/gate.jsonl" 2> "$work/gate.err" || status=$?
+test "$status" -eq 2
+grep -F '"reason": "CI_SOURCE_REJECTED"' "$work/gate.err" >/dev/null
+test ! -s "$work/gate.jsonl"
+
 # The production default must refuse an otherwise reachable non-TLS server.
 status=0
 docker run --rm --pull=never --network "$network" --read-only \
