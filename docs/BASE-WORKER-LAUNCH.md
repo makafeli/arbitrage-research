@@ -37,6 +37,16 @@ Preserve the separately managed RPC secret, other services and the existing volu
 
 ## Runtime and control boundaries
 
+The CI gate (`worker_ci_gate.py`) runs twice per Railway deployment: as the
+pre-deploy command and again as the first step of `worker-launch-base` and
+`worker-readiness-check` inside the main container (#58: Railway started the
+container after the pre-deploy gate exited non-zero). The in-container gate runs
+whenever `RAILWAY_ENVIRONMENT_ID` is set; it is skipped only off Railway, such
+as the offline container tests. A blocked gate exits 2 before the launcher or
+the inspection runs, so with restart policy NEVER the deployment ends CRASHED
+and writes nothing; redeploying the same commit is a safe retry. A launch log
+without `CI_GATE_PASSED` from the main container is not an authorized launch.
+
 The launcher's private file lock is held across exec of the existing research
 worker. It prevents two launchers sharing this volume from starting together;
 it is not a distributed lock against another service or a hostile volume writer.
