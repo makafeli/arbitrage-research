@@ -75,7 +75,15 @@ SIGTERM during preparation cancels the child and never proceeds to exec.
 
 One configured source and session remain the scope. The existing 16-block recovery
 limit, shared RPC time/byte/request budgets, capture quota and invalidation rules
-are unchanged. A finalized step beyond that 16-block limit is no longer a single
+are unchanged; `plan.quota_bytes` itself is part of the session's
+`configuration_digest` and cannot be raised without a new session. Once
+`/data/captures` crosses 80% of that quota the worker prunes the oldest
+committed raw bundles itself, admitted ones included, down to 50% before their
+`raw_expires_at_ms` — pressure relief so a fixed quota survives a multi-day run,
+not long-term retention. The `capture_admissions` rows (capture id,
+`manifest_digest`) remain in PostgreSQL after a bundle is pruned; take a frozen
+export with `scripts/export_capture_audit.py` before pruning reaches any raw
+evidence still needed. A finalized step beyond that 16-block limit is no longer a single
 failing attempt: it is walked across consecutive captures, each committing at
 most 16 blocks with nothing skipped and no limit raised, until the step is
 closed. A capture is not admitted for research until the source has reached its

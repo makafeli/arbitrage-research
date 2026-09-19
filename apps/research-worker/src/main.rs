@@ -1,5 +1,6 @@
 //! PostgreSQL-controlled OBSERVE/PAPER read-only capture and research runtime.
 //! Captures feed bounded research-only route evaluation. Gross quotes never imply fills or executable profit.
+mod capture_retention;
 mod capture_source;
 mod managed_ingestion;
 mod pipeline_metrics;
@@ -15,12 +16,13 @@ use arb_registry::{PoolRegistry, RegistryDocument};
 use arb_storage::{
     CollectionFinish, CollectionOutcome, CollectionPurpose, CollectionReason, Store, StoreError,
 };
+use capture_retention::directory_bytes;
 use serde_json::{Value, json};
 use std::{
     error::Error,
     fs,
     io::Read,
-    path::{Path, PathBuf},
+    path::PathBuf,
     process::ExitCode,
     sync::Arc,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -391,42 +393,6 @@ fn resolve_reference(reference: &str) -> Result<String, AnyError> {
     required_env(name)
 }
 
-/// Bound the scan and reject symlinks. The initial deployment owns one capture volume
-/// with one worker process; quota is shared across its retained old run directories.
-fn directory_bytes(root: &Path) -> Result<u64, AnyError> {
-    let mut paths = vec![(root.to_owned(), 0)];
-    let mut entries = 0_u32;
-    let mut total = 0_u64;
-    while let Some((path, depth)) = paths.pop() {
-        if depth > 4 {
-            return Err("capture directory nesting exceeds supported layout".into());
-        }
-        for entry in fs::read_dir(path)? {
-            let entry = entry?;
-            entries = entries
-                .checked_add(1)
-                .ok_or("capture directory count overflow")?;
-            if entries > 100_000 {
-                return Err("capture directory entry quota exceeded".into());
-            }
-            let meta = fs::symlink_metadata(entry.path())?;
-            if meta.file_type().is_symlink() {
-                return Err("capture volume contains symlink".into());
-            }
-            if meta.is_dir() {
-                paths.push((entry.path(), depth + 1));
-            } else if meta.is_file() {
-                total = total
-                    .checked_add(meta.len())
-                    .ok_or("capture byte count overflow")?;
-            } else {
-                return Err("capture volume contains unsupported file type".into());
-            }
-        }
-    }
-    Ok(total)
-}
-
 fn capture_blocking(
     plan: &CapturePlan,
     correlation: Uuid,
@@ -702,6 +668,9 @@ async fn run() -> Result<(), AnyError> {
         return Err("capture root must be a directory".into());
     }
     let root = root.canonicalize()?;
+    // A full volume from prior runs must not refuse a start; relieve quota
+    // pressure by pruning the oldest committed bundles first.
+    capture_retention::prune_under_quota_pressure(&root, config.capture_quota_bytes(), now_ms()?)?;
     if directory_bytes(&root)? >= config.capture_quota_bytes() {
         return Err("capture volume quota exhausted".into());
     }
@@ -988,6 +957,9 @@ async fn run() -> Result<(), AnyError> {
                     return Err("capture readiness lost; worker faulted and requires explicit recovery".into());
                 }
                 if job.is_none() && evaluation.is_none() && Instant::now()>=next_capture {
+                    // Relieve quota pressure before every collection, research and
+                    // readiness alike, so a full volume never blocks the next capture.
+                    capture_retention::prune_under_quota_pressure(&plan.root, plan.quota_bytes, now_ms()?)?;
                     let generation=worker.generation().await.ok();
                     let purpose=if generation.is_some() { CollectionPurpose::Research } else { CollectionPurpose::Readiness };
                     let correlation=Uuid::now_v7();
