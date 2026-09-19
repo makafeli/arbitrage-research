@@ -15,6 +15,10 @@ use std::collections::{BTreeMap, BTreeSet};
 pub struct BackfillLimits {
     pub max_blocks: u64,
     pub max_logs_per_block: usize,
+    /// Default 2048 keeps ~64 logs/block of headroom across a 32-block step
+    /// (raised from 1024 when the default `max_blocks` doubled from 16 to
+    /// 32; owner decision 2026-09-19). The hard ceiling in `validate` below
+    /// (4096) is unchanged.
     pub max_total_logs: usize,
 }
 impl Default for BackfillLimits {
@@ -22,7 +26,7 @@ impl Default for BackfillLimits {
         Self {
             max_blocks: 32,
             max_logs_per_block: 256,
-            max_total_logs: 1024,
+            max_total_logs: 2048,
         }
     }
 }

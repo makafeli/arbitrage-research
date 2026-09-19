@@ -32,10 +32,12 @@ every intervening block; see "Residual risk of the ranged fetch" below for
 what this does and does not prove. The target and starting checkpoint are
 rechecked after the complete range.
 
-Defaults are 32 blocks, 256 logs per block and 1,024 logs per attempt. Hard
+Defaults are 32 blocks, 256 logs per block and 2,048 logs per attempt. Hard
 maximums are 32 blocks, 512 logs per block, 4,096 logs total and the existing
 eight-pool limit (issue #180, 2026-09-19: the default recovery range doubled
-from 16 to 32 blocks and now equals the hard maximum). With B recovered blocks
+from 16 to 32 blocks and now equals the hard maximum; the default log-per-
+attempt budget doubled from 1,024 to 2,048 in step, keeping ~64 logs/block of
+headroom — the hard maximum of 4,096 is unchanged). With B recovered blocks
 and P pools, a successful nonempty attempt uses `6 + 2 * (P + 1) + B + 1` RPC
 calls — 6 fixed calls (chain id, checkpoint header, finalized header, target
 confirmation, final target recheck, final checkpoint recheck), two bound code
