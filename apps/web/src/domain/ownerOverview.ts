@@ -23,8 +23,8 @@ export const copy = {
     receipt_status_PENDING: 'in behandeling', receipt_status_APPLIED: 'toegepast', receipt_status_REJECTED: 'geweigerd', receipt_status_SUPERSEDED: 'ingehaald door een nieuwer commando',
     action_START: 'start', action_PAUSE: 'pauzeren', action_RESUME: 'hervatten', action_STOP: 'stoppen', action_DISARM: 'ontwapenen',
     health_red: 'rood', health_amber: 'oranje', health_green: 'groen', health_unknown: 'onbekend',
-    health_reason_fault: 'de sessie staat in storing', health_reason_unreachable: 'de werker is niet bereikbaar', health_reason_stopped: 'de sessie verzamelt momenteel niet (gestopt of gepauzeerd)', health_reason_stale: 'meer dan 5 minuten geen verzameling ontvangen', health_reason_catching_up: 'de verzameling loopt nog achterstand in', health_reason_failed_attempts: 'er zijn mislukte pogingen in dit venster', health_reason_ok: 'geen storing, geen achterstand en geen mislukte pogingen gezien', health_reason_no_data: 'nog geen verzameling toegelaten om te beoordelen',
-    health_failed_attempts_note: 'providerfouten worden meegeteld in mislukte pogingen, niet apart geteld',
+    health_reason_fault: 'de sessie staat in storing', health_reason_unreachable: 'de werker is niet bereikbaar', health_reason_stopped: 'de sessie verzamelt momenteel niet (gestopt of gepauzeerd)', health_reason_stale: 'meer dan 5 minuten geen verzameling ontvangen', health_reason_catching_up: 'de verzameling loopt nog achterstand in', health_reason_ok: 'geen storing, geen achterstand, en er is minstens één verzameling toegelaten', health_reason_no_data: 'nog geen verzameling toegelaten om te beoordelen',
+    health_failed_attempts_note: 'mislukte pogingen worden geteld sinds het begin van de sessie; providerfouten tellen hierin mee en worden niet apart getoond',
     findings_evidence_label: 'kandidaat — niet gesimuleerd',
     whatif_caveat_not_executed: 'OBSERVE-kandidaten worden niet uitgevoerd, niet volledig gesimuleerd en zijn geen winst.',
     whatif_no_leverage: 'Geen hefboom of flashlening getoond: het uitvoerbewakingsharnas (ARB-028/029) is alleen als los onderdeel getest, en een echt kostenmodel (ARB-025) is nog niet geaccepteerd.',
@@ -47,8 +47,8 @@ export const copy = {
     receipt_status_PENDING: 'pending', receipt_status_APPLIED: 'applied', receipt_status_REJECTED: 'rejected', receipt_status_SUPERSEDED: 'superseded by a newer command',
     action_START: 'start', action_PAUSE: 'pause', action_RESUME: 'resume', action_STOP: 'stop', action_DISARM: 'disarm',
     health_red: 'red', health_amber: 'amber', health_green: 'green', health_unknown: 'unknown',
-    health_reason_fault: 'the session is in a fault state', health_reason_unreachable: 'the worker cannot be reached', health_reason_stopped: 'the session is not currently collecting (stopped or paused)', health_reason_stale: 'no collection received for over 5 minutes', health_reason_catching_up: 'collection is still catching up', health_reason_failed_attempts: 'there were failed attempts in this window', health_reason_ok: 'no fault, no backlog and no failed attempts seen', health_reason_no_data: 'no collection has been admitted yet to judge',
-    health_failed_attempts_note: 'provider failures are counted in failed attempts, not counted separately',
+    health_reason_fault: 'the session is in a fault state', health_reason_unreachable: 'the worker cannot be reached', health_reason_stopped: 'the session is not currently collecting (stopped or paused)', health_reason_stale: 'no collection received for over 5 minutes', health_reason_catching_up: 'collection is still catching up', health_reason_ok: 'no fault, no backlog, and at least one collection has been admitted', health_reason_no_data: 'no collection has been admitted yet to judge',
+    health_failed_attempts_note: 'failed attempts are counted since session start; provider failures are included in this count, not shown separately',
     findings_evidence_label: 'candidate, not simulated',
     whatif_caveat_not_executed: 'OBSERVE candidates are not executed, not simulated end-to-end, and are not profit.',
     whatif_no_leverage: 'No leverage or flash loan shown: the execution guard harness (ARB-028/029) has only been tested in isolation, and a real cost model (ARB-025) is not yet accepted.',
@@ -104,10 +104,12 @@ export interface StatusSummary {
   workerAliveLabel: string; sourceLagLabel: string;
   lastCommandReceiptLabel: string;
 }
-export function statusSummary(session: Session | null, receipt: CommandReceipt | null, coverage: CollectionCoverage | null, nowMs: number, lang: Lang): StatusSummary {
+export function statusSummary(session: Session | null, receipt: CommandReceipt | null, coverage: CollectionCoverage | null, nowMs: number, coverageAtMs: number, lang: Lang): StatusSummary {
   if (!session) return { hasSession: false, modeLabel: t(lang, 'not_available_yet'), stateLabel: t(lang, 'not_available_yet'), workerAliveLabel: t(lang, 'not_available_yet'), sourceLagLabel: t(lang, 'not_available_yet'), lastCommandReceiptLabel: t(lang, 'receipt_none') };
 
   const reachability = workerReachability(session);
+  // Heartbeat age uses the live clock: the parent re-renders this component on its own poll tick
+  // (ConnectedApp polls /v1/sessions every 5s), and last_heartbeat_at is refreshed on every poll.
   const heartbeatAgeMs = session.last_heartbeat_at ? Math.max(0, nowMs - Date.parse(session.last_heartbeat_at)) : null;
   const workerAliveLabel = reachability === 'alive' && heartbeatAgeMs !== null ? `${Math.round(heartbeatAgeMs / 1000)}s`
     : reachability === 'not_reachable' ? t(lang, 'worker_not_reachable')
@@ -116,8 +118,10 @@ export function statusSummary(session: Session | null, receipt: CommandReceipt |
   // Source lag is judged from the whole-session collection coverage window, not a client-side
   // attempt page: collection-coverage is a single un-paginated, always-complete aggregate
   // (crates/arb-storage/src/collection.rs), so this can never be truncated the way a paged
-  // attempt window could.
-  const fresh = coverage?.window_end_at ? collectionFreshness(coverage.window_end_at, nowMs) : { ageMs: null, label: 'unknown' as FreshnessLabel };
+  // attempt window could. Freshness is judged against the coverage's own fetch time, not the live
+  // clock: collection-coverage is fetched once per session selection (not re-polled), so ageing it
+  // off a live `nowMs` would turn a healthy session "stale" purely because the page sat open (F1).
+  const fresh = coverage?.window_end_at ? collectionFreshness(coverage.window_end_at, coverageAtMs) : { ageMs: null, label: 'unknown' as FreshnessLabel };
   const sourceLagLabel = !isActiveState(session.observed_state) ? t(lang, 'lag_not_collecting')
     : fresh.label === 'stale' ? t(lang, 'lag_stale')
     : fresh.label === 'catching_up' ? t(lang, 'lag_catching_up')
@@ -134,17 +138,20 @@ export interface HealthSummary {
   level: HealthLevel; reasonLabel: string;
   collections: string; admittedLabel: string; failedAttempts: string;
 }
-export function healthSummary(coverage: CollectionCoverage | null, session: Session | null, nowMs: number, lang: Lang): HealthSummary {
+export function healthSummary(coverage: CollectionCoverage | null, session: Session | null, coverageAtMs: number, lang: Lang): HealthSummary {
   // Whole-session totals straight from collection-coverage (one O(1) request, always complete —
-  // never the truncated 24h attempt-page walk the previous version depended on).
-  const attemptsStarted = coverage ? BigInt(coverage.attempts_started) : 0n;
+  // never the truncated 24h attempt-page walk the previous version depended on). `research_attempts`
+  // (not `attempts_started`) is the "collection attempts" count and the admitted-share denominator:
+  // `attempts_started` also counts READINESS probes recorded while STOPPED/PAUSED (~1 per 46s), which
+  // would otherwise pad both numbers with attempts that never tried to collect anything (F3).
+  const researchAttempts = coverage ? BigInt(coverage.research_attempts) : 0n;
   const admitted = coverage ? BigInt(coverage.decisions_recorded) : 0n;
   // Every non-admitted *terminal* outcome counts as a failed attempt. SUPPRESSED (a fenced
   // generation — main.rs's `finish_collection(..., Suppressed, GenerationFenced)`) is not a
   // failure and is intentionally excluded: a real source halt surfaces as the session FAULT, not
   // as a suppressed collection attempt.
   const failedAttempts = coverage ? BigInt(coverage.acquisition_failed) + BigInt(coverage.evaluation_failed) + BigInt(coverage.deadline_exceeded) + BigInt(coverage.worker_cancelled) : 0n;
-  const admittedLabel = attemptsStarted > 0n ? `${admitted}/${attemptsStarted}` : t(lang, 'not_available_yet');
+  const admittedLabel = researchAttempts > 0n ? `${admitted}/${researchAttempts}` : t(lang, 'not_available_yet');
 
   let level: HealthLevel; let reasonKey: CopyKey;
   // A known session fault is authoritative regardless of what collection coverage shows.
@@ -152,16 +159,28 @@ export function healthSummary(coverage: CollectionCoverage | null, session: Sess
   else if (session && workerReachability(session) === 'not_reachable' && isActiveState(session.observed_state)) { level = 'red'; reasonKey = 'health_reason_unreachable'; }
   else if (!session || !isActiveState(session.observed_state)) { level = 'unknown'; reasonKey = 'health_reason_stopped'; }
   else {
-    const fresh = coverage?.window_end_at ? collectionFreshness(coverage.window_end_at, nowMs) : { ageMs: null, label: 'unknown' as FreshnessLabel };
-    if (attemptsStarted === 0n) { level = 'unknown'; reasonKey = 'health_reason_no_data'; }
+    // Freshness is judged against the coverage's own fetch time, not a live clock (F1): see the
+    // matching note in statusSummary.
+    const fresh = coverage?.window_end_at ? collectionFreshness(coverage.window_end_at, coverageAtMs) : { ageMs: null, label: 'unknown' as FreshnessLabel };
+    // Failed attempts are informational only (surfaced as their own counter below), not a ladder
+    // gate: the worker records ACQUISITION_FAILED/ACQUISITION_UNAVAILABLE on every catch-up step
+    // short of its anchor and WORKER_CANCELLED on every redeploy, so failed attempts accumulate on
+    // every healthy long-running session — gating on them here made green unreachable (F2).
+    if (researchAttempts === 0n) { level = 'unknown'; reasonKey = 'health_reason_no_data'; }
     else if (fresh.label === 'stale') { level = 'red'; reasonKey = 'health_reason_stale'; }
     else if (fresh.label === 'catching_up') { level = 'amber'; reasonKey = 'health_reason_catching_up'; }
-    else if (failedAttempts > 0n) { level = 'amber'; reasonKey = 'health_reason_failed_attempts'; }
     else if (admitted > 0n) { level = 'green'; reasonKey = 'health_reason_ok'; }
     else { level = 'unknown'; reasonKey = 'health_reason_no_data'; }
   }
 
-  return { level, reasonLabel: t(lang, reasonKey), collections: attemptsStarted.toString(), admittedLabel, failedAttempts: failedAttempts.toString() };
+  // While coverage hasn't loaded yet (or failed), report the counters as not-yet-available rather
+  // than a fabricated zero, which would read as "zero attempts, zero failures" (F5).
+  return {
+    level, reasonLabel: t(lang, reasonKey),
+    collections: coverage ? researchAttempts.toString() : t(lang, 'not_available_yet'),
+    admittedLabel,
+    failedAttempts: coverage ? failedAttempts.toString() : t(lang, 'not_available_yet'),
+  };
 }
 
 // ---- Block 3: Findings --------------------------------------------------------
@@ -199,7 +218,7 @@ export function findingsSummary(coverage: Coverage | null, groups: readonly Deci
 // no per-network override). USDC has 6 decimals on both Base and Solana — a verified property of
 // each network's own USDC mint/token contract, not one network's decimals assumed onto the other.
 export const STARTING_ASSET_DECIMALS = 6;
-// The exact configured starting-asset AssetId per network (scripts/recorded_base_slice.py:118 for
+// The exact configured starting-asset AssetId per network (scripts/recorded_base_slice.py:27 for
 // Base; the Solana USDC mint is the same well-known address used across this repo's Solana
 // scripts, e.g. scripts/inspect_pool_candidates.py's SOL_USDC). AssetId always serializes as
 // `network:address` (crates/arb-domain/src/identity.rs), so this is compared for exact equality —
