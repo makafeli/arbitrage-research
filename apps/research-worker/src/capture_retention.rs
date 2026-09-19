@@ -2,16 +2,20 @@
 //!
 //! This is pressure relief so a worker survives a multi-day run on a fixed
 //! quota, not a retention policy: pruning deletes the oldest committed
-//! bundles (admitted ones included) before their `raw_expires_at_ms`. The
-//! `capture_admissions` rows (capture id, manifest digest) in PostgreSQL keep
-//! the audit trail after a bundle is pruned; anyone who needs the raw
-//! evidence takes a frozen export (`scripts/export_capture_audit.py`) before
-//! pruning reaches it.
+//! bundles (admitted ones included) before their `raw_expires_at_ms`, and it
+//! runs before every collection attempt — research or readiness alike — so a
+//! STOPPED or PAUSED session does not protect a bundle from it. The
+//! `capture_admissions` rows (capture id, manifest digest) in PostgreSQL
+//! record that a capture existed, but `scripts/export_capture_audit.py` only
+//! audits presence; it copies nothing. To keep the raw bytes, copy the bundle
+//! directory to `/data/archive` (a sibling of `/data/captures`, never pruned)
+//! before pruning reaches it.
 use arb_capture::{CaptureManifest, MAX_MANIFEST_BYTES};
 use serde_json::json;
 use std::{
     error::Error,
     fs,
+    io::Read,
     path::{Path, PathBuf},
 };
 
@@ -76,7 +80,12 @@ struct Candidate {
 /// `manifest.json` is read directly with the `arb_capture` manifest type rather than
 /// hand-parsed; any read or decode failure is treated as an unreadable candidate.
 fn read_manifest(bundle: &Path) -> Option<CaptureManifest> {
-    let bytes = fs::read(bundle.join("manifest.json")).ok()?;
+    let mut file = fs::File::open(bundle.join("manifest.json")).ok()?;
+    let mut bytes = Vec::new();
+    file.by_ref()
+        .take(MAX_MANIFEST_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .ok()?;
     if bytes.len() as u64 > MAX_MANIFEST_BYTES {
         return None;
     }
@@ -140,8 +149,23 @@ pub(crate) fn prune_under_quota_pressure(
             break;
         }
         // Measured per bundle right before deletion; `used` is then adjusted
-        // locally so the whole root is never re-walked per deletion.
-        let bytes = directory_bytes(&candidate.path)?;
+        // locally so the whole root is never re-walked per deletion. A failed
+        // measurement is treated the same as a failed removal: log and move
+        // on to the next candidate rather than aborting the whole pass.
+        let bytes = match directory_bytes(&candidate.path) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                println!(
+                    "{}",
+                    json!({
+                        "event": "capture-prune-failed",
+                        "capture_id": candidate.capture_id,
+                        "error": error.to_string(),
+                    })
+                );
+                continue;
+            }
+        };
         match fs::remove_dir_all(&candidate.path) {
             Ok(()) => {
                 used = used.saturating_sub(bytes);
@@ -159,6 +183,14 @@ pub(crate) fn prune_under_quota_pressure(
                 );
             }
             Err(error) => {
+                // `remove_dir_all` can remove some files before hitting one it
+                // can't; re-measure what is left so `used`/`bytes_freed` stay
+                // honest instead of assuming the whole bundle survived. If the
+                // re-measurement itself fails, treat it as nothing freed.
+                let remaining = directory_bytes(&candidate.path).unwrap_or(bytes);
+                let freed = bytes.saturating_sub(remaining);
+                used = used.saturating_sub(freed);
+                bytes_freed = bytes_freed.saturating_add(freed);
                 println!(
                     "{}",
                     json!({
@@ -241,16 +273,55 @@ mod tests {
         }
     }
 
-    fn bundle(root: &Path, capture_id: &str, created_at_ms: u64) -> PathBuf {
+    fn bundle_with_payload_len(
+        root: &Path,
+        capture_id: &str,
+        created_at_ms: u64,
+        payload_len: usize,
+    ) -> PathBuf {
         let path = root.join(capture_id);
         write_bundle(
             &path,
             manifest(capture_id, created_at_ms),
-            vec![("rpc.json".into(), vec![7_u8; 1024])],
-            1024 * 1024,
+            vec![("rpc.json".into(), vec![7_u8; payload_len])],
+            (payload_len as u64 + 4096).max(1024 * 1024),
         )
         .unwrap();
         path
+    }
+
+    /// Finds the smallest payload length (>= 1, since `write_bundle` rejects
+    /// a zero-byte object) whose committed bundle has a total byte size
+    /// congruent to `remainder` modulo `modulus`, and returns that bundle
+    /// alongside its exact size. Searching real, on-disk bundle sizes rather
+    /// than reasoning about manifest.json's exact byte cost sidesteps the
+    /// fact that the embedded object-size field changes the manifest's own
+    /// length by a byte or two as its own digit count grows.
+    fn bundle_with_size_congruent_to(
+        root: &Path,
+        capture_id: &str,
+        created_at_ms: u64,
+        modulus: u64,
+        remainder: u64,
+    ) -> (PathBuf, u64) {
+        let mut payload_len = 1_usize;
+        loop {
+            assert!(
+                payload_len < 10_000,
+                "no matching bundle size found in range"
+            );
+            let path = bundle_with_payload_len(root, capture_id, created_at_ms, payload_len);
+            let total = directory_bytes(&path).unwrap();
+            if total % modulus == remainder {
+                return (path, total);
+            }
+            fs::remove_dir_all(&path).unwrap();
+            payload_len += 1;
+        }
+    }
+
+    fn bundle(root: &Path, capture_id: &str, created_at_ms: u64) -> PathBuf {
+        bundle_with_payload_len(root, capture_id, created_at_ms, 1024)
     }
 
     #[test]
@@ -341,6 +412,8 @@ mod tests {
         fs::create_dir(&root).unwrap();
         let blocked = bundle(&root, "cap-blocked", 1_000);
         let also_old = bundle(&root, "cap-also-old", 1_500);
+        let blocked_bytes = directory_bytes(&blocked).unwrap();
+        let also_old_bytes = directory_bytes(&also_old).unwrap();
         // Removing entries from a directory needs write permission on that
         // directory itself; strip it so `remove_dir_all` fails for `blocked`.
         fs::set_permissions(&blocked, fs::Permissions::from_mode(0o555)).unwrap();
@@ -357,6 +430,69 @@ mod tests {
             "pruning must continue past a removal failure"
         );
         assert_eq!(summary.deleted, 1);
+        // `blocked`'s permission denies removing anything under it, so
+        // nothing was actually freed for it; the re-measurement after the
+        // failed `remove_dir_all` must reflect that rather than assuming the
+        // whole bundle was removed.
+        assert_eq!(
+            directory_bytes(&blocked).unwrap(),
+            blocked_bytes,
+            "the blocked bundle must be untouched"
+        );
+        assert_eq!(
+            summary.bytes_freed, also_old_bytes,
+            "bytes_freed must count only what was actually removed"
+        );
+        assert_eq!(summary.used_after, blocked_bytes);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn watermark_constants_are_pinned() {
+        // A silent change to any of these three numbers changes the worker's
+        // survival behaviour under quota pressure; pin them so that change is
+        // deliberate, not accidental.
+        assert_eq!(PRUNE_HIGH_WATERMARK_PERCENT, 80);
+        assert_eq!(PRUNE_LOW_WATERMARK_PERCENT, 50);
+        assert_eq!(PRUNE_MIN_AGE_MS, 600_000);
+    }
+
+    #[test]
+    fn used_exactly_at_high_watermark_prunes_nothing() {
+        let root = scratch_root();
+        fs::create_dir(&root).unwrap();
+        // A quota chosen as `(total / 80) * 100` makes `quota / 100 * 80`
+        // reproduce `total` exactly, with no rounding error either way, as
+        // long as `total` is itself an exact multiple of 80.
+        let (path, total) = bundle_with_size_congruent_to(&root, "cap-exact", 1_000, 80, 0);
+        let quota_bytes = total / 80 * 100;
+        let now_ms = 1_000 + PRUNE_MIN_AGE_MS;
+        let summary = prune_under_quota_pressure(&root, quota_bytes, now_ms).unwrap();
+        assert_eq!(
+            summary,
+            PruneSummary::default(),
+            "used exactly at the high watermark must not prune"
+        );
+        assert!(path.exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn one_byte_above_high_watermark_triggers_pruning() {
+        let root = scratch_root();
+        fs::create_dir(&root).unwrap();
+        // `total` is one byte above a multiple of 80, so the quota derived
+        // from that multiple (`total - 1`) puts `used` exactly one byte over
+        // the high watermark.
+        let (path, total) = bundle_with_size_congruent_to(&root, "cap-over", 1_000, 80, 1);
+        let quota_bytes = (total - 1) / 80 * 100;
+        let now_ms = 1_000 + PRUNE_MIN_AGE_MS;
+        let summary = prune_under_quota_pressure(&root, quota_bytes, now_ms).unwrap();
+        assert_eq!(
+            summary.deleted, 1,
+            "one byte over the high watermark must trigger pruning"
+        );
+        assert!(!path.exists());
         fs::remove_dir_all(root).unwrap();
     }
 }

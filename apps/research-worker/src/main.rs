@@ -669,8 +669,23 @@ async fn run() -> Result<(), AnyError> {
     }
     let root = root.canonicalize()?;
     // A full volume from prior runs must not refuse a start; relieve quota
-    // pressure by pruning the oldest committed bundles first.
-    capture_retention::prune_under_quota_pressure(&root, config.capture_quota_bytes(), now_ms()?)?;
+    // pressure by pruning the oldest committed bundles first. A prune failure
+    // must not block startup: the quota check right after it still catches an
+    // over-quota volume and returns the existing typed error for that case.
+    if let Err(error) = capture_retention::prune_under_quota_pressure(
+        &root,
+        config.capture_quota_bytes(),
+        now_ms()?,
+    ) {
+        println!(
+            "{}",
+            serde_json::json!({
+                "event": "capture-prune-failed",
+                "stage": "startup",
+                "error": error.to_string(),
+            })
+        );
+    }
     if directory_bytes(&root)? >= config.capture_quota_bytes() {
         return Err("capture volume quota exhausted".into());
     }
@@ -959,7 +974,11 @@ async fn run() -> Result<(), AnyError> {
                 if job.is_none() && evaluation.is_none() && Instant::now()>=next_capture {
                     // Relieve quota pressure before every collection, research and
                     // readiness alike, so a full volume never blocks the next capture.
-                    capture_retention::prune_under_quota_pressure(&plan.root, plan.quota_bytes, now_ms()?)?;
+                    // A prune failure here must not exit the worker: log and keep going,
+                    // the same as at startup.
+                    if let Err(error) = capture_retention::prune_under_quota_pressure(&plan.root, plan.quota_bytes, now_ms()?) {
+                        println!("{}", json!({ "event": "capture-prune-failed", "stage": "tick", "error": error.to_string() }));
+                    }
                     let generation=worker.generation().await.ok();
                     let purpose=if generation.is_some() { CollectionPurpose::Research } else { CollectionPurpose::Readiness };
                     let correlation=Uuid::now_v7();

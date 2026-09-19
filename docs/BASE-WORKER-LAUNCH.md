@@ -80,10 +80,13 @@ are unchanged; `plan.quota_bytes` itself is part of the session's
 `/data/captures` crosses 80% of that quota the worker prunes the oldest
 committed raw bundles itself, admitted ones included, down to 50% before their
 `raw_expires_at_ms` — pressure relief so a fixed quota survives a multi-day run,
-not long-term retention. The `capture_admissions` rows (capture id,
-`manifest_digest`) remain in PostgreSQL after a bundle is pruned; take a frozen
-export with `scripts/export_capture_audit.py` before pruning reaches any raw
-evidence still needed. A finalized step beyond that 16-block limit is no longer a single
+not long-term retention. Pruning runs before every collection attempt, research
+or readiness alike, so a STOPPED or PAUSED session does not protect a bundle
+from it. The `capture_admissions` rows (capture id, `manifest_digest`) remain in
+PostgreSQL after a bundle is pruned, but `scripts/export_capture_audit.py` only
+audits presence (`MISSING`/`COMPLETE_WITH_GAPS`) — it copies nothing. To keep
+raw evidence, copy the bundle directories to `/data/archive` (a sibling of
+`/data/captures`, never pruned) before pruning reaches them. A finalized step beyond that 16-block limit is no longer a single
 failing attempt: it is walked across consecutive captures, each committing at
 most 16 blocks with nothing skipped and no limit raised, until the step is
 closed. A capture is not admitted for research until the source has reached its
