@@ -125,7 +125,7 @@ pub fn next_generation(stream: &str) -> Result<String, StoreError> {
         Some((base, suffix))
             if !suffix.is_empty()
                 && suffix.bytes().all(|c| c.is_ascii_digit())
-                && (suffix == "0" || !suffix.starts_with('0')) =>
+                && !suffix.starts_with('0') =>
         {
             let generation: u64 = suffix.parse().map_err(|_| invalid())?;
             let generation = generation.checked_add(1).ok_or_else(invalid)?;
@@ -359,6 +359,13 @@ impl Store {
     /// Continue an ACTIVE stream in a new generation anchored at its current checkpoint.
     /// The old stream is left ACTIVE and untouched (no halt, no cursor rewrite); its
     /// batches keep `NO_KNOWN_INVALIDATION`. Idempotent for the identical rotation.
+    ///
+    /// The caller must guarantee no writer commits on `from` during or after the
+    /// rotation: a later `commit_ingestion` on `from` keeps advancing that stream
+    /// independently of `to`, forking the lineage rather than continuing it. A
+    /// retry whose `from` has since advanced past the anchor this rotation used
+    /// is therefore intentionally rejected with `Conflict("ingestion rotation
+    /// changed")` rather than silently re-anchoring `to`.
     pub async fn rotate_ingestion(
         &self,
         operator: &str,
@@ -407,6 +414,9 @@ impl Store {
             return Err(StoreError::Conflict("ingestion rotation changed"));
         }
         let result = cursor(&to_row)?;
+        if result.state != "ACTIVE" {
+            return Err(StoreError::Conflict("halted ingestion cursor"));
+        }
         tx.commit().await?;
         Ok(result)
     }
@@ -495,5 +505,63 @@ mod tests {
             next_generation("railway-base-profile-v1.green").unwrap(),
             "railway-base-profile-v1.green.g2"
         );
+    }
+
+    #[test]
+    fn next_generation_treats_a_g0_suffix_as_not_a_generation_and_appends_g2() {
+        // The rule is ".gN" with N >= 1 increments; anything else, including the
+        // degenerate ".g0", is appended to rather than incremented.
+        assert_eq!(
+            next_generation("railway-base-profile-v1.g0").unwrap(),
+            "railway-base-profile-v1.g0.g2"
+        );
+    }
+
+    #[test]
+    fn next_generation_increments_only_the_rightmost_generation_suffix() {
+        assert_eq!(
+            next_generation("railway-base-profile-v1.g1.g2").unwrap(),
+            "railway-base-profile-v1.g1.g3"
+        );
+    }
+
+    #[test]
+    fn next_generation_rejects_generation_overflow_at_u64_max() {
+        assert!(matches!(
+            next_generation("railway-base-profile-v1.g18446744073709551615"),
+            Err(StoreError::InvalidInput(_))
+        ));
+    }
+
+    fn probe_cursor(revision: u64) -> IngestionCursor {
+        IngestionCursor {
+            binding: IngestionBinding {
+                schema_version: 1,
+                network_id: "base-mainnet".into(),
+                registry_digest: format!("sha256:{}", "a".repeat(64)),
+                abi_source_commit: "b".repeat(40),
+                dataset_origin: "MANUALLY_CONSTRUCTED".into(),
+                pool_addresses: vec![format!("0x{}", "c".repeat(40))],
+            },
+            checkpoint: IngestionHead {
+                number: 100,
+                hash: format!("0x{:064x}", 100u64),
+                parent_hash: format!("0x{:064x}", 99u64),
+                timestamp_seconds: 1000,
+            },
+            revision,
+            state: "ACTIVE".into(),
+            halt_reason: None,
+        }
+    }
+
+    #[test]
+    fn retention_reached_is_false_one_batch_below_the_limit() {
+        assert!(!probe_cursor(MAX_BATCHES - 1).retention_reached());
+    }
+
+    #[test]
+    fn retention_reached_is_true_exactly_at_the_limit() {
+        assert!(probe_cursor(MAX_BATCHES).retention_reached());
     }
 }
