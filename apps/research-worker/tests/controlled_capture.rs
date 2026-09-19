@@ -161,6 +161,9 @@ async fn controlled_process(mode: &str) {
                 std::thread::sleep(Duration::from_millis(5));
                 continue;
             };
+            // macOS accept(2) inherits O_NONBLOCK from the listener, so without this
+            // a read before the client wrote its request fails at once with WouldBlock.
+            stream.set_nonblocking(false).unwrap();
             stream
                 .set_read_timeout(Some(Duration::from_secs(2)))
                 .unwrap();
@@ -592,6 +595,9 @@ impl PairRpcGuard {
                     std::thread::sleep(Duration::from_millis(2));
                     continue;
                 };
+                // macOS accept(2) inherits O_NONBLOCK from the listener, so without this
+                // a read before the client wrote its request fails at once with WouldBlock.
+                stream.set_nonblocking(false).unwrap();
                 stream
                     .set_read_timeout(Some(Duration::from_secs(2)))
                     .unwrap();
@@ -1498,6 +1504,9 @@ async fn provider_failure_is_redacted_and_killed_collection_stays_unresolved() {
                 std::thread::sleep(Duration::from_millis(5));
                 continue;
             };
+            // macOS accept(2) inherits O_NONBLOCK from the listener, so without this
+            // a read before the client wrote its request fails at once with WouldBlock.
+            stream.set_nonblocking(false).unwrap();
             stream
                 .set_read_timeout(Some(Duration::from_secs(2)))
                 .unwrap();
