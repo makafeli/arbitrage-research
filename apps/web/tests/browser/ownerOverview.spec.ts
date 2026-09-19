@@ -7,6 +7,12 @@ const session = { session_id: 'owner-session-1', network_id: 'base-mainnet', mod
 const coverage = { session_id: session.session_id, raw_observations: '0', quoted_candidates: '0', rejected: '0', no_route: '0', data_unavailable: '0',
   unique_opportunity_groups: '0', eligible_attempts: null, reconciled_transactions: null, execution_accounting_available: false,
   collection_completeness: 'UNKNOWN', coverage_window_start_ms: null, coverage_window_end_ms: null };
+// Whole-session, un-paginated aggregate (apps/web/src/api/collection.ts): unlike the old 24h
+// attempt-page walk this can never be truncated, so Status/Health are sourced from it directly.
+const collectionCoverage = { session_id: session.session_id, denominator: 'RECORDED_COLLECTION_ATTEMPTS', collection_completeness: 'UNKNOWN',
+  attempts_started: '0', readiness_attempts: '0', research_attempts: '0', in_progress: '0', readiness_completed: '0',
+  decisions_recorded: '0', acquisition_failed: '0', evaluation_failed: '0', deadline_exceeded: '0',
+  suppressed: '0', worker_cancelled: '0', decision_rows_recorded: '0', window_start_at: null, window_end_at: null };
 const emptyPage = { items: [], next_cursor: null };
 
 // A realistic QUOTED decision: route uses real Base USDC/WETH9 addresses (AssetId is always
@@ -29,14 +35,17 @@ const oneDecision = {
   },
 };
 
-async function mockDemo(page: import('@playwright/test').Page, options: { decisions?: unknown[]; failDecisions?: boolean } = {}) {
+async function mockDemo(page: import('@playwright/test').Page, options: { decisions?: unknown[]; failDecisions?: boolean; sessionOverrides?: Partial<typeof session>; collectionCoverageOverrides?: Partial<typeof collectionCoverage> } = {}) {
   const decisions = options.decisions ?? [];
+  const activeSession = { ...session, ...options.sessionOverrides };
+  const activeCollectionCoverage = { ...collectionCoverage, ...options.collectionCoverageOverrides, session_id: activeSession.session_id };
   await page.route('**/v1/**', async route => {
     const p = new URL(route.request().url()).pathname;
     if (p === '/v1/auth/session') { await route.fulfill({ json: auth }); return; }
     if (p === '/v1/capabilities') { await route.fulfill({ json: caps }); return; }
-    if (p === '/v1/sessions') { await route.fulfill({ json: { items: [session], next_cursor: null } }); return; }
+    if (p === '/v1/sessions') { await route.fulfill({ json: { items: [activeSession], next_cursor: null } }); return; }
     if (p === '/v1/decision-coverage') { await route.fulfill({ json: coverage }); return; }
+    if (p.endsWith('/collection-coverage')) { await route.fulfill({ json: activeCollectionCoverage }); return; }
     if (p === '/v1/decisions') {
       if (options.failDecisions) { await route.fulfill({ status: 500, json: { code: 'INTERNAL', message: 'decisions unavailable' } }); return; }
       await route.fulfill({ json: { items: decisions, next_cursor: null } }); return;
@@ -55,7 +64,7 @@ test('owner overview page shows all five plain-language blocks and a working nl/
 
   await page.getByLabel('Sessie').selectOption(session.session_id);
   await expect(page.getByRole('heading', { name: '1. Status' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: '2. Gezondheid (laatste 24 uur)' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '2. Gezondheid (sinds start sessie)' })).toBeVisible();
   await expect(page.getByRole('heading', { name: '3. Bevindingen' })).toBeVisible();
   await expect(page.getByRole('heading', { name: '4. Wat als (hypothetisch)' })).toBeVisible();
   await expect(page.getByRole('heading', { name: '5. Route naar PAPER/live' })).toBeVisible();
@@ -63,7 +72,7 @@ test('owner overview page shows all five plain-language blocks and a working nl/
 
   await page.getByRole('button', { name: 'English', exact: true }).click();
   await expect(page.getByRole('heading', { level: 2, name: 'Owner overview' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: '2. Health (last 24h)' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '2. Health (since session start)' })).toBeVisible();
   await expect(page.getByRole('heading', { name: '3. Findings' })).toBeVisible();
   await expect(page.getByRole('heading', { name: '4. What if (hypothetical)' })).toBeVisible();
   await expect(page.getByRole('heading', { name: '5. Road to PAPER/live' })).toBeVisible();
@@ -87,7 +96,7 @@ test('what-if models one real decision at the default stake (which equals its ow
   await expect(page.getByRole('cell', { name: 'obs-1' }).first()).toBeVisible();
   await expect(page.getByText('Modeled gross edge at this stake')).toBeVisible();
   await expect(page.locator('.research-exact', { hasText: '500000' }).first()).toBeVisible();
-  await expect(page.getByText('no cost assessment recorded for this candidate yet')).toBeVisible();
+  await expect(page.getByText('no cost assessment in the first 25 stored assessments')).toBeVisible();
   await expect(page.getByText('These numbers scale linearly with your stake')).toBeVisible();
 });
 
@@ -102,4 +111,18 @@ test('a failed decisions request is reported, not shown as an honest-looking emp
   await page.getByRole('button', { name: 'English', exact: true }).click();
 
   await expect(page.getByText('Research records unavailable.')).toBeVisible();
+});
+
+// A session whose worker lease has expired (health UNREACHABLE) while still nominally RUNNING must
+// show red with the correct Dutch reason text — no attempt-window truncation, no sleeps, just a
+// deterministic route mock (H1/H2).
+test('a session with an unreachable worker while running shows the red Dutch health pill and reason', async ({ page }) => {
+  await mockDemo(page, { sessionOverrides: { health: 'UNREACHABLE', observed_state: 'RUNNING' } });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Owner overview', exact: true }).click();
+  await page.getByLabel('Sessie').selectOption(session.session_id);
+
+  await expect(page.getByText('rood', { exact: true })).toBeVisible();
+  await expect(page.getByText('de werker is niet bereikbaar')).toBeVisible();
+  await expect(page.getByText('niet bereikbaar', { exact: true })).toBeVisible();
 });
