@@ -141,6 +141,10 @@ fn redirects_and_wrong_ids_fail_closed() {
 #[test]
 fn status_classification_is_fixed_and_never_retains_error_bodies() {
     for (status, expected) in [
+        ("400 Bad Request", "bad request"),
+        ("402 Payment Required", "payment required"),
+        ("404 Not Found", "not found"),
+        ("408 Request Timeout", "request timeout"),
         ("429 Too Many Requests", "rate limited"),
         ("403 Forbidden", "access refused"),
         ("503 Service Unavailable", "provider server failure"),

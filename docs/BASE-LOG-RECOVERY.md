@@ -65,7 +65,22 @@ checkpoint, requested end and failing height where known. No partial prefix is
 returned as success, and the function never advances an external cursor. The
 caller must persist the entire result before committing `through` as its new
 checkpoint. Versioned output retains Base identity, exact registry digest, pinned
-ABI revision and complete per-block event metadata.
+ABI revision and complete per-block event metadata. This function itself still
+has no retry: any RPC error during a step, including one `eth_getLogs` call,
+stops that attempt with `GapReason::ProviderFailure` and the untouched
+checkpoint (issue #197, 2026-09-19). The retry is the caller's next attempt,
+not a loop in here — the research-worker caller (`managed_ingestion::recover`
+in `apps/research-worker/src/managed_ingestion.rs`) now treats
+`ProviderFailure` as a plain attempt failure rather than a source halt,
+because the checkpoint it would resume from is already untouched; every other
+`GapReason` still marks the source HALTED exactly as before. This widening is
+deliberate and covers every RPC error inside a step, including deterministic
+`400`/`402`/`404` answers and a quota or deadline hit on the transport: a STOPPED
+session keeps retrying the same endpoint every cycle until the owner acts, a
+RUNNING one faults after `CAPTURE_READY_AGE`. The session side
+is in `docs/MANAGED-BASE-WORKER.md`: no successful capture for
+`CAPTURE_READY_AGE` still faults the session, the stream stays ACTIVE, and the
+owner recovers with a `--start` redeploy and START.
 
 `arb_evm::backfill::recover_logs_bounded` runs the same chain-identity, ancestry,
 code-identity, log-bound and recheck logic as `recover_logs_through` against an
@@ -138,12 +153,17 @@ the `collection-finished` line of the same attempt — that shared value is the
 join key between the two log lines. `label` is always one of the fixed
 strings `HttpReadRpc::call` returns from `crates/arb-adapter-api/src/lib.rs`:
 `RPC request quota exhausted`, `capture RPC deadline exceeded`, `RPC transport
-failed (endpoint redacted)`, `RPC HTTP error: rate limited (details
+failed (endpoint redacted)`, `RPC HTTP error: bad request (details
+redacted)`, `RPC HTTP error: payment required (details redacted)`, `RPC HTTP
+error: not found (details redacted)`, `RPC HTTP error: request timeout
+(details redacted)`, `RPC HTTP error: rate limited (details
 redacted)`, `RPC HTTP error: access refused (details redacted)`, `RPC HTTP
 error: provider server failure (details redacted)`, `RPC HTTP error (details
 redacted)`, `RPC response read failed`, `RPC response or capture exceeds byte
 quota`, `RPC response is not UTF-8`, `malformed JSON-RPC response`, and
-`JSON-RPC identity mismatch or error (details redacted)`. Because
+`JSON-RPC identity mismatch or error (details redacted)`. All of these still
+map to `PROVIDER_UNAVAILABLE` except the deadline and quota/byte-limit labels
+noted above. Because
 `AdapterError` wraps only a `&'static str` chosen from this fixed set, the
 label is the only provider detail the worker ever logs — it can never carry
 an endpoint, a header or a response body.

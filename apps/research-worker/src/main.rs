@@ -1055,7 +1055,9 @@ async fn run() -> Result<(), AnyError> {
                             }
                         }
                         Ok(Err(failure)) => {
-                            last_good_capture=None;
+                            // Readiness is a good capture younger than CAPTURE_READY_AGE, not
+                            // "the last attempt succeeded"; a failed attempt (including a
+                            // retried provider failure) does not by itself drop readiness.
                             collection.captured_pools=failure.captured_pools;
                             // Terminal source faults invalidate dependent history. Never
                             // overwrite a concurrently advanced cursor or halt on shutdown.
