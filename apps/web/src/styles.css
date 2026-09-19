@@ -70,7 +70,7 @@ button:focus-visible,select:focus-visible,input:focus-visible,summary:focus-visi
 
 /* Badges: the honesty labels. Mono, hairline, one colour each. */
 .pill{display:inline-flex;align-items:center;gap:var(--space-xs);border:1px solid var(--color-rule-2);border-radius:var(--radius-chip);padding:var(--space-3xs) var(--space-xs);font-size:var(--text-xs);font-weight:500;letter-spacing:var(--tracking-mono);color:var(--color-ink);white-space:nowrap;line-height:1.5}
-.pill.paper,.pill.blue,.pill.green{color:var(--color-accent);border-color:currentColor}
+.pill.paper,.pill.blue,.pill.green,.pill.catching-up{color:var(--color-accent);border-color:currentColor}
 .pill.amber{color:var(--color-warn);border-color:currentColor}
 .pill.red{color:var(--color-danger);border-color:currentColor}
 .session-states{display:flex;gap:var(--space-xs);flex-wrap:wrap;margin-top:var(--space-xs)}

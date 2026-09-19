@@ -27,7 +27,15 @@ const guidance: Record<CollectionReason, string> = {
 };
 
 const CATCH_UP_ADVICE = 'Catching up: the capture succeeded, but the source is still behind its anchor block, so this attempt could not admit decisions. The provider is not the problem; do not retry. Wait for the source to catch up — the owner overview shows the catch-up state; the exact block lag is in the worker log (`capture-written`, `source_lag_blocks`).';
+// captured_pools > 0 on ACQUISITION_FAILED/RESOURCE_LIMIT can only come from a later pool's own
+// write failing against the capture volume/byte quota after earlier pools already captured
+// (main.rs:481, 520-521, 574, 611) — every other RESOURCE_LIMIT producer (the transport's
+// request/byte budget at main.rs:131/463-469, and managed_ingestion.rs:126-140's
+// GapReason::LogLimitExceeded, which halts the source and faults the session as
+// MANAGED_SOURCE_RECOVERY_FAILED at main.rs:1064-1077) reports captured_pools 0. So this headline
+// is safe only for captured_pools > 0; the 0 case needs the honest union below.
 const CAPTURE_VOLUME_FULL_ADVICE = 'Capture volume full: the capture store reached its byte quota (or one capture exceeded its byte/request quota). The retention prune frees space automatically on the next capture; if this repeats, review the capture quota and pool count with the operator. Do not retry manually.';
+const RESOURCE_LIMIT_ACQUISITION_ADVICE = "Resource limit during acquisition: the RPC request/byte budget, a capture bundle's size, or the capture volume quota was exceeded. If the session is now FAULTED with MANAGED_SOURCE_RECOVERY_FAILED, the managed source hit its log limit and was halted — owner action required. Otherwise the retention prune runs before the next capture; if it repeats, review the capture quota and pool count with the operator.";
 
 function isCatchUp(attempt: CollectionAttempt): boolean {
   return attempt.outcome === 'ACQUISITION_FAILED' && attempt.reason === 'ACQUISITION_UNAVAILABLE' && attempt.captured_pools > 0;
@@ -36,7 +44,7 @@ function isCatchUp(attempt: CollectionAttempt): boolean {
 export function advice(attempt: CollectionAttempt): string {
   if (attempt.outcome === 'IN_PROGRESS') return 'No terminal outcome recorded. The batch may still be running or may have been interrupted. Compare its start time with the worker heartbeat; do not count it as success or failure.';
   if (isCatchUp(attempt)) return CATCH_UP_ADVICE;
-  if (attempt.outcome === 'ACQUISITION_FAILED' && attempt.reason === 'RESOURCE_LIMIT') return CAPTURE_VOLUME_FULL_ADVICE;
+  if (attempt.outcome === 'ACQUISITION_FAILED' && attempt.reason === 'RESOURCE_LIMIT') return attempt.captured_pools > 0 ? CAPTURE_VOLUME_FULL_ADVICE : RESOURCE_LIMIT_ACQUISITION_ADVICE;
   if (attempt.reason) return guidance[attempt.reason];
   if (attempt.outcome === 'READINESS_COMPLETED') return 'Readiness capture completed. This batch does not establish research decisions or continuous market coverage.';
   return 'Decisions were durably admitted for this batch. Their quote, rejection and data quality evidence remains separate from executable results.';
@@ -46,4 +54,12 @@ export function attemptTone(attempt: CollectionAttempt): 'amber' | 'catching-up'
   if (isCatchUp(attempt)) return 'catching-up';
   if (['IN_PROGRESS', 'ACQUISITION_FAILED', 'EVALUATION_FAILED', 'DEADLINE_EXCEEDED'].includes(attempt.outcome)) return 'amber';
   return '';
+}
+
+// Pill label text: pulled out of the component so the mapping (including the catch-up override)
+// is unit-testable without a DOM.
+export function attemptLabel(attempt: CollectionAttempt): string {
+  if (attempt.outcome === 'IN_PROGRESS') return 'NO TERMINAL OUTCOME';
+  if (attemptTone(attempt) === 'catching-up') return 'CATCHING UP';
+  return attempt.outcome.replaceAll('_', ' ');
 }
