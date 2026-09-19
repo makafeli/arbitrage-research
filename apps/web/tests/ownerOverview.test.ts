@@ -358,6 +358,12 @@ test('what-if: six same-asset positive-edge decisions produce exactly five candi
 // Real amount_in_minor can legitimately be '0' (a QUOTED row with no stake, still valid per
 // parseDecision) or null (never quoted); the guard at ownerOverview.ts:251 must skip both without
 // throwing on the division that follows.
+test('what-if: a same-asset quote with a zero or negative gross edge is excluded, like the Top candidates table', () => {
+  const decisions = [quotedDecision('pos', '500000'), quotedDecision('zero', '0'), quotedDecision('neg', '-100')];
+  const result = whatIfSummary('2', 'base-mainnet', decisions, [], 'en');
+  assert.deepEqual(result.candidates.map(c => c.observationId), ['pos']);
+  assert.equal(result.skippedOtherAssetCount, 0);
+});
 test('what-if: a decision with amount_in_minor "0" and one with null are both skipped, without throwing', () => {
   const zero = quotedDecision('zero', '100', { amountInMinor: '0' });
   const nullish = quotedDecision('nullish', '100');

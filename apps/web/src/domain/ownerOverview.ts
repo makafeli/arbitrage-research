@@ -252,8 +252,10 @@ export function whatIfSummary(stakeWhole: string, network: Network, decisions: r
   const startingAssetId = STARTING_ASSET_ID[network];
   const sameAsset = quoted.filter(d => (d.trace.route[0]?.asset_in ?? '') === startingAssetId);
   const skippedOtherAssetCount = quoted.length - sameAsset.length;
+  // Same positive-edge rule as the Top candidates table: a zero or negative quote is not a modeled edge.
+  const positiveEdge = sameAsset.filter(d => BigInt(d.trace.result.gross_delta_minor) > 0n);
 
-  const candidates: WhatIfCandidate[] = sameAsset.slice(0, 5).map(d => {
+  const candidates: WhatIfCandidate[] = positiveEdge.slice(0, 5).map(d => {
     const modeledGrossEdgeMinor = (BigInt(d.trace.result.gross_delta_minor) * stakeMinor / BigInt(d.trace.amount_in_minor)).toString();
     const match = costAssessments.find(c => c.assessment.binding.observation_id === d.trace.observation_id);
     const recordedCostLabel = match ? (match.assessment.report.fully_allocated_net ?? match.assessment.report.transaction_net ?? t(lang, 'whatif_no_cost')) : t(lang, 'whatif_no_cost');

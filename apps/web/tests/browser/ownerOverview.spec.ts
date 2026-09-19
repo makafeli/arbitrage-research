@@ -186,9 +186,11 @@ test('a healthy session stays green after 6 minutes with the page open (coverage
   await expect(page.getByText('green', { exact: true })).toBeVisible();
   await expect(page.getByText('is caught up (recently updated)')).toBeVisible();
   const callsAfterLoad = coverageCalls;
+  const sessionCallsAfterLoad = sessionCalls;
 
   // Six minutes pass with the page open; the parent keeps polling sessions every 5s.
   await page.clock.fastForward('06:00');
+  expect(sessionCalls).toBeGreaterThan(sessionCallsAfterLoad); // the page really re-rendered on new polls.
   await expect(page.getByText('green', { exact: true })).toBeVisible();
   await expect(page.getByText('is caught up (recently updated)')).toBeVisible();
   expect(coverageCalls).toBe(callsAfterLoad); // collection-coverage was not re-fetched.
