@@ -152,6 +152,15 @@ def prepare(source: dict[str, str], action: str, root: Path = ROOT, runner=call)
     require(action in ACTIONS, 'LAUNCH_ARGUMENTS_REJECTED')
     require(stat.S_ISDIR(root.lstat().st_mode), 'PROFILE_DIRECTORY_REJECTED')
     env = environment(source)
+    # Generation 1's session was registered before this launcher existed, so it
+    # never registers here (byte-identical). A generation >= 2 successor has no
+    # prior registration: its one-time --initialize-and-start deploy must
+    # register the new session first (refused unless every existing
+    # base-mainnet session is STOPPED/FAULTED; idempotent on retry) before any
+    # source mutation. --start never registers, for any generation.
+    if action == '--initialize-and-start' and 'ARB_BASE_GENERATION' in env:
+        code, _, _ = runner(['/usr/local/bin/worker-session', '--register', str(root)], env)
+        require(code == 0, 'GENERATION_SESSION_REGISTRATION_REFUSED')
     # The Rust session checker validates configuration+registry against the external
     # digest and reads the original idempotent registration. Never register here.
     code, out, _ = runner(['/usr/local/bin/worker-session', '--status', str(root)], env)

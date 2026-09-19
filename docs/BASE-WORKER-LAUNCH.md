@@ -142,13 +142,19 @@ while the current stream is healthy.
    `3`, ... — ASCII digits, no leading zero, `1`..`99`). Leaving it unset, or
    setting it to `1`, keeps today's single stream, byte-identical.
 2. Deploy once with the start command `worker-entrypoint worker-launch-base
-   --initialize-and-start`. This seeds the **new** stream
+   --initialize-and-start`. For generation `N >= 2` this one-time deploy first
+   runs `worker-session --register` itself, before anything else: it is refused
+   unless every existing `base-mainnet` session is already in a non-running
+   observed state (`STOPPED` or `FAULTED`) — a `RUNNING` session, or one
+   mid-transition, requires an explicit selection first and stops the launch
+   before any source mutation. The call is idempotent, so a retried deploy
+   reuses the same generation-N session rather than erroring. Only after that
+   registration succeeds does the launcher seed the **new** stream
    (`railway-base-profile-v1.g<N>`) at the finalized tip through the existing
    `create_ingestion`/`STREAM_ALREADY_EXISTS` protection — it is not a
-   continuation of the halted checkpoint. `worker-session --register` for that
-   same generation is refused unless every existing `base-mainnet` session is
-   already in a non-running observed state (`STOPPED` or `FAULTED`); a `RUNNING`
-   session, or one mid-transition, requires an explicit selection first.
+   continuation of the halted checkpoint — and then exec the worker.
+   Generation 1 never registers here (its session predates this launcher), and
+   `--start` never registers, for any generation.
 3. Set the start command back to `worker-entrypoint worker-launch-base --start`
    for subsequent deployments, exactly as with generation 1.
 4. Read the **new** session id from `worker-session --status` (its idempotency

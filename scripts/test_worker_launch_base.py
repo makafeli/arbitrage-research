@@ -81,6 +81,29 @@ class LaunchTests(unittest.TestCase):
         self.assertEqual(env['ARB_BASE_INGESTION_STREAM'], 'railway-base-profile-v1.g2')
         self.assertEqual(env['ARB_BASE_GENERATION'], '2')
 
+    def test_generation_two_initialize_and_start_registers_before_status(self):
+        launch.prepare({**ENV, 'ARB_BASE_GENERATION': '2'}, '--initialize-and-start', self.root, self.runner)
+        self.assertEqual([x[0][1] for x in self.calls],
+                          ['--register', '--status', '--initialize', '--status'])
+
+    def test_generation_two_start_never_registers(self):
+        launch.prepare({**ENV, 'ARB_BASE_GENERATION': '2'}, '--start', self.root, self.runner)
+        self.assertEqual([x[0][1] for x in self.calls], ['--status', '--status'])
+
+    def test_generation_one_initialize_and_start_never_registers(self):
+        launch.prepare(ENV, '--initialize-and-start', self.root, self.runner)
+        self.assertEqual([x[0][1] for x in self.calls], ['--status', '--initialize', '--status'])
+
+    def test_generation_two_registration_refusal_stops_before_any_source_mutation(self):
+        def runner(argv, env):
+            if '--register' in argv:
+                self.calls.append((argv, env))
+                return 1, b'', b'EXISTING_BASE_SESSION_REQUIRES_SELECTION'
+            return self.runner(argv, env)
+        with self.assertRaisesRegex(launch.LaunchError, 'GENERATION_SESSION_REGISTRATION_REFUSED'):
+            launch.prepare({**ENV, 'ARB_BASE_GENERATION': '2'}, '--initialize-and-start', self.root, runner)
+        self.assertEqual([x[0][1] for x in self.calls], ['--register'])
+
     def test_invalid_generation_is_rejected_before_any_child_process(self):
         for raw in ['0', '01', '100', 'x', ' 2']:
             self.calls = []
