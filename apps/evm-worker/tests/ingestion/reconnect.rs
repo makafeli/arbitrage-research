@@ -87,7 +87,11 @@ async fn transient_follow_failure_reopens_filters_and_recovers_every_missing_blo
         vec![101, 102, 103]
     );
     assert_eq!(fixture.success("--status")["revision"], "1");
-    assert_eq!(method_count(&fixture, "eth_getLogs"), 4);
+    // Issue #180: one ranged eth_getLogs call covers the whole 3-block step,
+    // instead of one call per missing block. The first attempt makes exactly
+    // one such call and fails; the retried attempt makes exactly one more and
+    // succeeds, covering blocks 101-103 in a single response. 2, not 4.
+    assert_eq!(method_count(&fixture, "eth_getLogs"), 2);
     assert_eq!(method_count(&fixture, "eth_newBlockFilter"), 2);
     assert_eq!(method_count(&fixture, "eth_uninstallFilter"), 4);
     let requests = fixture.observed.lock().unwrap();
