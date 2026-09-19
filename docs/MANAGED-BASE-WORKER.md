@@ -145,6 +145,17 @@ and checkpoints remain unchanged. Restart refuses that source without requests.
 Concurrent source changes are never overwritten; an unsuccessful optimistic
 persistence attempt fails the worker instead of claiming a current source.
 
+A provider failure during recovery is not one of those terminal faults (issue
+#197, 2026-09-19): the untouched checkpoint is simply retried on the next
+capture attempt, and the collection still ends `ACQUISITION_FAILED` with its
+`acquisition-rpc-failed` reason. Readiness stays "a good capture younger than
+`CAPTURE_READY_AGE`", not "the last attempt succeeded", so one failed capture
+keeps a RUNNING session ready; two consecutive failed captures still fault the
+worker, but the stream itself stays ACTIVE and no new generation is needed —
+the owner recovers with a `--start` redeploy and START. `ContinuityLost`,
+`InvalidInput`, `WrongChain`/`CheckpointChanged` and `ResourceLimit` still mark
+the source HALTED exactly as before.
+
 ## Verification and release limits
 
 The new tests use synthetic loopback HTTP inputs, actual worker subprocesses and
