@@ -5,7 +5,7 @@ export function ChainPanels({ selected }: { selected: readonly Chain[] }) {
   return <div className="panels">{selected.map(chain => {
     const item = chains[chain];
     return <section className="panel" key={chain} aria-label={`${item.name} synthetic observations`}>
-      <div className="panelhead"><div className="chainname"><span className="chainicon" aria-hidden="true">{item.symbol}</span><div><h2>{item.name}</h2><span className="tiny">{item.venue}</span></div></div><span className="pill">SYNTHETIC</span></div>
+      <div className="panelhead"><div className="chainname"><div><h2>{item.name}</h2><span className="tiny">{item.venue}</span></div></div><span className="pill">SYNTHETIC</span></div>
       <div className="chainmetrics"><div><span className="metriclabel">Candidates</span><strong className="metricvalue">{item.candidates}</strong></div><div><span className="metriclabel">Simulated</span><strong className="metricvalue">{item.simulated}</strong></div><div><span className="metriclabel">Estimated executable</span><strong className="metricvalue">{item.eligible}</strong></div></div>
       <div className="quality"><span>Sample window coverage <strong>{item.coverage}%</strong></span><span>{item.freshness}</span></div>
       <div className="progress" role="img" aria-label={`Synthetic observation coverage ${item.coverage} percent`}><span style={{ width: `${item.coverage}%` }} /></div>
