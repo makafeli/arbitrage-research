@@ -67,6 +67,78 @@ class LaunchTests(unittest.TestCase):
         launch.prepare(ENV, '--initialize-and-start', self.root, self.runner)
         self.assertEqual([x[0][1] for x in self.calls], ['--status', '--initialize', '--status'])
 
+    def test_generation_absent_or_one_is_byte_identical(self):
+        baseline = launch.prepare(ENV, '--start', self.root, self.runner)
+        calls_absent = [x[0][1] for x in self.calls]
+        self.calls = []
+        explicit_one = launch.prepare({**ENV, 'ARB_BASE_GENERATION': '1'}, '--start', self.root, self.runner)
+        calls_one = [x[0][1] for x in self.calls]
+        self.assertEqual(baseline, explicit_one)
+        self.assertEqual(calls_absent, calls_one)
+        self.assertNotIn('ARB_BASE_GENERATION', explicit_one)
+        self.assertEqual(explicit_one['ARB_INGEST_STREAM_ID'], 'railway-base-profile-v1')
+        self.assertEqual(explicit_one['ARB_BASE_INGESTION_STREAM'], 'railway-base-profile-v1')
+
+    def test_generation_two_selects_the_new_stream_and_forwards_generation(self):
+        env = launch.prepare({**ENV, 'ARB_BASE_GENERATION': '2'}, '--start', self.root, self.runner)
+        self.assertEqual(env['ARB_INGEST_STREAM_ID'], 'railway-base-profile-v1.g2')
+        self.assertEqual(env['ARB_BASE_INGESTION_STREAM'], 'railway-base-profile-v1.g2')
+        self.assertEqual(env['ARB_BASE_GENERATION'], '2')
+
+    def test_generation_two_status_print_names_its_own_stream(self):
+        # Pins main()'s BASE_WORKER_EXECUTING source_id to the generation-2
+        # stream: mutating the print back to the STREAM constant would still
+        # pass every other test in this file.
+        env = {'ARB_SESSION_ID': SID, 'ARB_BASE_INGESTION_STREAM': 'railway-base-profile-v1.g2'}
+        parent_stat = SimpleNamespace(st_mode=stat.S_IFDIR | 0o700, st_uid=10001)
+        lock_stat = SimpleNamespace(st_mode=stat.S_IFREG | 0o600, st_uid=10001)
+        with patch.object(launch.os, 'getuid', return_value=10001), \
+             patch.object(launch.os, 'getgid', return_value=10001), \
+             patch.object(Path, 'lstat', return_value=parent_stat), \
+             patch.object(launch.os, 'open', return_value=999), \
+             patch.object(launch.os, 'fstat', return_value=lock_stat), \
+             patch.object(launch.fcntl, 'flock'), \
+             patch.object(launch.signal, 'signal'), \
+             patch.object(launch, 'prepare', return_value=env), \
+             patch.object(launch.os, 'set_inheritable'), \
+             patch.object(launch.os, 'close'), \
+             patch.object(launch.os, 'execve', side_effect=OSError('no real worker in a unit test')), \
+             redirect_stdout(io.StringIO()) as out, redirect_stderr(io.StringIO()):
+            self.assertEqual(launch.main(['--initialize-and-start']), 2)
+        printed = json.loads(out.getvalue())
+        self.assertEqual(printed['status'], 'BASE_WORKER_EXECUTING')
+        self.assertEqual(printed['source_id'], 'railway-base-profile-v1.g2')
+
+    def test_generation_two_initialize_and_start_registers_before_status(self):
+        launch.prepare({**ENV, 'ARB_BASE_GENERATION': '2'}, '--initialize-and-start', self.root, self.runner)
+        self.assertEqual([x[0][1] for x in self.calls],
+                          ['--register', '--status', '--initialize', '--status'])
+
+    def test_generation_two_start_never_registers(self):
+        launch.prepare({**ENV, 'ARB_BASE_GENERATION': '2'}, '--start', self.root, self.runner)
+        self.assertEqual([x[0][1] for x in self.calls], ['--status', '--status'])
+
+    def test_generation_one_initialize_and_start_never_registers(self):
+        launch.prepare(ENV, '--initialize-and-start', self.root, self.runner)
+        self.assertEqual([x[0][1] for x in self.calls], ['--status', '--initialize', '--status'])
+
+    def test_generation_two_registration_refusal_stops_before_any_source_mutation(self):
+        def runner(argv, env):
+            if '--register' in argv:
+                self.calls.append((argv, env))
+                return 1, b'', b'EXISTING_BASE_SESSION_REQUIRES_SELECTION'
+            return self.runner(argv, env)
+        with self.assertRaisesRegex(launch.LaunchError, 'GENERATION_SESSION_REGISTRATION_REFUSED'):
+            launch.prepare({**ENV, 'ARB_BASE_GENERATION': '2'}, '--initialize-and-start', self.root, runner)
+        self.assertEqual([x[0][1] for x in self.calls], ['--register'])
+
+    def test_invalid_generation_is_rejected_before_any_child_process(self):
+        for raw in ['0', '01', '100', 'x', ' 2']:
+            self.calls = []
+            with self.subTest(raw=raw), self.assertRaisesRegex(launch.LaunchError, 'GENERATION_REJECTED'):
+                launch.prepare({**ENV, 'ARB_BASE_GENERATION': raw}, '--start', self.root, self.runner)
+            self.assertEqual(self.calls, [])
+
     def test_uncertain_initialization_does_not_retry_or_launch(self):
         def runner(argv, env):
             if '--initialize' in argv:

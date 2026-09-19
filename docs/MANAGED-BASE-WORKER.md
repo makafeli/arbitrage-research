@@ -18,6 +18,11 @@ the lower coverage boundary. Initialization is still an operator/deployment step
 this change does not create a seed, assume preceding coverage or skip to a tip.
 Never use synthetic test registry/seed data as production qualification.
 
+`ARB_BASE_INGESTION_STREAM` is set by the launcher, including its generation
+suffix (`railway-base-profile-v1.g<N>`) after a recorded halt; see
+`docs/BASE-WORKER-LAUNCH.md`'s "Generation" section (#193) — this option itself
+has no generation concept.
+
 ```sh
 # Additional settings for the existing research-worker process.
 export ARB_BASE_INGESTION_STREAM=the-existing-approved-stream

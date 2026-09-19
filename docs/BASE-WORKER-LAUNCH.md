@@ -8,7 +8,9 @@ The operator account and existing Base RPC setup are complete. Do not repeat the
 The anchored profile is `/data/runtime/base-v1`. `worker-session --status` reads
 its original registration and validates the exact configuration and registry.
 The launcher uses that real session ID, not an invented ID or the most recent
-session in an unscoped list. It never creates or resets a session or issues START.
+session in an unscoped list. It never resets a session or issues START; it
+registers a session only for generation ≥ 2 on `--initialize-and-start` (see
+Generation).
 
 The first explicitly authorized deployment command is:
 
@@ -119,15 +121,69 @@ certificate replacement or restart is performed by this launcher or runbook.
 A certificate fix must be reviewed/tested separately, preserve the original CA,
 keys and data, and include an actual successful authenticated connection.
 
+## Generation
+
+A halted source (`state=HALTED`, any `halt_reason`) can never re-arm: the database
+trigger that protects an ingestion cursor rejects any `UPDATE` or `DELETE` of a
+HALTED row, and a session's stream binding is immutable. Resetting `railway-base-profile-v1`
+or its session is not an option — see #193. A **generation** is the reviewed way
+forward: one number selects both a new stream id and a new session key, so the
+worker can start again without weakening any database check and without touching
+the halted stream, its `ingestion_invalidations` row, the old session or its
+captures. Those all stay in place as evidence.
+
+Bump the generation only after a halt the owner has recorded on #58. Do not bump
+it to work around a transient failure, a slow provider or a review finding — those
+are addressed on the existing stream. Generation is not a substitute for the
+checkpoint-anchored rotation of an ACTIVE stream (#177/#183), which still applies
+while the current stream is healthy.
+
+**Owner procedure**, once a halt is recorded on #58:
+
+1. Set the `ARB_BASE_GENERATION` deployment variable to the next number (`2`,
+   `3`, ... — ASCII digits, no leading zero, `2`..`99`). Leaving it unset, or
+   setting it to `1`, keeps today's single stream, byte-identical.
+2. Deploy once with the start command `worker-entrypoint worker-launch-base
+   --initialize-and-start`. For generation `N >= 2` this one-time deploy first
+   runs `worker-session --register` itself, before anything else: it is
+   refused while an older `base-mainnet` session is both in a running or
+   transitional observed state (anything but `STOPPED`/`FAULTED`) and has a
+   live worker lease — a real worker renews its 15s lease every 250ms, so a
+   genuinely running session always fails registration this way. A session
+   left behind by a crash (for example between the halt path's separate
+   halt/finish/fault commits) has no live lease and never blocks. If refused,
+   wait for the lease to expire (up to 15s) or stop that worker, then
+   redeploy. The call is idempotent, so a retried deploy reuses the same
+   generation-N session rather than erroring. Only after registration
+   succeeds does the launcher seed the **new** stream
+   (`railway-base-profile-v1.g<N>`) at the finalized tip through the existing
+   `create_ingestion`/`STREAM_ALREADY_EXISTS` protection — it is not a
+   continuation of the halted checkpoint — and then exec the worker.
+   Generation 1 never registers here (its session predates this launcher), and
+   `--start` never registers, for any generation.
+3. Set the start command back to `worker-entrypoint worker-launch-base --start`
+   for subsequent deployments, exactly as with generation 1.
+4. Read the **new** session id from `worker-session --status` (its idempotency
+   key is `railway-base-profile-v1.g<N>`, not the original one) and issue START
+   on that session, not the halted generation's.
+
+Neither step auto-initializes on `--start`, and neither issues START itself. The
+worker itself is unchanged: it already receives its stream id and session id from
+the launcher and has no generation concept of its own.
+
 ## Verification
 
 `test_worker_launch_base.py` checks offline boundaries, including no implicit
 initialization, anchored session scope, differing registry files, source refusal,
-private environment/TLS, bounded subprocess output and inert invocation. Test
-doubles are not real provider evidence. The existing mandatory image/session drill
-also runs the shipped wrapper against its TLS-enabled disposable PostgreSQL and
-verifies wrong-CA/hostname/CA-leaf and missing-source refusals without new sessions,
-streams or commands.
+private environment/TLS, bounded subprocess output and inert invocation, plus the
+generation rules above (absent/`1` byte-identical, `2`..`99` selecting
+`railway-base-profile-v1.g<N>`, anything else `GENERATION_REJECTED` before any
+child process). Test doubles are not real provider evidence. The existing
+mandatory image/session drill also runs the shipped wrapper against its
+TLS-enabled disposable PostgreSQL and verifies wrong-CA/hostname/CA-leaf and
+missing-source refusals without new sessions, streams or commands, and now also
+a generation-2 registration after a non-running generation-1 session. The Rust
+key-derivation and guard-predicate unit tests live alongside `worker-session.rs`.
 
 Actual CI, deployed revision, provider observations, source and session state,
 and remaining START/STOP/restart tests are recorded on #58 and the implementing PR.

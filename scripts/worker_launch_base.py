@@ -22,6 +22,7 @@ STREAM = 'railway-base-profile-v1'
 MAX_OUTPUT = 65536
 MAX_PROFILE = 1048576
 ACTIONS = {'--start', '--initialize-and-start'}
+GENERATION_PATTERN = re.compile(r'[1-9][0-9]?')
 
 
 class LaunchError(Exception):
@@ -87,7 +88,27 @@ def call(argv: list[str], env: dict[str, str]) -> tuple[int, bytes, bytes]:
             return process.returncode, out, err
 
 
+def generation(source: dict[str, str]) -> int:
+    # Absent or '1' is today's single stream, byte-identical below. A generation
+    # succeeds a HALTED source (#193); it never touches or resets the old one.
+    raw = source.get('ARB_BASE_GENERATION')
+    if raw is None:
+        return 1
+    require(GENERATION_PATTERN.fullmatch(raw) is not None, 'GENERATION_REJECTED')
+    return int(raw)
+
+
+def stream_id(value: int) -> str:
+    # Shares its .g<N> namespace with checkpoint-anchored stream rotation
+    # (arb_storage::ingestion::next_generation, crates/arb-storage/src/ingestion.rs:117-140,
+    # #177/#183): a rotated railway-base-profile-v1.g2 and generation 2 would
+    # collide on STREAM_ALREADY_EXISTS if both were ever in play.
+    return STREAM if value == 1 else f'{STREAM}.g{value}'
+
+
 def environment(source: dict[str, str]) -> dict[str, str]:
+    value = generation(source)
+    stream = stream_id(value)
     operator = source.get('ARB_OPERATOR_ID', '')
     require(re.fullmatch(r'[A-Za-z0-9_.:-]{1,128}', operator) is not None, 'OPERATOR_REQUIRED')
     anchor = source.get('ARB_BASE_PROFILE_DIGEST', '')
@@ -118,21 +139,35 @@ def environment(source: dict[str, str]) -> dict[str, str]:
     pace = source.get('ARB_RPC_MIN_INTERVAL_MS', '')
     require(pace.isascii() and pace.isdigit() and str(int(pace)) == pace
             and 75 <= int(pace) <= 1000, 'RPC_PACING_REQUIRED')
-    return {'PATH': '/usr/local/bin:/usr/bin:/bin', 'HOME': '/home/arb', 'LC_ALL': 'C',
-            'ARB_OPERATOR_ID': operator, 'ARB_INGEST_OPERATOR_ID': operator,
-            'ARB_DATABASE_URL': database, 'ARB_INGEST_DATABASE_URL': database,
-            'PGSSLROOTCERT': ca,
-            'ARB_BASE_PROFILE_DIGEST': anchor, 'ARB_BASE_RPC_URL': endpoint,
-            'ARB_RPC_MIN_INTERVAL_MS': pace, 'ARB_INGEST_STREAM_ID': STREAM,
-            'ARB_BASE_INGESTION_STREAM': STREAM, 'ARB_BASE_MANAGED_INGESTION': 'true'}
+    result = {'PATH': '/usr/local/bin:/usr/bin:/bin', 'HOME': '/home/arb', 'LC_ALL': 'C',
+              'ARB_OPERATOR_ID': operator, 'ARB_INGEST_OPERATOR_ID': operator,
+              'ARB_DATABASE_URL': database, 'ARB_INGEST_DATABASE_URL': database,
+              'PGSSLROOTCERT': ca,
+              'ARB_BASE_PROFILE_DIGEST': anchor, 'ARB_BASE_RPC_URL': endpoint,
+              'ARB_RPC_MIN_INTERVAL_MS': pace, 'ARB_INGEST_STREAM_ID': stream,
+              'ARB_BASE_INGESTION_STREAM': stream, 'ARB_BASE_MANAGED_INGESTION': 'true'}
+    # Absent/'1' stays byte-identical: no ARB_BASE_GENERATION key at all.
+    if value != 1:
+        result['ARB_BASE_GENERATION'] = str(value)
+    return result
 
 
 def prepare(source: dict[str, str], action: str, root: Path = ROOT, runner=call) -> dict[str, str]:
     require(action in ACTIONS, 'LAUNCH_ARGUMENTS_REJECTED')
     require(stat.S_ISDIR(root.lstat().st_mode), 'PROFILE_DIRECTORY_REJECTED')
     env = environment(source)
+    # Generation 1's session was registered before this launcher existed, so it
+    # never registers here (byte-identical). A generation >= 2 successor has no
+    # prior registration: its one-time --initialize-and-start deploy must
+    # register the new session first (refused unless every existing
+    # base-mainnet session is STOPPED/FAULTED; idempotent on retry) before any
+    # source mutation. --start never registers, for any generation.
+    if action == '--initialize-and-start' and 'ARB_BASE_GENERATION' in env:
+        code, _, _ = runner(['/usr/local/bin/worker-session', '--register', str(root)], env)
+        require(code == 0, 'GENERATION_SESSION_REGISTRATION_REFUSED')
     # The Rust session checker validates configuration+registry against the external
-    # digest and reads the original idempotent registration. Never register here.
+    # digest and reads the registration. Registration happens only in the
+    # generation >= 2 branch above; --status never registers.
     code, out, _ = runner(['/usr/local/bin/worker-session', '--status', str(root)], env)
     require(code == 0, 'REGISTERED_SESSION_REQUIRED')
     value = json.loads(out, object_pairs_hook=pairs)
@@ -192,7 +227,7 @@ def main(args: list[str] | None = None) -> int:
         env = prepare(dict(os.environ), args[0])
         os.set_inheritable(lock, True)
         print(json.dumps({'status': 'BASE_WORKER_EXECUTING', 'session_id': env['ARB_SESSION_ID'],
-                          'source_id': STREAM, 'start_command_issued': False,
+                          'source_id': env['ARB_BASE_INGESTION_STREAM'], 'start_command_issued': False,
                           'execution_authorized': False}), flush=True)
         # Replace PID1; existing worker now owns signals, recovery and commands.
         os.execve('/usr/local/bin/research-worker', ['research-worker'], env)
