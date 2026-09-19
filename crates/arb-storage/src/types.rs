@@ -75,15 +75,23 @@ pub enum StoreError {
 
 /// A coarse, fixed-vocabulary classification of a `sqlx::Error` for logs. Never
 /// includes the DSN, host, user, SQL text or the driver's raw message — only our
-/// own static labels plus the database's SQLSTATE code, which carries no secrets.
+/// own static labels, the database's SQLSTATE code, or `std::io::ErrorKind`'s
+/// `Debug` name, none of which can carry a secret (they are all fixed enums).
 fn database_error_label(error: &sqlx::Error) -> String {
     match error {
         sqlx::Error::PoolTimedOut => "pool timed out".to_owned(),
         sqlx::Error::PoolClosed => "pool closed".to_owned(),
         sqlx::Error::WorkerCrashed => "worker crashed".to_owned(),
-        sqlx::Error::Io(_) => "io".to_owned(),
+        sqlx::Error::Io(io_error) => format!("io {:?}", io_error.kind()),
         sqlx::Error::Tls(_) => "tls".to_owned(),
         sqlx::Error::Protocol(_) => "protocol".to_owned(),
+        sqlx::Error::Configuration(_) => "configuration".to_owned(),
+        sqlx::Error::RowNotFound => "row not found".to_owned(),
+        sqlx::Error::TypeNotFound { .. } => "type not found".to_owned(),
+        sqlx::Error::ColumnNotFound(_) => "column not found".to_owned(),
+        sqlx::Error::ColumnDecode { .. } => "column decode".to_owned(),
+        sqlx::Error::Decode(_) => "decode".to_owned(),
+        sqlx::Error::Encode(_) => "encode".to_owned(),
         sqlx::Error::Database(database_error) => format!(
             "database {}",
             database_error
@@ -166,6 +174,20 @@ mod tests {
         assert_eq!(
             unknown_code.to_string(),
             "storage unavailable (database unknown)"
+        );
+
+        let io_error = StoreError::from(sqlx::Error::Io(std::io::Error::new(
+            std::io::ErrorKind::ConnectionReset,
+            raw_message,
+        )));
+        let rendered = io_error.to_string();
+        assert_eq!(rendered, "storage unavailable (io ConnectionReset)");
+        assert!(!rendered.contains(raw_message));
+
+        let row_not_found = StoreError::from(sqlx::Error::RowNotFound);
+        assert_eq!(
+            row_not_found.to_string(),
+            "storage unavailable (row not found)"
         );
     }
 }
