@@ -123,9 +123,8 @@ struct AcquisitionRpc {
     rpc_elapsed: Duration,
 }
 /// Fixed adapter error labels only (`arb_adapter_api::AdapterError(&'static str)`
-/// can never carry an endpoint, header or response body). Behaviour unchanged
-/// from the previous inline match.
-fn map_rpc_failure(label: &str) -> CollectionReason {
+/// can never carry an endpoint, header or response body).
+fn map_rpc_failure(label: &'static str) -> CollectionReason {
     match label {
         "capture RPC deadline exceeded" => CollectionReason::AcquisitionDeadline,
         "RPC request quota exhausted" | "RPC response or capture exceeds byte quota" => {
@@ -140,7 +139,7 @@ fn map_rpc_failure(label: &str) -> CollectionReason {
 fn rpc_failure_event(
     correlation: Uuid,
     method: arb_adapter_api::ReadMethod,
-    label: &str,
+    label: &'static str,
     reason: CollectionReason,
 ) -> Value {
     json!({
@@ -159,7 +158,9 @@ impl ReadRpc for AcquisitionRpc {
         params: Value,
     ) -> arb_adapter_api::Result<Value> {
         let started = Instant::now();
-        let result = self.inner.call(method, params).inspect_err(|error| {
+        let result = self.inner.call(method, params);
+        let elapsed = started.elapsed();
+        let result = result.inspect_err(|error| {
             let reason = map_rpc_failure(error.0);
             println!(
                 "{}",
@@ -167,7 +168,6 @@ impl ReadRpc for AcquisitionRpc {
             );
             self.failure = Some(reason);
         });
-        let elapsed = started.elapsed();
         self.rpc_elapsed = self.rpc_elapsed.saturating_add(elapsed);
         self.metrics.record(
             Component::Rpc,

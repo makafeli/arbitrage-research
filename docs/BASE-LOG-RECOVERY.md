@@ -130,11 +130,14 @@ close #30, #29 or EPIC-02 on these component tests alone. No new task is require
 When the adapter call inside `AcquisitionRpc::call`
 (`apps/research-worker/src/main.rs`) fails, the worker prints one
 `acquisition-rpc-failed` JSON line carrying the collection's correlation ID,
-the `ReadMethod`, the adapter's fixed error `label`, and the `CollectionReason`
-that label maps to (`AcquisitionDeadline`, `ResourceLimit`, or
-`ProviderUnavailable`). `label` is always one of the fixed strings
-`HttpReadRpc::call` returns from `crates/arb-adapter-api/src/lib.rs`: `RPC
-request quota exhausted`, `capture RPC deadline exceeded`, `RPC transport
+the `ReadMethod` (serialized under its serde variant name, e.g. `EthCall`),
+the adapter's fixed error `label`, and the `CollectionReason` that label maps
+to, serialized in its wire form: `ACQUISITION_DEADLINE`, `RESOURCE_LIMIT`, or
+`PROVIDER_UNAVAILABLE`. `correlation` equals the `collection_attempt_id` on
+the `collection-finished` line of the same attempt — that shared value is the
+join key between the two log lines. `label` is always one of the fixed
+strings `HttpReadRpc::call` returns from `crates/arb-adapter-api/src/lib.rs`:
+`RPC request quota exhausted`, `capture RPC deadline exceeded`, `RPC transport
 failed (endpoint redacted)`, `RPC HTTP error: rate limited (details
 redacted)`, `RPC HTTP error: access refused (details redacted)`, `RPC HTTP
 error: provider server failure (details redacted)`, `RPC HTTP error (details
@@ -144,6 +147,12 @@ quota`, `RPC response is not UTF-8`, `malformed JSON-RPC response`, and
 `AdapterError` wraps only a `&'static str` chosen from this fixed set, the
 label is the only provider detail the worker ever logs — it can never carry
 an endpoint, a header or a response body.
+
+Sample line (serde_json emits object keys alphabetically):
+
+```json
+{"correlation":"3fa2b6d1-3c22-4a51-9e0b-7e5a2f9b6a10","event":"acquisition-rpc-failed","label":"RPC HTTP error: rate limited (details redacted)","method":"EthGetLogs","reason":"PROVIDER_UNAVAILABLE"}
+```
 
 ## Verification
 

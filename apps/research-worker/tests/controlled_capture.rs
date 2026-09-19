@@ -1603,6 +1603,11 @@ async fn provider_failure_is_redacted_and_killed_collection_stays_unresolved() {
     .await
     .unwrap();
     let log = fs::read_to_string(root.join("worker.log")).unwrap();
+    assert!(log.contains("\"event\":\"acquisition-rpc-failed\""));
+    assert!(
+        log.contains("\"label\":\"RPC HTTP error: provider server failure (details redacted)\"")
+    );
+    assert!(log.contains("\"reason\":\"PROVIDER_UNAVAILABLE\""));
     for text in persisted
         .iter()
         .map(String::as_str)
