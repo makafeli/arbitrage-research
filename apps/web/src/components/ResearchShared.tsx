@@ -10,8 +10,9 @@ export function ResourceStatus({ resource }: { resource: Resource<unknown> }) {
 export function Pagination({ label, page, canPrevious, canNext, loading, previous, next }: { label: string; page: number; canPrevious: boolean; canNext: boolean; loading: boolean; previous: () => void; next: () => void }) {
   return <nav className="research-actions space-top" aria-label={label + ' pagination'}><button disabled={loading || !canPrevious} onClick={previous}>Previous {label}</button><span className="tiny">Page {page} · up to 25 records</span><button disabled={loading || !canNext} onClick={next}>Next {label}</button></nav>;
 }
-// `lang` defaults to 'en': the expert pages that already call this (DecisionExplorer.tsx) are
-// deliberately English-only and never pass it, so they keep their existing label text unchanged.
+// `lang` defaults to 'en': the expert pages that already call this (DecisionExplorer.tsx and
+// CostAssessmentWorkspace.tsx:80) are deliberately English-only and never pass it, so they keep
+// their existing label text unchanged.
 const originLabels: Record<'nl' | 'en', Record<Origin, string>> = {
   en: { SYNTHETIC: 'SYNTHETIC DATASET', MANUALLY_CONSTRUCTED: 'MANUALLY CONSTRUCTED', RECORDED_LIVE: 'RECORDED LIVE INPUT' },
   nl: { SYNTHETIC: 'SYNTHETISCHE DATASET', MANUALLY_CONSTRUCTED: 'HANDMATIG SAMENGESTELD', RECORDED_LIVE: 'VASTGELEGDE LIVE INVOER' },

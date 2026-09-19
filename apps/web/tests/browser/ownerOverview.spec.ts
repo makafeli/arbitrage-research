@@ -37,8 +37,17 @@ const oneDecision = {
   },
 };
 
-async function mockDemo(page: import('@playwright/test').Page, options: { decisions?: unknown[]; failDecisions?: boolean; sessionOverrides?: Partial<typeof session>; collectionCoverageOverrides?: Partial<typeof collectionCoverage> } = {}) {
+// A single decision group (apps/web/src/api/research.ts's DecisionGroup, served from
+// GET /decision-groups): drives the Findings block's per-group "time — n candidates" line.
+const oneGroup = {
+  grouping_version: '1', grouping_key: 'k', window_start_ms: 1700000000000,
+  source_kind: 'CAPTURED_MARKET_DATA', dataset_origin: 'RECORDED_LIVE',
+  raw_observations: '3', quoted_candidates: '2', rejected: '1', no_route: '0', data_unavailable: '0',
+};
+
+async function mockDemo(page: import('@playwright/test').Page, options: { decisions?: unknown[]; failDecisions?: boolean; sessionOverrides?: Partial<typeof session>; collectionCoverageOverrides?: Partial<typeof collectionCoverage>; groups?: unknown[] } = {}) {
   const decisions = options.decisions ?? [];
+  const groups = options.groups ?? [];
   const activeSession = { ...session, ...options.sessionOverrides };
   const activeCollectionCoverage = { ...collectionCoverage, ...options.collectionCoverageOverrides, session_id: activeSession.session_id };
   await page.route('**/v1/**', async route => {
@@ -48,6 +57,7 @@ async function mockDemo(page: import('@playwright/test').Page, options: { decisi
     if (p === '/v1/sessions') { await route.fulfill({ json: { items: [activeSession], next_cursor: null } }); return; }
     if (p === '/v1/decision-coverage') { await route.fulfill({ json: coverage }); return; }
     if (p.endsWith('/collection-coverage')) { await route.fulfill({ json: activeCollectionCoverage }); return; }
+    if (p === '/v1/decision-groups') { await route.fulfill({ json: { items: groups, next_cursor: null } }); return; }
     if (p === '/v1/decisions') {
       if (options.failDecisions) { await route.fulfill({ status: 500, json: { code: 'INTERNAL', message: 'decisions unavailable' } }); return; }
       await route.fulfill({ json: { items: decisions, next_cursor: null } }); return;
@@ -89,10 +99,15 @@ test('owner overview page shows all five plain-language blocks and a working nl/
 });
 
 test('what-if models one real decision at the default stake (which equals its own amount_in_minor, so gross scales 1:1)', async ({ page }) => {
-  await mockDemo(page, { decisions: [oneDecision] });
+  await mockDemo(page, { decisions: [oneDecision], groups: [oneGroup] });
   await page.goto('/');
   await page.getByRole('button', { name: 'Owner overview', exact: true }).click();
   await page.getByLabel('Sessie').selectOption(session.session_id);
+
+  // Default language is Dutch: the top-candidates row's origin badge must render the Dutch label
+  // for RECORDED_LIVE (ResearchShared.tsx's originLabels), not the English one.
+  await expect(page.getByText('VASTGELEGDE LIVE INVOER').first()).toBeVisible();
+
   await page.getByRole('button', { name: 'English', exact: true }).click();
 
   await expect(page.getByText('Top candidates by modeled edge')).toBeVisible();
@@ -101,6 +116,10 @@ test('what-if models one real decision at the default stake (which equals its ow
   await expect(page.locator('.research-exact', { hasText: '500000' }).first()).toBeVisible();
   await expect(page.getByText('no cost assessment in the first 25 stored assessments')).toBeVisible();
   await expect(page.getByText('These numbers scale linearly with your stake')).toBeVisible();
+
+  // The per-group "time — n candidates" line (Findings block) reflects the one decision group
+  // the mock serves, not an empty list.
+  await expect(page.getByText(`${new Date(oneGroup.window_start_ms).toISOString()} — ${oneGroup.quoted_candidates} candidates`)).toBeVisible();
 });
 
 // Regression for a CodeRabbit finding: only the attempts resource rendered a ResourceStatus, so a

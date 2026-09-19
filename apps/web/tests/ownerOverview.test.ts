@@ -68,6 +68,22 @@ function quotedDecision(id: string, grossDeltaMinor: string, opts: { assetIn?: s
     },
   };
 }
+function nonQuotedDecision(id: string, status: 'REJECTED' | 'NO_ROUTE' | 'DATA_UNAVAILABLE'): StoredDecision {
+  return {
+    trace_id: 't-' + id, recorded_at: new Date(NOW).toISOString(),
+    trace: {
+      schema_version: '1.0.0', observation_id: id, session_id: 'session-1', experiment_id: 'e1', generation: '1',
+      configuration_digest: 'cfg', calculation_version: 'v1', strategy_id: 'strat', network_id: 'base-mainnet', mode: 'OBSERVE',
+      source_kind: 'CAPTURED_MARKET_DATA', dataset_origin: 'RECORDED_LIVE', observed_at_unix_ms: NOW, input_age_ms: 0,
+      capture_refs: [],
+      route: [{ pool_id: 'p1', asset_in: BASE_USDC, asset_out: BASE_WETH, venue_family: 'v' }],
+      amount_in_minor: null,
+      result: { status, reason_codes: [] },
+      grouping: { version: '1', key: 'k', window_ms: 60000, window_start_ms: NOW },
+      diagnostics: [],
+    },
+  };
+}
 function costAssessment(observationId: string, overrides: Partial<StoredCostAssessment['assessment']['report']> = {}): StoredCostAssessment {
   return {
     record_id: 'r-' + observationId, recorded_at: new Date(NOW).toISOString(),
@@ -107,6 +123,47 @@ test('status: uses action_* copy for the last command receipt instead of the raw
   const result = statusSummary(session(), receipt({ action: 'PAUSE', status: 'APPLIED' }), coverage(), NOW, NOW, 'en');
   assert.ok(result.lastCommandReceiptLabel.includes('pause'));
   assert.ok(!result.lastCommandReceiptLabel.includes('PAUSE'));
+});
+test('status: a fresh coverage window (age 0) reads "is caught up" (caught_up branch)', () => {
+  const s = session({ observed_state: 'RUNNING', health: 'DEGRADED' });
+  const c = coverage({ window_end_at: new Date(NOW).toISOString() });
+  const result = statusSummary(s, null, c, NOW, NOW, 'en');
+  assert.equal(result.sourceLagLabel, 'is caught up (recently updated)');
+});
+test('status: a coverage window stale for over 5 minutes reads the lag_stale branch text', () => {
+  const s = session({ observed_state: 'RUNNING', health: 'DEGRADED' });
+  const c = coverage({ window_end_at: new Date(NOW - 6 * 60_000).toISOString() });
+  const result = statusSummary(s, null, c, NOW, NOW, 'en');
+  assert.equal(result.sourceLagLabel, 'is stuck — no collection for over 5 minutes');
+});
+// Heartbeat age (workerAliveLabel) is judged against the live clock `nowMs`, while source-lag
+// freshness (sourceLagLabel) is judged against the coverage resource's own fetch time
+// `coverageAtMs` — two distinct parameters of statusSummary, wired separately at
+// OwnerOverview.tsx:68. This pins that split: with nowMs 10 minutes ahead of coverageAtMs, the
+// heartbeat must read ~10 minutes old while the coverage freshness (fetched at coverageAtMs, and
+// itself fresh as of that fetch) stays "caught up". Collapsing both clocks to the same value (the
+// regression this guards against) would make either the heartbeat read 0s or the coverage read
+// stale, depending on which value collapsed onto the other — verified locally by temporarily
+// passing coverageAtMs for both arguments, which fails this assertion, then reverting.
+test('status: heartbeat age uses nowMs while source-lag freshness uses the separate coverageAtMs (clock split)', () => {
+  const coverageAtMs = NOW;
+  const nowMs = coverageAtMs + 10 * 60_000;
+  const s = session({ health: 'DEGRADED', last_heartbeat_at: new Date(coverageAtMs).toISOString() });
+  const c = coverage({ window_end_at: new Date(coverageAtMs).toISOString() });
+  const result = statusSummary(s, null, c, nowMs, coverageAtMs, 'en');
+  assert.equal(result.workerAliveLabel, '600s');
+  assert.equal(result.sourceLagLabel, 'is caught up (recently updated)');
+});
+// RECOVERING is one of the two ACTIVE_STATES (ownerOverview.ts:86) alongside RUNNING: a session
+// coming back from a restart must still be judged for source lag, not treated as "stopped, not
+// collecting" the way a deliberately paused/stopped session is.
+test('status: RECOVERING counts as an active state, not "stopped, not collecting"', () => {
+  const s = session({ observed_state: 'RECOVERING', health: 'DEGRADED' });
+  const c = coverage({ research_attempts: '5', decisions_recorded: '3', window_end_at: new Date(NOW).toISOString() });
+  const result = statusSummary(s, null, c, NOW, NOW, 'en');
+  assert.equal(result.sourceLagLabel, 'is caught up (recently updated)');
+  const health = healthSummary(c, s, NOW, 'en');
+  assert.equal(health.level, 'green');
 });
 test('status: empty (no session) renders not-available-yet, not a fabricated state', () => {
   const result = statusSummary(null, null, null, NOW, NOW, 'en');
@@ -290,6 +347,25 @@ test('what-if: carries dataset_origin onto each candidate', () => {
   const result = whatIfSummary('2', 'base-mainnet', decisions, [], 'en');
   assert.equal(result.candidates[0].datasetOrigin, 'RECORDED_LIVE');
 });
+test('what-if: six same-asset positive-edge decisions produce exactly five candidates (top-five cap)', () => {
+  const decisions = [
+    quotedDecision('a', '100'), quotedDecision('b', '500'), quotedDecision('c', '50'),
+    quotedDecision('d', '300'), quotedDecision('e', '200'), quotedDecision('f', '400'),
+  ];
+  const result = whatIfSummary('2', 'base-mainnet', decisions, [], 'en');
+  assert.equal(result.candidates.length, 5);
+});
+// Real amount_in_minor can legitimately be '0' (a QUOTED row with no stake, still valid per
+// parseDecision) or null (never quoted); the guard at ownerOverview.ts:251 must skip both without
+// throwing on the division that follows.
+test('what-if: a decision with amount_in_minor "0" and one with null are both skipped, without throwing', () => {
+  const zero = quotedDecision('zero', '100', { amountInMinor: '0' });
+  const nullish = quotedDecision('nullish', '100');
+  const withNullAmount: StoredDecision = { ...nullish, trace: { ...nullish.trace, amount_in_minor: null } };
+  let result: ReturnType<typeof whatIfSummary> | undefined;
+  assert.doesNotThrow(() => { result = whatIfSummary('2', 'base-mainnet', [zero, withNullAmount], [], 'en'); });
+  assert.equal(result!.candidates.length, 0);
+});
 
 // ---- Top candidates: filter, sort, cap ---------------------------------------
 test('findings: no data anywhere renders an honest empty state', () => {
@@ -322,6 +398,21 @@ test('findings: carries dataset_origin onto each top candidate', () => {
   const decisions = [quotedDecision('a', '100')];
   const result = findingsSummary(decisionCoverage(), [], decisions, 'en');
   assert.equal(result.topCandidates[0].datasetOrigin, 'RECORDED_LIVE');
+});
+test('findings: rejected/no-route-only decisions render totals but no top candidates', () => {
+  const decisions = [nonQuotedDecision('r1', 'REJECTED'), nonQuotedDecision('n1', 'NO_ROUTE')];
+  const cov = decisionCoverage({ raw_observations: '2', rejected: '1', no_route: '1' });
+  const result = findingsSummary(cov, [], decisions, 'en');
+  assert.equal(result.hasData, true);
+  assert.ok(result.totals !== null);
+  assert.equal(result.totals!.rejected, '1');
+  assert.equal(result.totals!.noRoute, '1');
+  assert.deepEqual(result.topCandidates, []);
+});
+test('findings: each top candidate carries the evidence-ceiling label', () => {
+  const decisions = [quotedDecision('a', '100')];
+  const result = findingsSummary(decisionCoverage(), [], decisions, 'en');
+  assert.equal(result.topCandidates[0].evidenceLabel, 'candidate, not simulated');
 });
 test('findings: exposes first/last batch timestamps from decision coverage', () => {
   const result = findingsSummary(decisionCoverage({ coverage_window_start_ms: 1000, coverage_window_end_ms: 2000 }), [], [], 'en');
