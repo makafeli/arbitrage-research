@@ -67,6 +67,27 @@ class LaunchTests(unittest.TestCase):
         launch.prepare(ENV, '--initialize-and-start', self.root, self.runner)
         self.assertEqual([x[0][1] for x in self.calls], ['--status', '--initialize', '--status'])
 
+    def test_generation_absent_or_one_is_byte_identical(self):
+        baseline = launch.prepare(ENV, '--start', self.root, self.runner)
+        explicit_one = launch.prepare({**ENV, 'ARB_BASE_GENERATION': '1'}, '--start', self.root, self.runner)
+        self.assertEqual(baseline, explicit_one)
+        self.assertNotIn('ARB_BASE_GENERATION', explicit_one)
+        self.assertEqual(explicit_one['ARB_INGEST_STREAM_ID'], 'railway-base-profile-v1')
+        self.assertEqual(explicit_one['ARB_BASE_INGESTION_STREAM'], 'railway-base-profile-v1')
+
+    def test_generation_two_selects_the_new_stream_and_forwards_generation(self):
+        env = launch.prepare({**ENV, 'ARB_BASE_GENERATION': '2'}, '--start', self.root, self.runner)
+        self.assertEqual(env['ARB_INGEST_STREAM_ID'], 'railway-base-profile-v1.g2')
+        self.assertEqual(env['ARB_BASE_INGESTION_STREAM'], 'railway-base-profile-v1.g2')
+        self.assertEqual(env['ARB_BASE_GENERATION'], '2')
+
+    def test_invalid_generation_is_rejected_before_any_child_process(self):
+        for raw in ['0', '01', '100', 'x', ' 2']:
+            self.calls = []
+            with self.subTest(raw=raw), self.assertRaisesRegex(launch.LaunchError, 'GENERATION_REJECTED'):
+                launch.prepare({**ENV, 'ARB_BASE_GENERATION': raw}, '--start', self.root, self.runner)
+            self.assertEqual(self.calls, [])
+
     def test_uncertain_initialization_does_not_retry_or_launch(self):
         def runner(argv, env):
             if '--initialize' in argv:

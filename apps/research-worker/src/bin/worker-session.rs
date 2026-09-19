@@ -19,6 +19,44 @@ fn scope(value: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || b"-_.:".contains(&b))
 }
 
+/// Read `ARB_BASE_GENERATION`: absent = 1 (today's single stream); `2`..`99`
+/// (ASCII digits, no leading zero, no whitespace) selects a later generation
+/// succeeding a HALTED source (#193). Anything else is a fixed rejection.
+fn generation_from_env(raw: Option<&str>) -> Result<u64> {
+    let Some(raw) = raw else { return Ok(1) };
+    let digits = !raw.is_empty() && raw.len() <= 2 && raw.bytes().all(|b| b.is_ascii_digit());
+    if !digits || raw.starts_with('0') {
+        return Err("GENERATION_REJECTED");
+    }
+    raw.parse().map_err(|_| "GENERATION_REJECTED")
+}
+
+/// Idempotency key for a given generation: the original key for generation 1,
+/// unchanged; `<key>.g<N>` for a later generation. Pure, never touches storage.
+fn session_key(generation: u64) -> String {
+    if generation == 1 {
+        CREATION_KEY.to_owned()
+    } else {
+        format!("{CREATION_KEY}.g{generation}")
+    }
+}
+
+/// An observed lifecycle state (`arb_domain::lifecycle::State`, SCREAMING_SNAKE_CASE)
+/// that is safely not running: no admission gate can be currently open.
+fn is_non_running_state(observed_state: &str) -> bool {
+    matches!(observed_state, "STOPPED" | "FAULTED")
+}
+
+/// True when every `base-mainnet` session among `sessions` is in a non-running
+/// observed state (vacuously true when there is none). RUNNING or any starting/
+/// stopping transition (RECOVERING, PAUSING, PAUSED, DRAINING) makes this false.
+fn base_sessions_all_non_running(sessions: &[SessionRecord]) -> bool {
+    sessions
+        .iter()
+        .filter(|session| session.network_id == "base-mainnet")
+        .all(|session| is_non_running_state(&session.observed_state))
+}
+
 fn read_file(path: &Path) -> Result<Vec<u8>> {
     let info = fs::symlink_metadata(path).map_err(|_| "PROFILE_UNAVAILABLE")?;
     if !info.file_type().is_file() || info.len() > 1_048_576 {
@@ -105,10 +143,12 @@ async fn register(
     operator: &str,
     config: &ValidatedConfig,
     write: bool,
+    generation: u64,
 ) -> Result<(SessionRecord, bool)> {
     let request = input(config);
+    let key = session_key(generation);
     if let Some(session) = store
-        .replay_session_creation(operator, CREATION_KEY, &request)
+        .replay_session_creation(operator, &key, &request)
         .await
         .map_err(storage_error)?
     {
@@ -122,10 +162,20 @@ async fn register(
         .list_sessions_page(operator, None, 100)
         .await
         .map_err(storage_error)?;
-    if page.next_cursor.is_some() || page.items.iter().any(|s| s.network_id == "base-mainnet") {
+    // Generation 1 keeps the exact original rule: any existing base-mainnet session
+    // blocks a new registration. A later generation only needs every existing
+    // base-mainnet session to be safely non-running (#193) — it never reuses,
+    // resets or touches those sessions or their streams.
+    let blocked = page.next_cursor.is_some()
+        || if generation == 1 {
+            page.items.iter().any(|s| s.network_id == "base-mainnet")
+        } else {
+            !base_sessions_all_non_running(&page.items)
+        };
+    if blocked {
         // A concurrent same-key registration may have committed between the reads.
         if let Some(session) = store
-            .replay_session_creation(operator, CREATION_KEY, &request)
+            .replay_session_creation(operator, &key, &request)
             .await
             .map_err(storage_error)?
         {
@@ -142,7 +192,7 @@ async fn register(
     // Store serializes equal idempotency keys and rejects changed payloads. A failed
     // session write may retain the immutable configuration, never a partial session.
     let session = store
-        .create_session(operator, CREATION_KEY, request)
+        .create_session(operator, &key, request)
         .await
         .map_err(storage_error)?;
     Ok((session, true))
@@ -158,6 +208,7 @@ async fn run() -> Result<Value> {
     if args.len() != 2 || !matches!(args[0].as_str(), "--register" | "--status") {
         return Err("SESSION_ARGUMENTS_REJECTED");
     }
+    let generation = generation_from_env(std::env::var("ARB_BASE_GENERATION").ok().as_deref())?;
     let operator = std::env::var("ARB_OPERATOR_ID").map_err(|_| "OPERATOR_REQUIRED")?;
     if !scope(&operator) {
         return Err("OPERATOR_REJECTED");
@@ -177,8 +228,14 @@ async fn run() -> Result<Value> {
         .map_err(|_| "DATABASE_UNAVAILABLE")?;
     let store = Store::from_pool(pool);
     // Existing deployed migrations only. Registration never implicitly migrates.
-    let (session, registration_requested) =
-        register(&store, &operator, &config, args[0] == "--register").await?;
+    let (session, registration_requested) = register(
+        &store,
+        &operator,
+        &config,
+        args[0] == "--register",
+        generation,
+    )
+    .await?;
     Ok(json!({
         "status":"BASE_SESSION_REGISTERED",
         "session":session,
@@ -235,5 +292,84 @@ mod tests {
             storage_error(StoreError::InvalidInput("sensitive")),
             "SESSION_STORAGE_UNAVAILABLE"
         );
+    }
+
+    #[test]
+    fn generation_absent_or_explicit_one_is_generation_one() {
+        assert_eq!(generation_from_env(None), Ok(1));
+        assert_eq!(generation_from_env(Some("1")), Ok(1));
+    }
+
+    #[test]
+    fn generation_two_to_ninety_nine_parses_without_leading_zero() {
+        assert_eq!(generation_from_env(Some("2")), Ok(2));
+        assert_eq!(generation_from_env(Some("99")), Ok(99));
+    }
+
+    #[test]
+    fn generation_rejects_zero_leading_zero_overflow_and_whitespace() {
+        for raw in ["0", "01", "100", "x", " 2", "2 ", ""] {
+            assert_eq!(generation_from_env(Some(raw)), Err("GENERATION_REJECTED"));
+        }
+    }
+
+    #[test]
+    fn session_key_is_unchanged_for_generation_one_and_suffixed_afterward() {
+        assert_eq!(session_key(1), CREATION_KEY);
+        assert_eq!(session_key(2), format!("{CREATION_KEY}.g2"));
+        assert_eq!(session_key(99), format!("{CREATION_KEY}.g99"));
+    }
+
+    fn session(network_id: &str, observed_state: &str) -> SessionRecord {
+        SessionRecord {
+            session_id: "session".into(),
+            network_id: network_id.into(),
+            mode: "OBSERVE".into(),
+            observed_state: observed_state.into(),
+            health: "OK".into(),
+            desired_revision: "0".into(),
+            applied_revision: "0".into(),
+            outstanding_attempts: 0,
+            execution_authorized: false,
+            last_heartbeat_at: None,
+            configuration_digest: "sha256:0".into(),
+        }
+    }
+
+    #[test]
+    fn empty_session_list_allows_a_new_base_session() {
+        assert!(base_sessions_all_non_running(&[]));
+    }
+
+    #[test]
+    fn all_stopped_or_faulted_base_sessions_allow_a_new_one() {
+        let sessions = [
+            session("base-mainnet", "STOPPED"),
+            session("base-mainnet", "FAULTED"),
+        ];
+        assert!(base_sessions_all_non_running(&sessions));
+    }
+
+    #[test]
+    fn one_running_base_session_refuses_a_new_one() {
+        let sessions = [
+            session("base-mainnet", "STOPPED"),
+            session("base-mainnet", "RUNNING"),
+        ];
+        assert!(!base_sessions_all_non_running(&sessions));
+    }
+
+    #[test]
+    fn a_starting_or_stopping_transition_refuses_a_new_session() {
+        for observed_state in ["RECOVERING", "PAUSING", "PAUSED", "DRAINING"] {
+            let sessions = [session("base-mainnet", observed_state)];
+            assert!(!base_sessions_all_non_running(&sessions));
+        }
+    }
+
+    #[test]
+    fn a_non_base_network_session_never_blocks_a_base_registration() {
+        let sessions = [session("solana-mainnet", "RUNNING")];
+        assert!(base_sessions_all_non_running(&sessions));
     }
 }
