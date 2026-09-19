@@ -179,11 +179,31 @@ impl Fixture {
                         h
                     }
                     "eth_getLogs" => {
-                        let h = req["params"][0]["blockHash"].as_str().unwrap();
-                        let n = u64::from_str_radix(h.trim_start_matches("0x"), 16).unwrap();
-                        json!([{"address":pool,"blockNumber":format!("0x{n:x}"),"blockHash":h,
-                            "transactionHash":hash(900+n),"transactionIndex":"0x0","logIndex":"0x0","removed":false,
-                            "topics":[arb_evm::events::INITIALIZE],"data":format!("0x{:064x}{:064x}",1_u128<<96,0)}])
+                        // Issue #180: one ranged call per step (fromBlock/toBlock/
+                        // address) replaces the old per-block blockHash filter. One
+                        // synthetic INITIALIZE log is returned for every block in
+                        // the requested range, attributed to that block's own
+                        // (deterministic) header hash.
+                        let bound = |key: &str| {
+                            u64::from_str_radix(
+                                req["params"][0][key]
+                                    .as_str()
+                                    .unwrap()
+                                    .trim_start_matches("0x"),
+                                16,
+                            )
+                            .unwrap()
+                        };
+                        let from = bound("fromBlock");
+                        let to = bound("toBlock");
+                        let logs: Vec<Value> = (from..=to)
+                            .map(|n| {
+                                json!({"address":pool,"blockNumber":format!("0x{n:x}"),"blockHash":hash(n),
+                                    "transactionHash":hash(900+n),"transactionIndex":"0x0","logIndex":"0x0","removed":false,
+                                    "topics":[arb_evm::events::INITIALIZE],"data":format!("0x{:064x}{:064x}",1_u128<<96,0)})
+                            })
+                            .collect();
+                        json!(logs)
                     }
                     other => panic!("unexpected method: {other}"),
                 };

@@ -271,7 +271,7 @@ Volumegroottes zijn configuratie, geen gemeten gebruik. Een onveranderlijke dige
 | Voorbereide kandidaatgrootte | 1 USDC, onderzoeksinvoer; geen gefinancierd handelsbedrag |
 | Capturequota van het profiel | 128 MiB, afzonderlijk van de totale volumesize |
 | Gedocumenteerde RPC-spacing | 75 ms; bestaande request-, tijd- en bytebudgetten blijven gelden |
-| Begrensde Base-inhaalstap | Maximaal 16 blocks binnen het bestaande contract |
+| Begrensde Base-inhaalstap | Maximaal 16 blocks binnen het bestaande contract (sinds #187: 32 blokken, zie docs/BASE-LOG-RECOVERY.md) |
 
 Controleer exacte pooladressen, ABI- en contractidentiteiten in de originele profielbestanden en registry. Reconstrueer ze niet uit tickers of een willekeurige actuele poollijst. [S04] [S07] [S16]
 
@@ -344,7 +344,7 @@ Een goedgekeurde Base-only release kan deze scope verkleinen. Noem geen nieuw ex
 | Productieherstelpunt en uitvoering | In eerdere native capabilitycontrole geen bruikbare container-exec, SQL/reload of backupfunctie via de ChatGPT-koppeling vastgesteld. | Bestaande bevoegde Railway-SSH/CLI-beheersessie en verifieerbare herstelroute gebruiken; mogelijkheden opnieuw vaststellen in de uitvoerende omgeving. | Beheerder, #58 |
 | CI-gatebewijs | Laatste logselectie bevat `CI_WAIT_EXHAUSTED`, daarna een inspectie; hoofd-CI is geslaagd. | Pogingen en exacte revisie reconcilieren vóór activatie. Geen bypass. | Integrator, #58 |
 | Bron en worker | Originele sessie bestaat; laatste inspectie heeft nul streams en geen lease. | Alleen een werkelijk ontbrekende passende bron initialiseren; worker daarna op bestaande sessie starten. | Base / operations, #30, #32, #58 |
-| Broncontinuïteit bij herstart | 16-blockgrens en terminale HALT-regels blijven actief. | Oud of HALTED sourcecheckpoint niet resetten. Bewijs het gedocumenteerde herstelpad of rapporteer een echte beperking. | Base / platform, #30, #32 |
+| Broncontinuïteit bij herstart | 16-blockgrens en terminale HALT-regels blijven actief. (sinds #187: 32 blokken, zie docs/BASE-LOG-RECOVERY.md) | Oud of HALTED sourcecheckpoint niet resetten. Bewijs het gedocumenteerde herstelpad of rapporteer een echte beperking. | Base / platform, #30, #32 |
 | Volledige paperketen | Er zijn boekhoudprimitieven en quotes, maar geen complete automatische keten. | Exacte plannen, complete simulatie, scenarios, kosten en idempotente settlement integreren. | Engine / chain, #39-#49 |
 | Live-uitvoering | Nog geplande aparte laag. | Scope, signer, limieten, journaling, verzending, reconciliatie en onafhankelijke review uitvoeren. | #64-#76 |
 | Certificaatlevenscyclus | Reparatie is eenmalig; de originele image-template is niet gerepareerd. | Heruitgifte en behoud van trust vóór de beschreven vernieuwingstermijn regelen en testen. | Operations, #58 / later onderhoud |
@@ -419,7 +419,7 @@ Beide opdrachten starten het proces, maar sturen **geen onderzoeks-START**. Het 
 
 **Definitie van klaar:** de Base-flow levert herleidbare actuele onderzoekswaarnemingen, providerfouten zijn zichtbaar en de bestaande begrenzingen blijven gelden. Een actieve stream alleen bewijst nog geen volledige quote- of simulatiekwalificatie.
 
-**Herstartrisico:** een verouderd checkpoint kan de 16-blockgrens overschrijden. Dat is geen reden voor een automatische reset of het verhogen van de grens. Test het toegestane herstelpad en maak een echte ontbrekende herstelmogelijkheid expliciet. [S16]
+**Herstartrisico:** een verouderd checkpoint kan de 16-blockgrens overschrijden. (sinds #187: 32 blokken, zie docs/BASE-LOG-RECOVERY.md) Dat is geen reden voor een automatische reset of het verhogen van de grens. Test het toegestane herstelpad en maak een echte ontbrekende herstelmogelijkheid expliciet. [S16]
 
 ### 7.3 Gehoste bediening en dashboard bewijzen
 
@@ -722,7 +722,8 @@ vóór activatie en schakel geen gate uit.
 Initialiseer alleen een werkelijk ontbrekende passende bron. Normale starts
 hergebruiken de bestaande bron. Een launcherstart is geen onderzoeks-START.
 Geen automatische source reset/rearm, geen nieuwe OBSERVE-sessie en geen
-omzeiling van de 16-blockgrens. Gebruik de bestaande geauthenticeerde bediening.
+omzeiling van de 16-blockgrens. (sinds #187: 32 blokken, zie docs/BASE-LOG-RECOVERY.md)
+Gebruik de bestaande geauthenticeerde bediening.
 
 Als beheeruitvoering blokkeert, registreer de exacte ontbrekende mogelijkheid
 en vervolg inhoudelijke ontwikkeling/testen tegen bestaande contracten.
