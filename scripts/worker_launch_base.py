@@ -1,5 +1,6 @@
 #!/usr/bin/python3 -I
-"""Launch the existing anchored Base session. Never implicitly initialize or START."""
+"""Launch the existing anchored Base session, or rotate it into the next
+generation first. Never implicitly initialize or START."""
 from __future__ import annotations
 
 import fcntl
@@ -21,7 +22,7 @@ ROOT = Path('/data/runtime/base-v1')
 STREAM = 'railway-base-profile-v1'
 MAX_OUTPUT = 65536
 MAX_PROFILE = 1048576
-ACTIONS = {'--start', '--initialize-and-start'}
+ACTIONS = {'--start', '--initialize-and-start', '--rotate-and-start'}
 GENERATION_PATTERN = re.compile(r'[1-9][0-9]?')
 
 
@@ -156,13 +157,17 @@ def prepare(source: dict[str, str], action: str, root: Path = ROOT, runner=call)
     require(action in ACTIONS, 'LAUNCH_ARGUMENTS_REJECTED')
     require(stat.S_ISDIR(root.lstat().st_mode), 'PROFILE_DIRECTORY_REJECTED')
     env = environment(source)
+    # A rotation only ever continues a prior generation into the next one; there
+    # is no generation 0 for it to rotate from.
+    if action == '--rotate-and-start':
+        require('ARB_BASE_GENERATION' in env, 'ROTATION_REQUIRES_GENERATION')
     # Generation 1's session was registered before this launcher existed, so it
     # never registers here (byte-identical). A generation >= 2 successor has no
-    # prior registration: its one-time --initialize-and-start deploy must
-    # register the new session first (refused unless every existing
+    # prior registration: its one-time --initialize-and-start or --rotate-and-start
+    # deploy must register the new session first (refused unless every existing
     # base-mainnet session is STOPPED/FAULTED; idempotent on retry) before any
     # source mutation. --start never registers, for any generation.
-    if action == '--initialize-and-start' and 'ARB_BASE_GENERATION' in env:
+    if action in {'--initialize-and-start', '--rotate-and-start'} and 'ARB_BASE_GENERATION' in env:
         code, _, _ = runner(['/usr/local/bin/worker-session', '--register', str(root)], env)
         require(code == 0, 'GENERATION_SESSION_REGISTRATION_REFUSED')
     # The Rust session checker validates configuration+registry against the external
@@ -189,6 +194,13 @@ def prepare(source: dict[str, str], action: str, root: Path = ROOT, runner=call)
         # Existing base-ingest checks absence BEFORE any RPC and never resets a source.
         code, _, _ = runner(['/usr/local/bin/base-ingest', '--initialize'], env)
         require(code == 0, 'SOURCE_INITIALIZATION_REFUSED_OR_UNCERTAIN')
+    if action == '--rotate-and-start':
+        # ARB_INGEST_ROTATE_FROM only ever reaches this one subprocess call; the
+        # env this function returns (and the worker ultimately execs with) never
+        # carries it, so --start and --initialize-and-start stay unaffected.
+        rotate_env = {**env, 'ARB_INGEST_ROTATE_FROM': stream_id(int(env['ARB_BASE_GENERATION']) - 1)}
+        code, _, _ = runner(['/usr/local/bin/base-ingest', '--rotate'], rotate_env)
+        require(code == 0, 'ROTATION_REFUSED_OR_UNCERTAIN')
     code, out, _ = runner(['/usr/local/bin/base-ingest', '--status'], env)
     require(code == 0, 'EXISTING_SOURCE_REQUIRED')
     cursor = json.loads(out, object_pairs_hook=pairs)

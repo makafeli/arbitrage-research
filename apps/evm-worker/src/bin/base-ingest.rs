@@ -234,6 +234,77 @@ async fn database<T>(
             _ => "STORAGE_UNAVAILABLE",
         })
 }
+
+/// `--rotate` never contacts a provider: it validates `ARB_INGEST_ROTATE_FROM`,
+/// refuses while any `base-mainnet` session holds a live lease, then performs
+/// the storage rotation itself.
+async fn rotate_action(store: &Store, operator: &str, stream: &str) -> Result<()> {
+    let from = scope("ARB_INGEST_ROTATE_FROM")?;
+    if arb_storage::next_generation(&from).ok().as_deref() != Some(stream) {
+        return Err("ROTATION_TARGET_NOT_NEXT_GENERATION");
+    }
+    if live_base_lease(store, operator).await? {
+        return Err("ROTATION_BLOCKED_BY_LIVE_LEASE");
+    }
+    emit(
+        "ROTATED",
+        &rotated(store.rotate_ingestion(operator, &from, stream)).await?,
+    )
+}
+
+/// A live lease on any `base-mainnet` session, regardless of its observed
+/// state, means a worker container may still be committing readiness batches
+/// on `from`. This deliberately does not reuse `worker-session`'s
+/// STOPPED/FAULTED exclusion: that check answers a different question (is a
+/// generation bump safe to register), not this one (is anything still able to
+/// write to `from`).
+async fn live_base_lease(store: &Store, operator: &str) -> Result<bool> {
+    let mut cursor: Option<String> = None;
+    loop {
+        let page = database(store.list_sessions_page(operator, cursor.as_deref(), 100)).await?;
+        if page
+            .items
+            .iter()
+            .any(|session| session.network_id == "base-mainnet" && session.health == "DEGRADED")
+        {
+            return Ok(true);
+        }
+        cursor = match page.next_cursor {
+            Some(next) => Some(next),
+            None => return Ok(false),
+        };
+    }
+}
+
+/// Error mapping specific to `rotate_ingestion`, distinct from the generic
+/// `database()` mapping: a rotation refusal is diagnostic (source missing,
+/// halted, advanced past the anchor, or lock-timed-out), not a generic
+/// storage failure.
+async fn rotated(
+    operation: impl std::future::Future<
+        Output = std::result::Result<IngestionCursor, arb_storage::StoreError>,
+    >,
+) -> Result<IngestionCursor> {
+    tokio::time::timeout(Duration::from_secs(15), operation)
+        .await
+        .map_err(|_| "STORAGE_OUTCOME_UNCERTAIN")?
+        .map_err(|e| match e {
+            arb_storage::StoreError::NotFound => "ROTATION_SOURCE_MISSING",
+            arb_storage::StoreError::Conflict("halted ingestion cursor") => {
+                "ROTATION_SOURCE_HALTED"
+            }
+            arb_storage::StoreError::Conflict("ingestion rotation changed") => {
+                "ROTATION_SOURCE_ADVANCED"
+            }
+            arb_storage::StoreError::Database(ref err)
+                if err.as_database_error().and_then(|e| e.code()).as_deref() == Some("55P03") =>
+            {
+                "ROTATION_LOCKED"
+            }
+            _ => "STORAGE_UNAVAILABLE",
+        })
+}
+
 /// Close both known node filters once under the existing independent budget.
 async fn close_filters(endpoint: &str, filters: &mut Option<PoolFilters>) -> Result<()> {
     let Some(mut active) = filters.take() else {
@@ -264,6 +335,9 @@ async fn run(action: String) -> Result<()> {
             "STATUS",
             &database(store.ingestion_cursor(&operator, &stream)).await?,
         );
+    }
+    if action == "--rotate" {
+        return rotate_action(&store, &operator, &stream).await;
     }
     let polls = positive_setting("ARB_INGEST_MAX_POLLS", 1, 1, 100)?;
     let interval = positive_setting("ARB_INGEST_POLL_MS", 2000, 1000, 60_000)?;
@@ -461,7 +535,7 @@ fn main() -> std::process::ExitCode {
     let args: Vec<_> = std::env::args().skip(1).collect();
     if args.is_empty() || args == ["--help"] || args == ["--check"] {
         return if write_record(&json!({"status":"NOT_STARTED","provider_requests":0,
-            "actions":["--migrate","--initialize","--run","--follow","--status"],"execution_authorized":false})).is_ok() {
+            "actions":["--migrate","--initialize","--run","--follow","--status","--rotate"],"execution_authorized":false})).is_ok() {
             std::process::ExitCode::SUCCESS
         } else {
             std::process::ExitCode::from(2)
@@ -470,7 +544,7 @@ fn main() -> std::process::ExitCode {
     if args.len() != 1
         || !matches!(
             args[0].as_str(),
-            "--migrate" | "--initialize" | "--run" | "--follow" | "--status"
+            "--migrate" | "--initialize" | "--run" | "--follow" | "--status" | "--rotate"
         )
     {
         let _ = writeln!(std::io::stderr().lock(), "INVALID_ARGUMENTS");

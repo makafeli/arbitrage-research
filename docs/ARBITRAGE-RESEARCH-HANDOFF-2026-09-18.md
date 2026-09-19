@@ -419,7 +419,7 @@ Beide opdrachten starten het proces, maar sturen **geen onderzoeks-START**. Het 
 
 **Definitie van klaar:** de Base-flow levert herleidbare actuele onderzoekswaarnemingen, providerfouten zijn zichtbaar en de bestaande begrenzingen blijven gelden. Een actieve stream alleen bewijst nog geen volledige quote- of simulatiekwalificatie.
 
-**Herstartrisico:** een verouderd checkpoint kan de 16-blockgrens overschrijden. (sinds #187: 32 blokken, zie docs/BASE-LOG-RECOVERY.md; sinds #197: een providerfout tijdens de inhaalstap is geen terminale HALT meer, het checkpoint blijft staan en wordt bij de volgende poging opnieuw geprobeerd) Dat is geen reden voor een automatische reset of het verhogen van de grens. Test het toegestane herstelpad en maak een echte ontbrekende herstelmogelijkheid expliciet. [S16]
+**Herstartrisico:** een verouderd checkpoint kan de 16-blockgrens overschrijden. (sinds #187: 32 blokken, zie docs/BASE-LOG-RECOVERY.md; sinds #197: een providerfout tijdens de inhaalstap is geen terminale HALT meer, het checkpoint blijft staan en wordt bij de volgende poging opnieuw geprobeerd; sinds #204: `worker-entrypoint worker-launch-base --rotate-and-start` laat een ACTIEVE stream doorlopen in de volgende generatie vóór de retentiegrens van 4096 batches, zie docs/BASE-WORKER-LAUNCH.md) Dat is geen reden voor een automatische reset of het verhogen van de grens. Test het toegestane herstelpad en maak een echte ontbrekende herstelmogelijkheid expliciet. [S16]
 
 ### 7.3 Gehoste bediening en dashboard bewijzen
 

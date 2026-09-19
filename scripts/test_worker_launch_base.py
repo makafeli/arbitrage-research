@@ -122,6 +122,40 @@ class LaunchTests(unittest.TestCase):
         launch.prepare(ENV, '--initialize-and-start', self.root, self.runner)
         self.assertEqual([x[0][1] for x in self.calls], ['--status', '--initialize', '--status'])
 
+    def test_generation_two_rotate_and_start_calls_register_status_rotate_status(self):
+        env = launch.prepare({**ENV, 'ARB_BASE_GENERATION': '2'}, '--rotate-and-start', self.root, self.runner)
+        self.assertEqual([x[0][1] for x in self.calls], ['--register', '--status', '--rotate', '--status'])
+        rotate_call = next(x for x in self.calls if x[0][1] == '--rotate')
+        self.assertEqual(rotate_call[1]['ARB_INGEST_ROTATE_FROM'], 'railway-base-profile-v1')
+        self.assertEqual(env['ARB_INGEST_STREAM_ID'], 'railway-base-profile-v1.g2')
+
+    def test_rotate_and_start_refused_for_generation_one(self):
+        with self.assertRaisesRegex(launch.LaunchError, 'ROTATION_REQUIRES_GENERATION'):
+            launch.prepare(ENV, '--rotate-and-start', self.root, self.runner)
+        self.assertEqual(self.calls, [])
+
+    def test_rotate_and_start_higher_generation_rotates_from_previous(self):
+        launch.prepare({**ENV, 'ARB_BASE_GENERATION': '3'}, '--rotate-and-start', self.root, self.runner)
+        rotate_call = next(x for x in self.calls if x[0][1] == '--rotate')
+        self.assertEqual(rotate_call[1]['ARB_INGEST_ROTATE_FROM'], 'railway-base-profile-v1.g2')
+
+    def test_uncertain_rotation_does_not_retry_or_launch(self):
+        def runner(argv, env):
+            if '--rotate' in argv:
+                self.calls.append((argv, env))
+                return 2, b'', b'private-provider-secret'
+            return self.runner(argv, env)
+        with self.assertRaisesRegex(launch.LaunchError, 'ROTATION_REFUSED_OR_UNCERTAIN'):
+            launch.prepare({**ENV, 'ARB_BASE_GENERATION': '2'}, '--rotate-and-start', self.root, runner)
+        self.assertEqual([x[0][1] for x in self.calls], ['--register', '--status', '--rotate'])
+
+    def test_rotate_and_start_final_env_matches_start(self):
+        start_env = launch.prepare({**ENV, 'ARB_BASE_GENERATION': '2'}, '--start', self.root, self.runner)
+        self.calls = []
+        rotate_env = launch.prepare({**ENV, 'ARB_BASE_GENERATION': '2'}, '--rotate-and-start', self.root, self.runner)
+        self.assertEqual(start_env, rotate_env)
+        self.assertNotIn('ARB_INGEST_ROTATE_FROM', rotate_env)
+
     def test_generation_two_registration_refusal_stops_before_any_source_mutation(self):
         def runner(argv, env):
             if '--register' in argv:
