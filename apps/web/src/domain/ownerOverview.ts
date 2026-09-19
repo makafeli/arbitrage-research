@@ -4,6 +4,7 @@
 import type { Session, CommandReceipt, Network } from '../api/client.ts';
 import type { CollectionAttempt } from '../api/collection.ts';
 import type { Coverage, DecisionGroup, StoredDecision } from '../api/research.ts';
+import { record, text, requireValue } from '../api/research.ts';
 import type { StoredCostAssessment } from '../api/costs.ts';
 
 export type Lang = 'nl' | 'en';
@@ -23,10 +24,11 @@ export const copy = {
     health_reason_fault: 'de sessie staat in storing', health_reason_stale: 'meer dan 5 minuten geen verzameling ontvangen', health_reason_catching_up: 'de verzameling loopt nog achterstand in', health_reason_provider_failure: 'een provider faalde in dit venster', health_reason_ok: 'geen storing, geen achterstand en geen providerfout gezien', health_reason_no_data: 'nog geen verzameling ontvangen om te beoordelen',
     findings_evidence_label: 'kandidaat — niet gesimuleerd',
     whatif_caveat_not_executed: 'OBSERVE-kandidaten worden niet uitgevoerd, niet volledig gesimuleerd en zijn geen winst.',
-    whatif_no_leverage: 'Geen hefboom of flashlening getoond: het uitvoerbewakingsharnas (ARB-028/029) is alleen als los onderdeel getest, en een echt kostenmodel (ARB-041) is nog niet geaccepteerd.',
+    whatif_no_leverage: 'Geen hefboom of flashlening getoond: het uitvoerbewakingsharnas (ARB-028/029) is alleen als los onderdeel getest, en een echt kostenmodel (ARB-025) is nog niet geaccepteerd.',
     whatif_no_candidates: 'geen toegelaten kandidaten in dit start-bezit om te schalen',
     whatif_other_asset: 'kandidaten in een ander start-bezit worden niet geschaald voor deze inzet',
     whatif_no_cost: 'geen kostenbeoordeling vastgelegd voor deze kandidaat',
+    whatif_linear_scaling: 'De cijfers schalen lineair met je inzet (verhouding, geen echte orderboek-simulatie) en gaan uit van USDC als start-bezit.',
     checklist_completed: 'geaccepteerd', checklist_implemented_pending_acceptance: 'gebouwd, wacht op acceptatie', checklist_in_progress: 'in uitvoering', checklist_planned: 'gepland',
     not_available_yet: 'nog niet beschikbaar',
   },
@@ -41,10 +43,11 @@ export const copy = {
     health_reason_fault: 'the session is in a fault state', health_reason_stale: 'no collection received for over 5 minutes', health_reason_catching_up: 'collection is still catching up', health_reason_provider_failure: 'a provider failed in this window', health_reason_ok: 'no fault, no backlog and no provider failure seen', health_reason_no_data: 'no collection received yet to judge',
     findings_evidence_label: 'candidate, not simulated',
     whatif_caveat_not_executed: 'OBSERVE candidates are not executed, not simulated end-to-end, and are not profit.',
-    whatif_no_leverage: 'No leverage or flash loan shown: the execution guard harness (ARB-028/029) has only been tested in isolation, and a real cost model (ARB-041) is not yet accepted.',
+    whatif_no_leverage: 'No leverage or flash loan shown: the execution guard harness (ARB-028/029) has only been tested in isolation, and a real cost model (ARB-025) is not yet accepted.',
     whatif_no_candidates: 'no admitted candidates in this start asset to scale',
     whatif_other_asset: 'candidates in a different start asset are not scaled for this stake',
     whatif_no_cost: 'no cost assessment recorded for this candidate yet',
+    whatif_linear_scaling: 'These numbers scale linearly with your stake (a ratio, not a real order-book simulation) and assume USDC as the start asset.',
     checklist_completed: 'accepted', checklist_implemented_pending_acceptance: 'built, waiting on acceptance', checklist_in_progress: 'in progress', checklist_planned: 'planned',
     not_available_yet: 'not available yet',
   },
@@ -53,13 +56,15 @@ export type CopyKey = keyof typeof copy.nl;
 export function t(lang: Lang, key: CopyKey): string { return copy[lang][key]; }
 
 // ---- Shared freshness helper (Status + Health blocks) ----------------------
-export const STALE_MS = 5 * 60 * 1000; // mandated by the ticket: red at >5 minutes with no collection.
-export const CATCHING_UP_MS = 60 * 1000; // interpretive: no exact number is mandated for "catching up".
+export const STALE_MS = 5 * 60 * 1000; // Health turns red once no collection has been seen for longer than this.
+export const CATCHING_UP_MS = 60 * 1000; // Below STALE_MS but above this, the source is treated as still catching up.
 export type FreshnessLabel = 'unknown' | 'caught_up' | 'catching_up' | 'stale';
 export interface Freshness { ageMs: number | null; label: FreshnessLabel }
 export function collectionFreshness(lastCollectionAt: string | null, nowMs: number): Freshness {
   if (!lastCollectionAt) return { ageMs: null, label: 'unknown' };
-  const ageMs = nowMs - Date.parse(lastCollectionAt);
+  // Clamp to 0: clock skew between the client and the fetch timestamp used as `nowMs` must never
+  // report a collection as being from the future.
+  const ageMs = Math.max(0, nowMs - Date.parse(lastCollectionAt));
   if (ageMs > STALE_MS) return { ageMs, label: 'stale' };
   if (ageMs > CATCHING_UP_MS) return { ageMs, label: 'catching_up' };
   return { ageMs, label: 'caught_up' };
@@ -86,7 +91,8 @@ export function statusSummary(session: Session | null, receipt: CommandReceipt |
   if (!session) return { hasSession: false, modeLabel: t(lang, 'not_available_yet'), stateLabel: t(lang, 'not_available_yet'), workerAliveLabel: t(lang, 'not_available_yet'), sourceLagLabel: t(lang, 'not_available_yet'), lastCommandReceiptLabel: t(lang, 'receipt_none') };
   const fresh = collectionFreshness(latestAttemptAt(attempts), nowMs);
   const workerAliveLabel = fresh.label === 'unknown' ? t(lang, 'worker_unknown') : `${Math.round((fresh.ageMs as number) / 1000)}s`;
-  const sourceLagLabel = fresh.label === 'stale' || fresh.label === 'catching_up' ? t(lang, 'lag_catching_up') : fresh.label === 'caught_up' ? t(lang, 'lag_caught_up') : t(lang, 'lag_unknown');
+  // Status must describe the same freshness Health scores: stale is its own word, never folded into "catching up".
+  const sourceLagLabel = fresh.label === 'stale' ? t(lang, 'lag_stale') : fresh.label === 'catching_up' ? t(lang, 'lag_catching_up') : fresh.label === 'caught_up' ? t(lang, 'lag_caught_up') : t(lang, 'lag_unknown');
   const lastCommandReceiptLabel = receipt ? `${t(lang, `receipt_status_${receipt.status}` as CopyKey)} (${receipt.action})` : t(lang, 'receipt_none');
   return { hasSession: true, modeLabel: t(lang, `mode_${session.mode}` as CopyKey), stateLabel: t(lang, `state_${session.observed_state}` as CopyKey), workerAliveLabel, sourceLagLabel, lastCommandReceiptLabel };
 }
@@ -97,10 +103,11 @@ export interface HealthSummary {
   level: HealthLevel; reasonLabel: string;
   collections: number; admittedLabel: string; halts: number; faults: number; providerFailures: number;
 }
-const DAY_MS = 24 * 60 * 60 * 1000;
+export const DAY_MS = 24 * 60 * 60 * 1000;
 export function healthSummary(attempts: readonly CollectionAttempt[], session: Session | null, nowMs: number, lang: Lang): HealthSummary {
-  // ticket-mandated window: last 24h, drawn from the loaded collection-attempts page(s), not from
-  // an endpoint parameter (collection-coverage exposes no such time filter).
+  // Window: last 24h. The caller is expected to have already fetched attempts starting near this
+  // boundary (see fetchWindow + uuidV7FloorForTimestamp below); this filter is a cheap, redundant
+  // guard against the exact boundary rather than the only thing enforcing the window.
   const windowStart = nowMs - DAY_MS;
   const inWindow = attempts.filter(a => Date.parse(a.started_at) >= windowStart);
   const collections = inWindow.length;
@@ -120,6 +127,31 @@ export function healthSummary(attempts: readonly CollectionAttempt[], session: S
   else { level = 'green'; reasonKey = 'health_reason_ok'; }
 
   return { level, reasonLabel: t(lang, reasonKey), collections, admittedLabel, halts, faults, providerFailures };
+}
+
+// ---- Attempts windowing: Status and Health need the last 24h, not the oldest page --------------
+// collection-attempts and decisions are both listed oldest-first (`WHERE attempt_id/trace_id > cursor
+// ORDER BY attempt_id/trace_id`), and both ids are UUIDv7 (time-ordered). Fetching page one with no
+// cursor therefore returns the first records the session ever produced, not its current state. To
+// get the last 24h instead, start from a synthetic UUIDv7 "floor" for `now - 24h` and page forward.
+export function uuidV7FloorForTimestamp(unixMs: number): string {
+  const hex = Math.max(0, Math.trunc(unixMs)).toString(16).padStart(12, '0').slice(-12);
+  // version=7, variant=10, all other bits zero: the smallest possible UUIDv7 with this timestamp.
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-7000-8000-000000000000`;
+}
+export const MAX_WINDOW_PAGES = 4; // ponytail: bounds the forward walk; raise if a real session outpaces 4 pages/24h.
+export interface WindowPage<T> { items: T[]; next_cursor: string | null }
+export interface WindowResult<T> { items: T[]; truncated: boolean }
+export async function fetchWindow<T>(loadPage: (cursor: string | undefined) => Promise<WindowPage<T>>, floorCursor: string, maxPages: number): Promise<WindowResult<T>> {
+  const items: T[] = [];
+  let cursor: string | undefined = floorCursor;
+  for (let page = 0; page < maxPages; page++) {
+    const result = await loadPage(cursor);
+    items.push(...result.items);
+    if (!result.next_cursor) return { items, truncated: false };
+    cursor = result.next_cursor;
+  }
+  return { items, truncated: true };
 }
 
 // ---- Block 3: Findings --------------------------------------------------------
@@ -145,9 +177,11 @@ export function findingsSummary(coverage: Coverage | null, groups: readonly Deci
 }
 
 // ---- Block 4: What if ---------------------------------------------------------
-// Publicly fixed protocol decimal counts for each network's native asset, used only to convert the
-// hypothetical stake input into minor units for a linear projection. Not an invented business number.
-export const NATIVE_DECIMALS: Record<Network, number> = { 'base-mainnet': 18, 'solana-mainnet': 9 };
+// Both networks' research sessions are configured with USDC as the starting/stake asset
+// (config/research.example.toml: [research] default_starting_asset_symbol = "USDC", a global
+// setting with no per-network override) — not each network's native coin. USDC has 6 decimals
+// on both Base and Solana.
+export const STARTING_ASSET_DECIMALS = 6;
 export function parseStakeToMinor(stakeWhole: string, decimals: number): bigint | null {
   if (!/^[0-9]+(\.[0-9]+)?$/.test(stakeWhole.trim())) return null;
   const [whole, fraction = ''] = stakeWhole.trim().split('.');
@@ -162,15 +196,16 @@ export interface WhatIfSummary {
   caveats: string[]; noLeverageNote: string;
 }
 export function whatIfSummary(stakeWhole: string, network: Network, decisions: readonly StoredDecision[], costAssessments: readonly StoredCostAssessment[], lang: Lang): WhatIfSummary {
-  const decimals = NATIVE_DECIMALS[network];
-  const stakeMinor = parseStakeToMinor(stakeWhole, decimals);
-  const caveats = [t(lang, 'whatif_caveat_not_executed')];
+  const stakeMinor = parseStakeToMinor(stakeWhole, STARTING_ASSET_DECIMALS);
+  const caveats = [t(lang, 'whatif_caveat_not_executed'), t(lang, 'whatif_linear_scaling')];
   const noLeverageNote = t(lang, 'whatif_no_leverage');
   if (stakeMinor === null) return { stakeValid: false, stakeMinor: null, candidates: [], skippedOtherAssetCount: 0, caveats, noLeverageNote };
 
   const quoted = decisions.filter((d): d is StoredDecision & { trace: { amount_in_minor: string; result: { status: 'QUOTED'; gross_delta_minor: string } } } =>
     d.trace.result.status === 'QUOTED' && d.trace.amount_in_minor !== null && BigInt(d.trace.amount_in_minor) > 0n);
-  const sameAsset = quoted.filter(d => d.trace.route[0]?.asset_in === network);
+  // AssetId always serializes as `network:address` (crates/arb-domain/src/identity.rs) — never a
+  // bare network name — so the same-asset check must match the network prefix, not full equality.
+  const sameAsset = quoted.filter(d => (d.trace.route[0]?.asset_in ?? '').startsWith(`${network}:`));
   const skippedOtherAssetCount = quoted.length - sameAsset.length;
 
   const candidates: WhatIfCandidate[] = sameAsset.slice(0, 5).map(d => {
@@ -185,6 +220,25 @@ export function whatIfSummary(stakeWhole: string, network: Network, decisions: r
 // ---- Block 5: Road to PAPER/live ------------------------------------------------
 export interface ProgressTicket { id: string; state: string; remaining_acceptance?: string; issue_url?: string }
 export interface ProgressFile { tickets: ProgressTicket[] }
+// Validates the shape this module actually reads out of planning/implementation-progress.json.
+// A drift in that file's schema fails here (at build/test time, see tests/ownerOverview.test.ts)
+// instead of silently passing through an unchecked `as ProgressFile` cast.
+// A plain (possibly empty) string check: unlike research.ts's text(), an empty string is a valid,
+// meaningful value here (a completed ticket's "remaining_acceptance" is "" — nothing left).
+function optionalPlainString(value: unknown): value is string | undefined { return value === undefined || typeof value === 'string'; }
+export function parseProgressFile(value: unknown): ProgressFile {
+  const root = record(value);
+  requireValue(Array.isArray(root.tickets), 'progress file: "tickets" must be an array.');
+  const tickets = (root.tickets as unknown[]).map((raw): ProgressTicket => {
+    const r = record(raw);
+    requireValue(text(r.id), 'progress ticket: "id" must be a non-empty string.');
+    requireValue(text(r.state), 'progress ticket: "state" must be a non-empty string.');
+    requireValue(optionalPlainString(r.remaining_acceptance), 'progress ticket: "remaining_acceptance" must be a string when present.');
+    requireValue(optionalPlainString(r.issue_url), 'progress ticket: "issue_url" must be a string when present.');
+    return { id: r.id as string, state: r.state as string, remaining_acceptance: r.remaining_acceptance as string | undefined, issue_url: r.issue_url as string | undefined };
+  });
+  return { tickets };
+}
 export const ROAD_TO_LIVE_TICKET_IDS = ['ARB-035', 'ARB-039', 'ARB-041', 'ARB-042', 'ARB-043', 'ARB-044'] as const;
 export interface ChecklistItem { id: string; stateLabel: string; remainingAcceptance: string; issueUrl: string | null }
 export function roadToLiveChecklist(progress: ProgressFile, lang: Lang): ChecklistItem[] {

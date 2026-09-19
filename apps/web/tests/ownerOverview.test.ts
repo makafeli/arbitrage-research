@@ -1,14 +1,16 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { readFileSync } from 'node:fs';
 import type { Session, CommandReceipt } from '../src/api/client.ts';
 import type { CollectionAttempt } from '../src/api/collection.ts';
 import type { Coverage, DecisionGroup, StoredDecision } from '../src/api/research.ts';
 import type { StoredCostAssessment } from '../src/api/costs.ts';
 import {
   statusSummary, healthSummary, findingsSummary, whatIfSummary, roadToLiveChecklist,
-  parseStakeToMinor, collectionFreshness, NATIVE_DECIMALS,
+  parseStakeToMinor, collectionFreshness, STARTING_ASSET_DECIMALS,
+  uuidV7FloorForTimestamp, fetchWindow, parseProgressFile,
 } from '../src/domain/ownerOverview.ts';
-import type { ProgressFile } from '../src/domain/ownerOverview.ts';
+import type { ProgressFile, WindowPage } from '../src/domain/ownerOverview.ts';
 
 const NOW = Date.parse('2026-01-01T00:00:00.000Z');
 
@@ -42,11 +44,11 @@ test('status: healthy session with a recent collection reports caught up', () =>
   assert.equal(result.sourceLagLabel, 'is caught up (recently updated)');
   assert.match(result.lastCommandReceiptLabel, /applied/);
 });
-test('status: degraded session with a stale collection reports catching up in words', () => {
+test('status: degraded session with a stale collection reports stale in words, matching Health', () => {
   const stale = attempt({ started_at: new Date(NOW - 6 * 60_000).toISOString(), finished_at: new Date(NOW - 6 * 60_000).toISOString() });
   const result = statusSummary(session({ observed_state: 'FAULTED' }), null, [stale], NOW, 'nl');
   assert.equal(result.stateLabel, 'in storing');
-  assert.equal(result.sourceLagLabel, 'loopt in (haalt achterstand in)');
+  assert.equal(result.sourceLagLabel, 'loopt vast — meer dan 5 minuten geen verzameling');
   assert.equal(result.lastCommandReceiptLabel, 'nog geen commando vanuit dit venster verstuurd; de dienst biedt geen volledige commandogeschiedenis');
 });
 
@@ -57,19 +59,19 @@ test('health: empty attempts with no fault renders unknown, not invented green/r
   assert.equal(result.collections, 0);
   assert.equal(result.admittedLabel, 'not available yet');
 });
-test('health: healthy window is green with the mandated reason', () => {
+test('health: healthy window is green with the ok reason', () => {
   const result = healthSummary([attempt()], session(), NOW, 'en');
   assert.equal(result.level, 'green');
   assert.equal(result.reasonLabel, 'no fault, no backlog and no provider failure seen');
   assert.equal(result.collections, 1);
   assert.equal(result.admittedLabel, '1/1');
 });
-test('health: a fault forces red even with fresh collections (exact mandated threshold)', () => {
+test('health: a fault forces red even with fresh collections', () => {
   const result = healthSummary([attempt()], session({ observed_state: 'FAULTED' }), NOW, 'en');
   assert.equal(result.level, 'red');
   assert.equal(result.reasonLabel, 'the session is in a fault state');
 });
-test('health: no collection for over 5 minutes is red per the mandated threshold', () => {
+test('health: no collection for over 5 minutes is red', () => {
   const stale = attempt({ started_at: new Date(NOW - 6 * 60_000).toISOString(), finished_at: new Date(NOW - 6 * 60_000).toISOString() });
   const result = healthSummary([stale], session(), NOW, 'en');
   assert.equal(result.level, 'red');
@@ -94,13 +96,22 @@ test('collectionFreshness: null timestamp is unknown, not stale', () => {
 });
 
 // ---- Block 3: Findings ----
+// Real Base mainnet addresses (USDC, WETH9) so asset_in/asset_out are valid `network:address`
+// AssetId strings, as crates/arb-domain/src/identity.rs requires — a bare 'base-mainnet' is
+// never a real value here. amount_in_minor is 2 USDC at 6 decimals, and quoted_output_minor is
+// derived so quoted_output_minor - amount_in_minor === gross_delta_minor (see api/research.ts's
+// parseDecision invariant).
+const BASE_USDC = 'base-mainnet:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913';
+const BASE_WETH = 'base-mainnet:0x4200000000000000000000000000000000000006';
+const DEFAULT_AMOUNT_IN_MINOR = 2_000_000n;
 function decisionQuoted(overrides: Partial<StoredDecision['trace']> = {}, gross = '100'): StoredDecision {
+  const amountInMinor = overrides.amount_in_minor ? BigInt(overrides.amount_in_minor) : DEFAULT_AMOUNT_IN_MINOR;
   return { trace_id: 't1', recorded_at: new Date(NOW).toISOString(), trace: {
     schema_version: '1', observation_id: 'obs-' + gross, session_id: 's1', experiment_id: 'e1', generation: '1',
     configuration_digest: 'cfg', calculation_version: 'v1', strategy_id: 'strat', network_id: 'base-mainnet', mode: 'OBSERVE',
     source_kind: 'CAPTURED_MARKET_DATA', dataset_origin: 'RECORDED_LIVE', observed_at_unix_ms: NOW, input_age_ms: 0,
-    capture_refs: [], route: [{ pool_id: 'p1', asset_in: 'base-mainnet', asset_out: 'base-mainnet:0xUSDC', venue_family: 'v' }],
-    amount_in_minor: '1000000000000000000', result: { status: 'QUOTED', quoted_output_minor: '2', gross_delta_minor: gross, included_pool_fees: [] },
+    capture_refs: [], route: [{ pool_id: 'p1', asset_in: BASE_USDC, asset_out: BASE_WETH, venue_family: 'v' }],
+    amount_in_minor: amountInMinor.toString(), result: { status: 'QUOTED', quoted_output_minor: (amountInMinor + BigInt(gross)).toString(), gross_delta_minor: gross, included_pool_fees: [] },
     grouping: { version: '1', key: 'k', window_ms: 60000, window_start_ms: NOW }, diagnostics: [], ...overrides,
   } };
 }
@@ -140,10 +151,12 @@ test('whatIf: invalid stake input is rejected, not silently coerced', () => {
 test('whatIf: empty candidates for the default stake still returns the caveats', () => {
   const result = whatIfSummary('2', 'base-mainnet', [], [], 'en');
   assert.equal(result.stakeValid, true);
-  assert.equal(result.stakeMinor, (2n * 10n ** 18n).toString());
+  assert.equal(result.stakeMinor, (2n * 10n ** BigInt(STARTING_ASSET_DECIMALS)).toString());
   assert.deepEqual(result.candidates, []);
   assert.match(result.caveats[0], /not executed/);
   assert.match(result.noLeverageNote, /ARB-028/);
+  assert.doesNotMatch(result.noLeverageNote, /ARB-041/);
+  assert.match(result.noLeverageNote, /ARB-025/);
 });
 test('whatIf: scales a same-asset candidate proportionally with BigInt ratio math and finds its cost record', () => {
   const decision = decisionQuoted({}, '10');
@@ -151,24 +164,57 @@ test('whatIf: scales a same-asset candidate proportionally with BigInt ratio mat
     schema_version: '1.0.0', calculation_version: 'decision-bound-exact-costs-v1', assessment_id: 'sha256:' + 'c'.repeat(64), scenario_digest: 'sha256:' + 'd'.repeat(64),
     scenario: {} as StoredCostAssessment['assessment']['scenario'],
     binding: { observation_id: decision.trace.observation_id, decision_digest: 'sha256:' + 'e'.repeat(64), session_id: 's1', experiment_id: 'e1', generation: '1',
-      configuration_digest: 'cfg', decision_calculation_version: 'v1', dataset_origin: 'RECORDED_LIVE', network_id: 'base-mainnet', starting_asset: 'base-mainnet',
-      amount_in_minor: '1000000000000000000', quoted_output_minor: '2', observed_at_unix_ms: NOW },
-    report: { starting_asset: 'base-mainnet', gross_after_quote_included_costs: '10', transaction_net: '5', fully_allocated_net: '3', expenses: [], overhead: { status: 'NOT_ALLOCATED' }, incomplete_reasons: [] },
+      configuration_digest: 'cfg', decision_calculation_version: 'v1', dataset_origin: 'RECORDED_LIVE', network_id: 'base-mainnet', starting_asset: BASE_USDC,
+      amount_in_minor: decision.trace.amount_in_minor as string, quoted_output_minor: decision.trace.result.status === 'QUOTED' ? decision.trace.result.quoted_output_minor : '0', observed_at_unix_ms: NOW },
+    report: { starting_asset: BASE_USDC, gross_after_quote_included_costs: '10', transaction_net: '5', fully_allocated_net: '3', expenses: [], overhead: { status: 'NOT_ALLOCATED' }, incomplete_reasons: [] },
     evidence: 'CANDIDATE' } };
   const result = whatIfSummary('2', 'base-mainnet', [decision], [cost], 'en');
   assert.equal(result.candidates.length, 1);
-  assert.equal(result.candidates[0].modeledGrossEdgeMinor, (10n * 2n * 10n ** 18n / (10n ** 18n)).toString());
+  // stake 2 USDC == the fixture's own amount_in_minor, so the ratio is 1: modeled edge equals the recorded gross.
+  assert.equal(result.candidates[0].modeledGrossEdgeMinor, '10');
   assert.equal(result.candidates[0].recordedCostLabel, '3');
 });
 test('whatIf: a different-network stake asset skips scaling for candidates in another start asset', () => {
-  const decision = decisionQuoted({ network_id: 'solana-mainnet', route: [{ pool_id: 'p1', asset_in: 'solana-mainnet', asset_out: 'x', venue_family: 'v' }] }, '10');
+  const SOLANA_USDC = 'solana-mainnet:EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+  const WRAPPED_SOL = 'solana-mainnet:So11111111111111111111111111111111111111112';
+  const decision = decisionQuoted({ network_id: 'solana-mainnet', route: [{ pool_id: 'p1', asset_in: SOLANA_USDC, asset_out: WRAPPED_SOL, venue_family: 'v' }] }, '10');
   const result = whatIfSummary('2', 'base-mainnet', [decision], [], 'en');
   assert.equal(result.candidates.length, 0);
   assert.equal(result.skippedOtherAssetCount, 1);
 });
 test('parseStakeToMinor: rejects fractional precision beyond the asset decimals instead of rounding', () => {
-  assert.equal(parseStakeToMinor('1.2345678901234567890', NATIVE_DECIMALS['base-mainnet']), null);
-  assert.equal(parseStakeToMinor('1.5', NATIVE_DECIMALS['solana-mainnet']), 1_500_000_000n);
+  assert.equal(parseStakeToMinor('1.2345678901234567890', STARTING_ASSET_DECIMALS), null);
+  assert.equal(parseStakeToMinor('1.5', STARTING_ASSET_DECIMALS), 1_500_000n);
+});
+
+// ---- Attempts windowing helpers ----
+test('uuidV7FloorForTimestamp: produces a canonical UUIDv7 whose timestamp bits round-trip', () => {
+  const ms = Date.parse('2026-01-01T00:00:00.000Z');
+  const uuid = uuidV7FloorForTimestamp(ms);
+  assert.match(uuid, /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-8[0-9a-f]{3}-[0-9a-f]{12}$/);
+  const decodedMs = parseInt(uuid.replace(/-/g, '').slice(0, 12), 16);
+  assert.equal(decodedMs, ms);
+});
+test('uuidV7FloorForTimestamp: clamps negative timestamps to zero instead of throwing', () => {
+  assert.doesNotThrow(() => uuidV7FloorForTimestamp(-1));
+});
+test('fetchWindow: pages forward until next_cursor is null, concatenating items in order', async () => {
+  const pages: WindowPage<number>[] = [
+    { items: [1, 2], next_cursor: 'c1' },
+    { items: [3], next_cursor: null },
+  ];
+  let calls = 0;
+  const result = await fetchWindow(async cursor => { assert.equal(cursor, calls === 0 ? 'floor' : 'c1'); calls++; return pages[calls - 1]; }, 'floor', 4);
+  assert.deepEqual(result.items, [1, 2, 3]);
+  assert.equal(result.truncated, false);
+  assert.equal(calls, 2);
+});
+test('fetchWindow: stops at the page cap and reports truncation instead of paging forever', async () => {
+  let calls = 0;
+  const result = await fetchWindow(async () => { calls++; return { items: [calls], next_cursor: 'more' }; }, 'floor', 3);
+  assert.equal(calls, 3);
+  assert.equal(result.items.length, 3);
+  assert.equal(result.truncated, true);
 });
 
 // ---- Block 5: Road to PAPER/live ----
@@ -194,4 +240,16 @@ test('roadToLive: a ticket missing from the register (degraded input) still fill
   const result = roadToLiveChecklist(progressFixture, 'en');
   const arb044 = result.find(item => item.id === 'ARB-044');
   assert.equal(arb044?.stateLabel, 'not available yet');
+});
+
+// ---- parseProgressFile: validates the real, hand-maintained register (item 6: catch schema drift here) ----
+test('parseProgressFile: accepts the real planning/implementation-progress.json with a non-empty ticket list', () => {
+  const raw = JSON.parse(readFileSync(new URL('../../../planning/implementation-progress.json', import.meta.url), 'utf8'));
+  const parsed = parseProgressFile(raw);
+  assert.ok(parsed.tickets.length > 0);
+  assert.ok(parsed.tickets.every(ticket => typeof ticket.id === 'string' && typeof ticket.state === 'string'));
+});
+test('parseProgressFile: rejects a malformed register instead of silently casting it', () => {
+  assert.throws(() => parseProgressFile({ tickets: [{ state: 'planned' }] }));
+  assert.throws(() => parseProgressFile({}));
 });

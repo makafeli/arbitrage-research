@@ -4,10 +4,12 @@ import { useResearchResource } from '../hooks/useResearchResource';
 import { EmptyResearch, Exact, ResourceStatus } from './ResearchShared';
 import {
   statusSummary, healthSummary, findingsSummary, whatIfSummary, roadToLiveChecklist, copy,
+  parseProgressFile, fetchWindow, uuidV7FloorForTimestamp, MAX_WINDOW_PAGES, DAY_MS,
 } from '../domain/ownerOverview';
-import type { Lang, ProgressFile } from '../domain/ownerOverview';
-// A build-time JSON import: bundled by Vite, never executed by Node's ESM loader (see tests/ownerOverview.test.ts,
-// which loads the same file through readFileSync so the derivation stays testable without a bundler).
+import type { Lang } from '../domain/ownerOverview';
+// Build-time JSON import: bundled by Vite. This file is maintained by hand outside this module's
+// control, so its shape is validated at runtime via parseProgressFile() below rather than trusted
+// with a cast; tests/ownerOverview.test.ts also validates the real file directly.
 import progressFile from '../../../../planning/implementation-progress.json' with { type: 'json' };
 
 const LANG_STORAGE_KEY = 'owner-overview-lang';
@@ -24,13 +26,17 @@ export function OwnerOverview({ active, api, sessions, filter, commands }: Props
   const c = copy[lang];
   const selected = sessions.find(session => session.session_id === sessionId) ?? null;
   const enabled = active && Boolean(selected);
-  const now = Date.now();
 
-  const attempts = useResearchResource(enabled, 'owner-attempts:' + sessionId, signal => api.collectionAttempts(sessionId, undefined, signal));
+  // Attempts are listed oldest-first (see ownerOverview.ts's windowing comment), so Status/Health
+  // need the last 24h fetched explicitly rather than page one. `at` below is this fetch's own
+  // completion time, used as `now` so Status/Health don't resample Date.now() on every render.
+  const attempts = useResearchResource(enabled, 'owner-attempts:' + sessionId, signal =>
+    fetchWindow(cursor => api.collectionAttempts(sessionId, cursor, signal), uuidV7FloorForTimestamp(Date.now() - DAY_MS), MAX_WINDOW_PAGES));
   const coverage = useResearchResource(enabled, 'owner-coverage:' + sessionId, signal => api.coverage(sessionId, signal));
   const groups = useResearchResource(enabled, 'owner-groups:' + sessionId, signal => api.decisionGroups(sessionId, undefined, signal));
   const decisions = useResearchResource(enabled, 'owner-decisions:' + sessionId, signal => api.decisions(sessionId, undefined, signal));
   const costAssessments = useResearchResource(enabled, 'owner-costs:' + sessionId, signal => api.costAssessments(sessionId, undefined, signal));
+  const now = attempts.at ?? Date.now();
 
   const options = sessions.filter(session => filter === 'all' || session.network_id === filter || session.session_id === sessionId);
   const receipt = commands[sessionId]?.receipt ?? null;
@@ -39,7 +45,7 @@ export function OwnerOverview({ active, api, sessions, filter, commands }: Props
   const health = healthSummary(attempts.data?.items ?? [], selected, now, lang);
   const findings = findingsSummary(coverage.data ?? null, groups.data?.items ?? [], decisions.data?.items ?? [], lang);
   const whatIf = selected ? whatIfSummary(stakeInput, selected.network_id, decisions.data?.items ?? [], costAssessments.data?.items ?? [], lang) : null;
-  const checklist = roadToLiveChecklist(progressFile as ProgressFile, lang);
+  const checklist = roadToLiveChecklist(parseProgressFile(progressFile), lang);
 
   return <section className="research-workspace section-spacer" aria-labelledby="owner-overview-title">
     <div className="sectionhead">
@@ -82,7 +88,9 @@ export function OwnerOverview({ active, api, sessions, filter, commands }: Props
           <div className="fact"><span className="metriclabel">{lang === 'nl' ? 'Halts/storingen' : 'Halts/faults'}</span><strong>{health.halts + health.faults}</strong></div>
           <div className="fact"><span className="metriclabel">{lang === 'nl' ? 'Providerfouten' : 'Provider failures'}</span><strong>{health.providerFailures}</strong></div>
         </div>
-        <p className="tiny">{lang === 'nl' ? 'Gebaseerd op de meest recent geladen pagina met verzamelpogingen (maximaal 25), niet op een volledige historie.' : 'Based on the most recently loaded page of collection attempts (up to 25), not a complete history.'}</p>
+        <p className="tiny">{lang === 'nl'
+          ? `Gebaseerd op verzamelpogingen van de afgelopen 24 uur (tot ${MAX_WINDOW_PAGES} pagina's).${attempts.data?.truncated ? ' Deze 24 uur bevat meer pogingen dan opgehaald; de telling hierboven is een ondergrens.' : ''}`
+          : `Based on collection attempts from the last 24h (up to ${MAX_WINDOW_PAGES} pages).${attempts.data?.truncated ? ' This 24h window holds more attempts than were fetched; the counts above are a lower bound.' : ''}`}</p>
       </section>
 
       <section className="panel space-top" aria-labelledby="owner-findings-title">
@@ -95,7 +103,7 @@ export function OwnerOverview({ active, api, sessions, filter, commands }: Props
             <div className="fact"><span className="metriclabel">{lang === 'nl' ? 'Geen route' : 'No route'}</span><strong><Exact value={findings.totals.noRoute} /></strong></div>
             <div className="fact"><span className="metriclabel">{lang === 'nl' ? 'Data onbeschikbaar' : 'Data unavailable'}</span><strong><Exact value={findings.totals.dataUnavailable} /></strong></div>
           </div>}
-          <p className="tiny space-top">{lang === 'nl' ? `${findings.batches.length} beslissingsbatch(es) geladen op deze pagina.` : `${findings.batches.length} decision batch(es) loaded on this page.`}</p>
+          <p className="tiny space-top">{lang === 'nl' ? `${findings.batches.length} oudste beslissingsbatch(es) geladen — niet per se de meest recente.` : `${findings.batches.length} oldest decision batch(es) loaded — not necessarily the most recent.`}</p>
           {findings.topCandidates.length > 0 && <div className="research-scroll" tabIndex={0} aria-label={lang === 'nl' ? 'Beste kandidaten' : 'Top candidates'}>
             <table className="research-table"><caption>{lang === 'nl' ? 'Beste kandidaten op gemodelleerde marge' : 'Top candidates by modeled edge'}</caption>
               <thead><tr><th>{lang === 'nl' ? 'Observatie' : 'Observation'}</th><th>{lang === 'nl' ? 'Route' : 'Route'}</th><th>{lang === 'nl' ? 'Bruto marge (minor)' : 'Gross edge (minor)'}</th><th>{lang === 'nl' ? 'Bewijsniveau' : 'Evidence ceiling'}</th></tr></thead>
@@ -107,7 +115,7 @@ export function OwnerOverview({ active, api, sessions, filter, commands }: Props
 
       <section className="panel space-top" aria-labelledby="owner-whatif-title">
         <h3 id="owner-whatif-title">{lang === 'nl' ? '4. Wat als (hypothetisch)' : '4. What if (hypothetical)'}</h3>
-        <div className="research-field"><label htmlFor="owner-stake">{lang === 'nl' ? `Inzet (${selected.network_id === 'base-mainnet' ? 'ETH' : 'SOL'})` : `Stake (${selected.network_id === 'base-mainnet' ? 'ETH' : 'SOL'})`}</label><input id="owner-stake" value={stakeInput} onChange={event => setStakeInput(event.target.value)} inputMode="decimal" /></div>
+        <div className="research-field"><label htmlFor="owner-stake">{lang === 'nl' ? 'Inzet (USDC)' : 'Stake (USDC)'}</label><input id="owner-stake" value={stakeInput} onChange={event => setStakeInput(event.target.value)} inputMode="decimal" /></div>
         {whatIf && !whatIf.stakeValid && <p className="notice" role="alert">{lang === 'nl' ? 'Ongeldige inzet.' : 'Invalid stake.'}</p>}
         {whatIf && whatIf.stakeValid && (whatIf.candidates.length === 0 ? <EmptyResearch>{c.whatif_no_candidates}</EmptyResearch> : <div className="research-scroll" tabIndex={0} aria-label={lang === 'nl' ? 'Wat-als kandidaten' : 'What-if candidates'}>
           <table className="research-table"><caption>{lang === 'nl' ? 'Gemodelleerde bruto marge bij deze inzet' : 'Modeled gross edge at this stake'}</caption>
