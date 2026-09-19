@@ -348,3 +348,30 @@ async fn corrupted_denormalized_state_is_not_a_worker_authority() {
         Err(StoreError::CorruptState)
     ));
 }
+#[tokio::test]
+async fn claim_conflicts_while_lease_active_and_succeeds_once_it_expires() {
+    let (store, operator, input) = fixture().await;
+    let session = store
+        .create_session(&operator, "create", input)
+        .await
+        .unwrap();
+    let first = store
+        .claim_worker(&operator, &session.session_id, "base-mainnet", "first", 1)
+        .await
+        .unwrap();
+    store.complete_worker_recovery(&first).await.unwrap();
+    // A Railway redeploy overlaps the outgoing container's lease; the new claim must
+    // reject with the exact lease-active conflict while it is still live.
+    assert!(matches!(
+        store
+            .claim_worker(&operator, &session.session_id, "base-mainnet", "second", 1)
+            .await,
+        Err(StoreError::Conflict("worker lease is active"))
+    ));
+    tokio::time::sleep(std::time::Duration::from_millis(1_200)).await;
+    let replacement = store
+        .claim_worker(&operator, &session.session_id, "base-mainnet", "third", 1)
+        .await
+        .unwrap();
+    assert!(replacement.epoch() > first.epoch());
+}

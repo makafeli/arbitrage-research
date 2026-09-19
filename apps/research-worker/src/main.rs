@@ -624,6 +624,62 @@ fn capture_blocking(
     })
 }
 
+/// A Railway redeploy starts the new container while the outgoing one still holds
+/// its lease (at most `arb_storage::worker` accepts a 60 s lease). Retry only that
+/// exact conflict, bounded by the lease length plus margin, then fail as before.
+const CLAIM_RETRY_BUDGET: Duration = Duration::from_secs(75);
+const CLAIM_RETRY_INTERVAL: Duration = Duration::from_millis(1_500);
+
+fn is_lease_active_conflict(error: &StoreError) -> bool {
+    matches!(error, StoreError::Conflict("worker lease is active"))
+}
+
+/// Whether the worker start-up claim should retry given the prior error and how
+/// long it has already spent trying. Any error other than the lease-active
+/// conflict, or exhausting the bounded budget, fails immediately as before.
+fn should_retry_claim(error: &StoreError, elapsed: Duration) -> bool {
+    is_lease_active_conflict(error) && elapsed < CLAIM_RETRY_BUDGET
+}
+
+/// Bounded start-up retry around `ControlWorker::claim`, for exactly the lease-overlap
+/// case a merge-triggered redeploy produces. Never changes lease length, lease
+/// semantics or the single-writer guarantee enforced in `arb_storage::worker`.
+#[allow(clippy::too_many_arguments)]
+async fn claim_worker_with_lease_retry(
+    store: &Store,
+    operator: &str,
+    session_id: &str,
+    network: &str,
+    worker_id: &str,
+    lease_seconds: u32,
+) -> Result<ControlWorker, StoreError> {
+    let start = Instant::now();
+    let mut attempt: u32 = 0;
+    loop {
+        match ControlWorker::claim(
+            store.clone(),
+            operator,
+            session_id,
+            network,
+            worker_id,
+            lease_seconds,
+        )
+        .await
+        {
+            Ok(worker) => return Ok(worker),
+            Err(error) if should_retry_claim(&error, start.elapsed()) => {
+                attempt += 1;
+                println!(
+                    "{}",
+                    json!({"event":"worker-claim-retry","session_id":session_id,"attempt":attempt,"elapsed_ms":start.elapsed().as_millis()})
+                );
+                tokio::time::sleep(CLAIM_RETRY_INTERVAL).await;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
 fn is_generation_fence(error: &StoreError) -> bool {
     matches!(
         error,
@@ -733,8 +789,8 @@ async fn run() -> Result<(), AnyError> {
         // The operator-approved source seed remains the coverage boundary.
         managed_ingestion::cursor(&store, &operator, bound_source.as_ref()).await?;
     }
-    let worker = ControlWorker::claim(
-        store.clone(),
+    let worker = claim_worker_with_lease_retry(
+        &store,
         &operator,
         &session_id,
         network.as_str(),
@@ -1049,6 +1105,21 @@ fn main() -> ExitCode {
 mod tests {
     use super::*;
     use arb_adapter_api::{RpcRecord, TranscriptRpc};
+
+    #[test]
+    fn claim_retry_targets_only_the_lease_active_conflict_within_budget() {
+        let lease_active = StoreError::Conflict("worker lease is active");
+        assert!(should_retry_claim(&lease_active, Duration::from_secs(0)));
+        assert!(should_retry_claim(&lease_active, Duration::from_secs(74)));
+        assert!(!should_retry_claim(&lease_active, Duration::from_secs(75)));
+        assert!(!should_retry_claim(&lease_active, Duration::from_secs(200)));
+
+        // Any other error, including a superficially similar conflict, fails fast.
+        let lease_lost = StoreError::Conflict("worker lease lost");
+        assert!(!should_retry_claim(&lease_lost, Duration::from_secs(0)));
+        let invalid_input = StoreError::InvalidInput("lease must be 1..60 seconds");
+        assert!(!should_retry_claim(&invalid_input, Duration::from_secs(0)));
+    }
 
     #[test]
     fn admission_invariant_conflicts_are_not_misreported_as_operator_suppression() {
