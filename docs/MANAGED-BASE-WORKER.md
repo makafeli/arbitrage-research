@@ -103,8 +103,9 @@ ceiling is reached in around `4096 / 6 ≈ 683` steps, or roughly 3 days of
 continuous stalling-then-jumping; the 64 MiB stream cap can be
 reached sooner depending on log volume per batch. Reaching either ceiling is
 not a silent stop: the worker faults with `MANAGED_SOURCE_PERSISTENCE_FAILED`.
-There is no rotation command yet — starting a fresh stream past that ceiling
-is a follow-up operator tool, not something this change delivers.
+The operator rotation command is `worker-entrypoint worker-launch-base
+--rotate-and-start` (#204), continuing the stream into the next generation at
+its current checkpoint before that ceiling — see docs/BASE-WORKER-LAUNCH.md.
 
 The bounded walk only keeps up with the finalized tip while each ~32-block
 step completes within a capture cycle (roughly 5-35 seconds, driven by

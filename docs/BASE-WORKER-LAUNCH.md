@@ -172,6 +172,42 @@ Neither step auto-initializes on `--start`, and neither issues START itself. The
 worker itself is unchanged: it already receives its stream id and session id from
 the launcher and has no generation concept of its own.
 
+## Owner procedure: rotation of an ACTIVE stream
+
+Rotation (#177/#183/#204) continues a still-**ACTIVE** stream into the next
+generation before it hits the `MAX_BATCHES`/`MAX_STREAM_BYTES` retention
+ceiling — unlike the generation bump above, which only ever follows a
+recorded **HALT**. The old stream is never touched: it stays ACTIVE, keeps
+its checkpoint and batches, and the new generation is anchored at the same
+checkpoint the old one had at rotation time.
+
+1. Record the planned rotation on #58 and send STOP to the currently running
+   session.
+2. Remove the running deployment in the Railway UI so no container keeps
+   committing batches on the old stream. Its worker lease expires within 15s;
+   `--rotate` refuses with `ROTATION_BLOCKED_BY_LIVE_LEASE` while any
+   `base-mainnet` session still holds a live lease, so a refusal here almost
+   always means this step was skipped.
+3. Stage the `ARB_BASE_GENERATION` deployment variable at the next number and
+   the start command `worker-entrypoint worker-launch-base --rotate-and-start`
+   in the same patch, then deploy. This registers the new generation's
+   session (as generation `>= 2` already does for `--initialize-and-start`),
+   rotates the ingestion stream from generation `N-1` onto generation `N` at
+   its current checkpoint, then confirms the new source is `ACTIVE`/
+   `RECORDED_LIVE` before starting the worker. `ARB_BASE_GENERATION=1` is
+   refused with `ROTATION_REQUIRES_GENERATION` — there is no generation `0`
+   to rotate from. A refused or uncertain rotation call is reported as
+   `ROTATION_REFUSED_OR_UNCERTAIN` and never starts the worker.
+4. Stage the start command back to `worker-entrypoint worker-launch-base
+   --start` for subsequent deployments, exactly as with a generation bump.
+5. Read the new session id from `worker-session --status` and press START on
+   that session, not the previous generation's.
+
+`--rotate` itself never contacts a provider: it only reads
+`ARB_INGEST_ROTATE_FROM`/`ARB_INGEST_STREAM_ID`, checks the live-lease and
+next-generation conditions above, and performs the storage rotation. A retry
+of the same rotation is idempotent and stays `ROTATED`.
+
 ## Verification
 
 `test_worker_launch_base.py` checks offline boundaries, including no implicit
