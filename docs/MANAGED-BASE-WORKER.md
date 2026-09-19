@@ -44,9 +44,13 @@ session and one capture volume. There is no automatic session discovery here.
    Base block. It validates the complete original shared quote transcript.
 3. `recover_logs_bounded` verifies the original checkpoint and the precise captured
    target against the node. A newer finalized tip does not shift the target. It
-   fetches missing logs by exact block hash, checks ancestry and pool runtime code,
-   and rechecks canonicality. Empty hash-specific log results are valid evidence of
-   no returned logs, not proof of all historical market coverage. A finalized step
+   fetches missing logs with one ranged `eth_getLogs` call per step, attributes
+   each returned log to its own header-verified block, checks ancestry and pool
+   runtime code at the step's first and last block, and rechecks canonicality.
+   An empty ranged result is valid evidence of no returned logs, not proof of
+   all historical market coverage — see `docs/BASE-LOG-RECOVERY.md`'s "Residual
+   risk of the ranged fetch" for what an absent log does and does not prove.
+   A finalized step
    longer than the bounded per-attempt range is not fetched or rejected in one
    attempt: the walk covers exactly the configured `max_blocks` blocks after the
    checkpoint and returns that reached height, with nothing skipped and no limit
@@ -76,25 +80,26 @@ transcript does not reset request count, retained-response bytes, pacing or the
 cumulative clock. Existing limits remain 5 seconds per request, 60 seconds per
 transport, 4,096 requests and 64 MiB retained responses. Existing capture-volume
 and 65-second evaluation-clock limits are unchanged. Managed recovery uses the
-existing 16-block default range and bounded per-block/total log counts, walked
+existing 32-block default range and bounded per-block/total log counts, walked
 over consecutive captures instead of raised: a finalized step of N blocks takes
-`ceil(N / 16)` consecutive capture attempts, each committing one accepted batch
-of at most 16 blocks against the existing 4,096-batch retention, 2 MiB
+`ceil(N / 32)` consecutive capture attempts, each committing one accepted batch
+of at most 32 blocks against the existing 4,096-batch retention, 2 MiB
 per-batch size limit and 64 MiB per-stream payload cap (`MAX_STREAM_BYTES` in
 `crates/arb-storage/src/ingestion.rs`). It does not increase limits to make a
 late or large capture pass, and stream rotation past that retention remains a
 separate explicit operator step.
 
 At Base's observed pattern of roughly +180 finalized blocks every ~6 minutes,
-each step costs about `ceil(180 / 16) = 12` batches. At that rate the
-4,096-batch ceiling is reached in around `4096 / 12 ≈ 341` steps, or roughly
-1.5 days of continuous stalling-then-jumping; the 64 MiB stream cap can be
+each step costs about `ceil(180 / 32) = 6` batches (issue #180, 2026-09-19:
+halved from 12 by the 16→32 default range). At that rate the 4,096-batch
+ceiling is reached in around `4096 / 6 ≈ 683` steps, or roughly 3 days of
+continuous stalling-then-jumping; the 64 MiB stream cap can be
 reached sooner depending on log volume per batch. Reaching either ceiling is
 not a silent stop: the worker faults with `MANAGED_SOURCE_PERSISTENCE_FAILED`.
 There is no rotation command yet — starting a fresh stream past that ceiling
 is a follow-up operator tool, not something this change delivers.
 
-The bounded walk only keeps up with the finalized tip while each ~16-block
+The bounded walk only keeps up with the finalized tip while each ~32-block
 step completes within a capture cycle (roughly 5-35 seconds, driven by
 `CAPTURE_INTERVAL` plus RPC latency): that requires the RPC round-trip per
 call to stay well under ~350 ms. `source_lag_blocks` on the `capture-written`

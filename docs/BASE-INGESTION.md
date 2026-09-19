@@ -130,7 +130,7 @@ Dashboard STOP does not control this explicitly started standalone process.
 The runtime uses two Tokio I/O threads and at most one blocking recovery task.
 Each poll retains the original 60-second transport budget, five-second request
 timeout and fixed request/byte limits. Recovery still rejects a gap larger than
-16 blocks by default; it does not skip history to fit a window. Persistent limits
+32 blocks by default; it does not skip history to fit a window. Persistent limits
 are 4096 committed batches and 64 MiB serialized payload per stream, with 2 MiB
 per batch. Diagnostic pages are 1–16 batches. New streams are an explicit operator
 operation, not automatic retention-limit rotation. Memory/storage limits are

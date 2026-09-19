@@ -165,9 +165,12 @@ impl<R: ReadRpc, C: FnMut() -> bool> Attempt<'_, R, C> {
     }
 }
 
-/// Fetch a bounded consecutive range after a caller-supplied checkpoint. Select
-/// each log result by blockHash (EIP-234), verify ancestry and canonical endpoints,
-/// and return nothing on any failure. The checkpoint is borrowed immutably.
+/// Fetch a bounded consecutive range after a caller-supplied checkpoint. Fetch
+/// the whole step with one ranged `eth_getLogs` call (`fromBlock`/`toBlock`
+/// over the pool addresses) instead of one call per block, verify ancestry and
+/// canonical endpoints, confirm factory/pool runtime code only at the step's
+/// first and last block (issue #180, 2026-09-19), and return nothing on any
+/// failure. The checkpoint is borrowed immutably.
 ///
 /// A notification/disconnect is only a reason to call this function: it supplies
 /// no finality proof. A larger gap requires an explicit operator/caller recovery
@@ -316,13 +319,27 @@ fn recover_logs_selected(
     if distance == 0 && !target.same_block(checkpoint) {
         return Err(attempt.error(GapReason::CheckpointChanged, Some(target.number)));
     }
-    // Code identity is confirmed only at the two ends of the step. Base runs
-    // Cancun (EIP-6780): the code of a pre-existing contract cannot change
-    // between two blocks, so identity confirmed at the first block of the
-    // step (`original`, i.e. `from`) and the last block (`target`, i.e.
-    // `through`) implies identity at every block in between. This is a
-    // documented change of a source check, accepted by the owner (issue
-    // #180, 2026-09-19).
+    // Code identity is confirmed only at the two ends of the step, not at
+    // every intervening block. Precondition: this holds for steps whose
+    // `from` is at or after Ecotone (Cancun on Base, activated 2024-03-14);
+    // the seeded checkpoint for the registered Base pools is far after that
+    // date, so this is a documented, accepted narrowing (issue #180,
+    // 2026-09-19), not an open risk for the pools this walks today. Under
+    // Ecotone/EIP-6780 the code of a pre-existing contract cannot change
+    // between two blocks, so identity confirmed at `original` (`from`) and
+    // `target` (`through`) implies identity at every block in between.
+    //
+    // The check at `original` is load-bearing: it is the only place this
+    // function verifies that the contract standing at the checkpoint is
+    // still the one on record, and code is now checked AT the checkpoint
+    // block itself, not at `from + 1` as the earlier per-block base walk
+    // did. A checkpoint seeded before a registered pool's creation block
+    // would now fail here with `UnexpectedContractCode` -> `ContinuityLost`
+    // instead of walking past it — theoretical for the registered Base
+    // pools, whose seeded checkpoints all postdate their creation. The check
+    // at `target` is defense in depth: `original`'s check already implies it
+    // under the Ecotone precondition above, so `target`'s check only adds
+    // value if that precondition is somehow violated.
     if distance > 0 {
         for bound in [&original, &target] {
             attempt.code(UNISWAP_V3_FACTORY, &pools[0].factory_runtime_sha256, bound)?;
@@ -356,6 +373,16 @@ fn recover_logs_selected(
     // One ranged eth_getLogs call replaces the old per-block filter. Every
     // log is still attributed to its own already-verified header and every
     // existing bound/ordering/conflict rejection is preserved below.
+    //
+    // Residual risk: a present log is verified against its own header, but an
+    // absent one is not independently verifiable by this request alone — a
+    // stale or split-view provider could return an empty range for blocks
+    // that later have logs committed on the canonical chain. This is bounded,
+    // not proven: `target` is always the `finalized` header (see above,
+    // never a provisional tip), and the by-number rechecks of `target` and
+    // `checkpoint` after the whole range (below, ~line 450 and ~line 455)
+    // would catch a reorg or provider swap that produced a stale empty range.
+    // See docs/BASE-LOG-RECOVERY.md, "Residual risk of the ranged fetch".
     let mut blocks = Vec::with_capacity(distance as usize);
     let mut total_logs = 0_usize;
     if distance > 0 {
