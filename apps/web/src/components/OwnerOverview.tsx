@@ -68,6 +68,10 @@ export function OwnerOverview({ active, api, sessions, filter, commands }: Props
 
     {!selected ? <EmptyResearch>{lang === 'nl' ? 'Kies een sessie om het overzicht te zien.' : 'Choose a session to see the overview.'}</EmptyResearch> : <>
       <ResourceStatus resource={attempts} />
+      <ResourceStatus resource={coverage} />
+      <ResourceStatus resource={groups} />
+      <ResourceStatus resource={decisions} />
+      <ResourceStatus resource={costAssessments} />
 
       <section className="panel space-top" aria-labelledby="owner-status-title">
         <h3 id="owner-status-title">{lang === 'nl' ? '1. Status' : '1. Status'}</h3>

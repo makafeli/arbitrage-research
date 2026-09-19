@@ -29,7 +29,7 @@ const oneDecision = {
   },
 };
 
-async function mockDemo(page: import('@playwright/test').Page, options: { decisions?: unknown[] } = {}) {
+async function mockDemo(page: import('@playwright/test').Page, options: { decisions?: unknown[]; failDecisions?: boolean } = {}) {
   const decisions = options.decisions ?? [];
   await page.route('**/v1/**', async route => {
     const p = new URL(route.request().url()).pathname;
@@ -37,7 +37,10 @@ async function mockDemo(page: import('@playwright/test').Page, options: { decisi
     if (p === '/v1/capabilities') { await route.fulfill({ json: caps }); return; }
     if (p === '/v1/sessions') { await route.fulfill({ json: { items: [session], next_cursor: null } }); return; }
     if (p === '/v1/decision-coverage') { await route.fulfill({ json: coverage }); return; }
-    if (p === '/v1/decisions') { await route.fulfill({ json: { items: decisions, next_cursor: null } }); return; }
+    if (p === '/v1/decisions') {
+      if (options.failDecisions) { await route.fulfill({ status: 500, json: { code: 'INTERNAL', message: 'decisions unavailable' } }); return; }
+      await route.fulfill({ json: { items: decisions, next_cursor: null } }); return;
+    }
     await route.fulfill({ json: emptyPage });
   });
 }
@@ -86,4 +89,17 @@ test('what-if models one real decision at the default stake (which equals its ow
   await expect(page.locator('.research-exact', { hasText: '500000' }).first()).toBeVisible();
   await expect(page.getByText('no cost assessment recorded for this candidate yet')).toBeVisible();
   await expect(page.getByText('These numbers scale linearly with your stake')).toBeVisible();
+});
+
+// Regression for a CodeRabbit finding: only the attempts resource rendered a ResourceStatus, so a
+// failed decisions request silently showed an honest-looking empty candidate list instead of
+// reporting that decision data was unavailable. Every research resource must surface its own status.
+test('a failed decisions request is reported, not shown as an honest-looking empty list', async ({ page }) => {
+  await mockDemo(page, { failDecisions: true });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Owner overview', exact: true }).click();
+  await page.getByLabel('Sessie').selectOption(session.session_id);
+  await page.getByRole('button', { name: 'English', exact: true }).click();
+
+  await expect(page.getByText('Research records unavailable.')).toBeVisible();
 });
