@@ -73,7 +73,14 @@ not a loop in here — the research-worker caller (`managed_ingestion::recover`
 in `apps/research-worker/src/managed_ingestion.rs`) now treats
 `ProviderFailure` as a plain attempt failure rather than a source halt,
 because the checkpoint it would resume from is already untouched; every other
-`GapReason` still marks the source HALTED exactly as before.
+`GapReason` still marks the source HALTED exactly as before. This widening is
+deliberate and covers every RPC error inside a step, including deterministic
+`400`/`402`/`404` answers and a quota or deadline hit on the transport: a STOPPED
+session keeps retrying the same endpoint every cycle until the owner acts, a
+RUNNING one faults after `CAPTURE_READY_AGE`. The session side
+is in `docs/MANAGED-BASE-WORKER.md`: no successful capture for
+`CAPTURE_READY_AGE` still faults the session, the stream stays ACTIVE, and the
+owner recovers with a `--start` redeploy and START.
 
 `arb_evm::backfill::recover_logs_bounded` runs the same chain-identity, ancestry,
 code-identity, log-bound and recheck logic as `recover_logs_through` against an

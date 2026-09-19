@@ -120,8 +120,9 @@ archive or a complete independent provider qualification experiment.
 
 A catch-up exceeding its limits is a source failure, not permission to skip a
 range. This managed mode does not borrow the separate CLI's reconnect budget or
-retry automatically. Provider/429, invalid input, resource and continuity failures
-remain fixed typed failures; no resolved endpoint or provider message is persisted
+retry within an attempt (since #197 a provider failure is retried by the next
+capture attempt, see below). Provider/429, invalid input, resource and continuity
+failures remain fixed typed failures; no resolved endpoint or provider message is persisted
 as a public reason. Freshness, complete tick coverage and transaction simulation
 remain separate original acceptance gates.
 
@@ -147,12 +148,17 @@ persistence attempt fails the worker instead of claiming a current source.
 
 A provider failure during recovery is not one of those terminal faults (issue
 #197, 2026-09-19): the untouched checkpoint is simply retried on the next
-capture attempt, and the collection still ends `ACQUISITION_FAILED` with its
+capture attempt, and the collection still ends `ACQUISITION_FAILED` (or
+`DEADLINE_EXCEEDED` when the per-request deadline was the failure) with its
 `acquisition-rpc-failed` reason. Readiness stays "a good capture younger than
-`CAPTURE_READY_AGE`", not "the last attempt succeeded", so one failed capture
-keeps a RUNNING session ready; two consecutive failed captures still fault the
-worker, but the stream itself stays ACTIVE and no new generation is needed —
-the owner recovers with a `--start` redeploy and START. `ContinuityLost`,
+`CAPTURE_READY_AGE`", not "the last attempt succeeded", so a failed capture
+keeps a RUNNING session ready as long as a capture succeeded within the last
+90 s. In practice the failed attempt plus the next successful one must finish
+within about 80 s (two `CAPTURE_INTERVAL` pauses sit inside the 90 s window);
+at the observed ~46 s cycle that margin is only a few seconds, so a RUNNING
+session can still fault on a single failure. Once no capture has succeeded for
+that long the worker faults, but the stream itself stays ACTIVE and no new
+generation is needed — the owner recovers with a `--start` redeploy and START. `ContinuityLost`,
 `InvalidInput`, `WrongChain`/`CheckpointChanged` and `ResourceLimit` still mark
 the source HALTED exactly as before.
 
