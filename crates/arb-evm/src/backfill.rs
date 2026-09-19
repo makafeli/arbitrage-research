@@ -10,6 +10,18 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 
+/// Largest block range this module asks a provider to cover with one
+/// `eth_getLogs` call. Set to the free-tier cap observed on the provider
+/// behind a live Base worker: a probe (issue #202, 2026-09-19) showed spans
+/// over 10 blocks rejected with JSON-RPC `-32600` ("Under the Free tier
+/// plan, you can make eth_getLogs requests with up to a 10 block range"),
+/// while spans of 10 or fewer answered normally. A paid plan raises the
+/// provider's own cap; this constant may be raised to match it, up to
+/// `BackfillLimits::max_blocks`, without changing anything else here — the
+/// step size, the header walk and every existing check stay exactly as
+/// today regardless of how many chunks a step's logs are split across.
+pub const LOG_RANGE_CHUNK_BLOCKS: u64 = 10;
+
 /// Explicit admission limits, in addition to HttpReadRpc's unchanged byte/time cap.
 #[derive(Clone, Copy, Debug)]
 pub struct BackfillLimits {
@@ -170,11 +182,13 @@ impl<R: ReadRpc, C: FnMut() -> bool> Attempt<'_, R, C> {
 }
 
 /// Fetch a bounded consecutive range after a caller-supplied checkpoint. Fetch
-/// the whole step with one ranged `eth_getLogs` call (`fromBlock`/`toBlock`
-/// over the pool addresses) instead of one call per block, verify ancestry and
-/// canonical endpoints, confirm factory/pool runtime code only at the step's
-/// first and last block (issue #180, 2026-09-19), and return nothing on any
-/// failure. The checkpoint is borrowed immutably.
+/// the whole step with ranged `eth_getLogs` calls (`fromBlock`/`toBlock` over
+/// the pool addresses) instead of one call per block, chunked to at most
+/// `LOG_RANGE_CHUNK_BLOCKS` blocks per call and concatenated in ascending
+/// order (issue #202, 2026-09-19), verify ancestry and canonical endpoints,
+/// confirm factory/pool runtime code only at the step's first and last block
+/// (issue #180, 2026-09-19), and return nothing on any failure. The
+/// checkpoint is borrowed immutably.
 ///
 /// A notification/disconnect is only a reason to call this function: it supplies
 /// no finality proof. A larger gap requires an explicit operator/caller recovery
@@ -374,9 +388,13 @@ fn recover_logs_selected(
         step_headers.push(header);
     }
 
-    // One ranged eth_getLogs call replaces the old per-block filter. Every
-    // log is still attributed to its own already-verified header and every
-    // existing bound/ordering/conflict rejection is preserved below.
+    // Ranged eth_getLogs calls replace the old per-block filter, fetched in
+    // consecutive chunks of at most LOG_RANGE_CHUNK_BLOCKS blocks each (a
+    // step of that size or smaller still issues exactly one call). Chunk
+    // results are concatenated in ascending order before anything below
+    // sees them, so every log is still attributed to its own
+    // already-verified header and every existing bound/ordering/conflict
+    // rejection is preserved unchanged.
     //
     // Residual risk: a present log is verified against its own header, but an
     // absent one is not independently verifiable by this request alone — a
@@ -390,24 +408,31 @@ fn recover_logs_selected(
     let mut blocks = Vec::with_capacity(distance as usize);
     let mut total_logs = 0_usize;
     if distance > 0 {
-        let response = attempt.call(
-            ReadMethod::EthGetLogs,
-            json!([{
-                "fromBlock": format!("0x{:x}", checkpoint.number + 1),
-                "toBlock": format!("0x{:x}", target.number),
-                "address": addresses,
-            }]),
-            Some(target.number),
-        )?;
-        let raw_logs = response
-            .as_array()
-            .ok_or_else(|| attempt.error(GapReason::MalformedLog, Some(target.number)))?;
+        let mut raw_logs: Vec<Value> = Vec::new();
+        let mut chunk_start = checkpoint.number + 1;
+        while chunk_start <= target.number {
+            let chunk_end = (chunk_start + LOG_RANGE_CHUNK_BLOCKS - 1).min(target.number);
+            let response = attempt.call(
+                ReadMethod::EthGetLogs,
+                json!([{
+                    "fromBlock": format!("0x{chunk_start:x}"),
+                    "toBlock": format!("0x{chunk_end:x}"),
+                    "address": addresses,
+                }]),
+                Some(target.number),
+            )?;
+            match response {
+                Value::Array(chunk) => raw_logs.extend(chunk),
+                _ => return Err(attempt.error(GapReason::MalformedLog, Some(target.number))),
+            }
+            chunk_start = chunk_end + 1;
+        }
         // Group by block while requiring the provider's own advertised order
         // (ascending by block number); a log for a block outside the step or
         // returned out of order is rejected before anything else is checked.
         let mut grouped: BTreeMap<u64, Vec<&Value>> = BTreeMap::new();
         let mut last_seen_block: Option<u64> = None;
-        for entry in raw_logs {
+        for entry in &raw_logs {
             let number = quantity(&entry["blockNumber"])
                 .map_err(|_| attempt.error(GapReason::MalformedLog, Some(target.number)))?;
             if number < checkpoint.number + 1
