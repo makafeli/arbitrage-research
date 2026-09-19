@@ -1139,13 +1139,24 @@ async fn shutdown_signal() {
     }
     let _ = tokio::signal::ctrl_c().await;
 }
-fn main() -> ExitCode {
-    let runtime = match tokio::runtime::Builder::new_multi_thread()
+/// The lease is refreshed by the main task every 250 ms and expires after 15 s,
+/// so nothing the main task awaits may queue behind the in-flight capture.
+/// sqlx reopens a pooled connection after `max_lifetime` (30 min) and tokio
+/// resolves the database host on the blocking pool; with a single blocking
+/// thread that lookup waited for the whole catch-up capture (~45 s) and the
+/// worker exited with `worker lease lost` (#58, three times on 2026-09-19).
+// ponytail: 2 = one capture/evaluation (never concurrent, see the poll branch)
+// + one pool reconnect; raise it if a second concurrent pool acquire appears.
+const BLOCKING_THREADS: usize = 2;
+fn runtime() -> std::io::Result<tokio::runtime::Runtime> {
+    tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
-        .max_blocking_threads(1)
+        .max_blocking_threads(BLOCKING_THREADS)
         .enable_all()
         .build()
-    {
+}
+fn main() -> ExitCode {
+    let runtime = match runtime() {
         Ok(runtime) => runtime,
         Err(_) => {
             eprintln!("research-worker runtime unavailable");
@@ -1170,6 +1181,24 @@ mod tests {
     use super::*;
     use arb_adapter_api::{RpcRecord, TranscriptRpc};
     use std::cell::{Cell, RefCell};
+
+    #[test]
+    fn a_pool_reconnect_does_not_wait_behind_the_blocking_capture_thread() {
+        let runtime = runtime().expect("worker runtime");
+        runtime.block_on(async {
+            let capture = tokio::task::spawn_blocking(|| std::thread::sleep(Duration::from_millis(400)));
+            let started = Instant::now();
+            // Stands in for the DNS lookup tokio performs on the blocking pool when
+            // sqlx reopens a pooled connection while a capture is in flight.
+            tokio::task::spawn_blocking(|| ()).await.expect("blocking task");
+            assert!(
+                started.elapsed() < Duration::from_millis(200),
+                "a second blocking task queued behind the capture thread for {:?}; the lease refresh would starve",
+                started.elapsed()
+            );
+            capture.await.expect("capture task");
+        });
+    }
 
     #[test]
     fn claim_retry_targets_only_the_lease_active_conflict_within_budget() {
