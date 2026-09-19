@@ -99,6 +99,10 @@ def generation(source: dict[str, str]) -> int:
 
 
 def stream_id(value: int) -> str:
+    # Shares its .g<N> namespace with checkpoint-anchored stream rotation
+    # (arb_storage::ingestion::next_generation, crates/arb-storage/src/ingestion.rs:117-140,
+    # #177/#183): a rotated railway-base-profile-v1.g2 and generation 2 would
+    # collide on STREAM_ALREADY_EXISTS if both were ever in play.
     return STREAM if value == 1 else f'{STREAM}.g{value}'
 
 

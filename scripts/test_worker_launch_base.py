@@ -85,6 +85,30 @@ class LaunchTests(unittest.TestCase):
         self.assertEqual(env['ARB_BASE_INGESTION_STREAM'], 'railway-base-profile-v1.g2')
         self.assertEqual(env['ARB_BASE_GENERATION'], '2')
 
+    def test_generation_two_status_print_names_its_own_stream(self):
+        # Pins main()'s BASE_WORKER_EXECUTING source_id to the generation-2
+        # stream: mutating the print back to the STREAM constant would still
+        # pass every other test in this file.
+        env = {'ARB_SESSION_ID': SID, 'ARB_BASE_INGESTION_STREAM': 'railway-base-profile-v1.g2'}
+        parent_stat = SimpleNamespace(st_mode=stat.S_IFDIR | 0o700, st_uid=10001)
+        lock_stat = SimpleNamespace(st_mode=stat.S_IFREG | 0o600, st_uid=10001)
+        with patch.object(launch.os, 'getuid', return_value=10001), \
+             patch.object(launch.os, 'getgid', return_value=10001), \
+             patch.object(Path, 'lstat', return_value=parent_stat), \
+             patch.object(launch.os, 'open', return_value=999), \
+             patch.object(launch.os, 'fstat', return_value=lock_stat), \
+             patch.object(launch.fcntl, 'flock'), \
+             patch.object(launch.signal, 'signal'), \
+             patch.object(launch, 'prepare', return_value=env), \
+             patch.object(launch.os, 'set_inheritable'), \
+             patch.object(launch.os, 'close'), \
+             patch.object(launch.os, 'execve', side_effect=OSError('no real worker in a unit test')), \
+             redirect_stdout(io.StringIO()) as out, redirect_stderr(io.StringIO()):
+            self.assertEqual(launch.main(['--initialize-and-start']), 2)
+        printed = json.loads(out.getvalue())
+        self.assertEqual(printed['status'], 'BASE_WORKER_EXECUTING')
+        self.assertEqual(printed['source_id'], 'railway-base-profile-v1.g2')
+
     def test_generation_two_initialize_and_start_registers_before_status(self):
         launch.prepare({**ENV, 'ARB_BASE_GENERATION': '2'}, '--initialize-and-start', self.root, self.runner)
         self.assertEqual([x[0][1] for x in self.calls],

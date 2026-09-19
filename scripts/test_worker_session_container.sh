@@ -150,6 +150,20 @@ expect_failure BASE_SESSION_NOT_REGISTERED "${run[@]}" -e ARB_OPERATOR_ID=operat
 "${run[@]}" -e ARB_OPERATOR_ID=operator "$image" worker-session --register /data/runtime/base-v1 > "$work/first.json"
 "${run[@]}" -e ARB_OPERATOR_ID=operator "$image" worker-session --register /data/runtime/base-v1 > "$work/reused.json"
 "${run[@]}" -e ARB_OPERATOR_ID=operator "$image" worker-session --status /data/runtime/base-v1 > "$work/status.json"
+# Refusal drill (#193): the generation-1 session is still RECOVERING here
+# (asserted below) with no live lease, an orphan analog of a crash between
+# the halt path's separate halt_ingestion/finish_collection/fault commits.
+# Give it a live lease, as a real worker still renewing every 250ms would
+# have, without touching observed_state or the lifecycle snapshot: a
+# generation-2 registration must now be refused rather than silently
+# succeed, and must create nothing.
+docker exec "$database" psql -XqAt -U postgres -v ON_ERROR_STOP=1 -c \
+    "UPDATE research_sessions SET lease_until = now() + interval '1 hour' WHERE operator_id='operator' AND network_id='base-mainnet'" >/dev/null
+expect_failure EXISTING_BASE_SESSION_REQUIRES_SELECTION "${run[@]}" -e ARB_OPERATOR_ID=operator -e ARB_BASE_GENERATION=2 "$image" \
+    worker-session --register /data/runtime/base-v1
+docker exec "$database" psql -XqAt -U postgres -v ON_ERROR_STOP=1 -c \
+    "SELECT count(*) FROM research_sessions WHERE operator_id='operator'" > "$work/refusal-session-count.txt"
+grep -Fx 1 "$work/refusal-session-count.txt" >/dev/null
 # A halted-source successor (#193): once operator's generation-1 session is no
 # longer running, ARB_BASE_GENERATION selects a distinct session key and
 # registers a second, independent session for the same operator instead of
@@ -161,8 +175,11 @@ expect_failure BASE_SESSION_NOT_REGISTERED "${run[@]}" -e ARB_OPERATOR_ID=operat
 # lifecycle snapshot on every read and rejects a mismatch as corrupt state.
 # Neither column is protected by immutable_session_identity, and STOPPED still
 # satisfies the table's `local_fence OR observed_state='RUNNING'` check.
+# lease_until is cleared in the same statement: once STOPPED, is_non_running_state
+# already blocks the old predicate before the lease is even considered, and a
+# genuinely stopped worker holds no lease.
 docker exec "$database" psql -XqAt -U postgres -v ON_ERROR_STOP=1 -c \
-    "UPDATE research_sessions SET observed_state='STOPPED', lifecycle=jsonb_set(lifecycle,'{state}','\"STOPPED\"') WHERE operator_id='operator' AND network_id='base-mainnet'" >/dev/null
+    "UPDATE research_sessions SET observed_state='STOPPED', lifecycle=jsonb_set(lifecycle,'{state}','\"STOPPED\"'), lease_until=NULL WHERE operator_id='operator' AND network_id='base-mainnet'" >/dev/null
 "${run[@]}" -e ARB_OPERATOR_ID=operator -e ARB_BASE_GENERATION=2 "$image" \
     worker-session --register /data/runtime/base-v1 > "$work/gen2-first.json"
 "${run[@]}" -e ARB_OPERATOR_ID=operator -e ARB_BASE_GENERATION=2 "$image" \

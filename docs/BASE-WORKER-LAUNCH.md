@@ -141,17 +141,21 @@ while the current stream is healthy.
 **Owner procedure**, once a halt is recorded on #58:
 
 1. Set the `ARB_BASE_GENERATION` deployment variable to the next number (`2`,
-   `3`, ... — ASCII digits, no leading zero, `1`..`99`). Leaving it unset, or
+   `3`, ... — ASCII digits, no leading zero, `2`..`99`). Leaving it unset, or
    setting it to `1`, keeps today's single stream, byte-identical.
 2. Deploy once with the start command `worker-entrypoint worker-launch-base
    --initialize-and-start`. For generation `N >= 2` this one-time deploy first
-   runs `worker-session --register` itself, before anything else: it is refused
-   unless every existing `base-mainnet` session is already in a non-running
-   observed state (`STOPPED` or `FAULTED`) — a `RUNNING` session, or one
-   mid-transition, requires an explicit selection first and stops the launch
-   before any source mutation. The call is idempotent, so a retried deploy
-   reuses the same generation-N session rather than erroring. Only after that
-   registration succeeds does the launcher seed the **new** stream
+   runs `worker-session --register` itself, before anything else: it is
+   refused while an older `base-mainnet` session is both in a running or
+   transitional observed state (anything but `STOPPED`/`FAULTED`) and has a
+   live worker lease — a real worker renews its 15s lease every 250ms, so a
+   genuinely running session always fails registration this way. A session
+   left behind by a crash (for example between the halt path's separate
+   halt/finish/fault commits) has no live lease and never blocks. If refused,
+   wait for the lease to expire (up to 15s) or stop that worker, then
+   redeploy. The call is idempotent, so a retried deploy reuses the same
+   generation-N session rather than erroring. Only after registration
+   succeeds does the launcher seed the **new** stream
    (`railway-base-profile-v1.g<N>`) at the finalized tip through the existing
    `create_ingestion`/`STREAM_ALREADY_EXISTS` protection — it is not a
    continuation of the halted checkpoint — and then exec the worker.

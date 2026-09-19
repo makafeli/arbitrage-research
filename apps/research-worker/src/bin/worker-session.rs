@@ -19,7 +19,7 @@ fn scope(value: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || b"-_.:".contains(&b))
 }
 
-/// Read `ARB_BASE_GENERATION`: absent = 1 (today's single stream); `2`..`99`
+/// Parse `ARB_BASE_GENERATION`: absent = 1 (today's single stream); `2`..`99`
 /// (ASCII digits, no leading zero, no whitespace) selects a later generation
 /// succeeding a HALTED source (#193). Anything else is a fixed rejection.
 fn generation_from_env(raw: Option<&str>) -> Result<u64> {
@@ -31,8 +31,24 @@ fn generation_from_env(raw: Option<&str>) -> Result<u64> {
     raw.parse().map_err(|_| "GENERATION_REJECTED")
 }
 
+/// Read and parse `ARB_BASE_GENERATION`, matching the sibling style
+/// (`managed_ingestion::enabled`, `capture_source::setting`): an unset
+/// variable is absent (generation 1); anything else that is not valid UTF-8
+/// text is a fixed rejection, never silently treated as absent.
+fn generation_setting() -> Result<u64> {
+    match std::env::var("ARB_BASE_GENERATION") {
+        Ok(value) => generation_from_env(Some(&value)),
+        Err(std::env::VarError::NotPresent) => generation_from_env(None),
+        Err(std::env::VarError::NotUnicode(_)) => Err("GENERATION_REJECTED"),
+    }
+}
+
 /// Idempotency key for a given generation: the original key for generation 1,
 /// unchanged; `<key>.g<N>` for a later generation. Pure, never touches storage.
+/// This shares its `.g<N>` namespace with checkpoint-anchored stream rotation
+/// (`arb_storage::ingestion::next_generation`, `crates/arb-storage/src/ingestion.rs:117-140`,
+/// #177/#183): a rotated `railway-base-profile-v1.g2` and this generation 2
+/// would collide on `STREAM_ALREADY_EXISTS` if both were ever in play.
 fn session_key(generation: u64) -> String {
     if generation == 1 {
         CREATION_KEY.to_owned()
@@ -47,14 +63,29 @@ fn is_non_running_state(observed_state: &str) -> bool {
     matches!(observed_state, "STOPPED" | "FAULTED")
 }
 
-/// True when every `base-mainnet` session among `sessions` is in a non-running
-/// observed state (vacuously true when there is none). RUNNING or any starting/
-/// stopping transition (RECOVERING, PAUSING, PAUSED, DRAINING) makes this false.
-fn base_sessions_all_non_running(sessions: &[SessionRecord]) -> bool {
+/// A session actively blocks a later generation only when BOTH it is in a
+/// running/transitional observed state AND it is provably alive: `health`
+/// is `"DEGRADED"` exactly when `lease_until > now()`
+/// (`crates/arb-storage/src/lib.rs`), and a real worker refreshes its 15s
+/// lease every 250ms, so a live RUNNING/transitional worker always reads
+/// DEGRADED here. The halt path (`main.rs` halt_ingestion -> finish_collection
+/// -> fault) is three separate commits; a crash between them can leave a
+/// RUNNING or RECOVERING row behind a HALTED stream with an expired or absent
+/// lease. Observed-state alone would block every later generation forever
+/// with no non-production escape, so an orphaned row (lease not live) never
+/// blocks: only a session a real worker is currently renewing does.
+fn is_live_running_session(observed_state: &str, health: &str) -> bool {
+    !is_non_running_state(observed_state) && health == "DEGRADED"
+}
+
+/// True when no `base-mainnet` session among `sessions` actively blocks a new
+/// generation (vacuously true when there is none) — see
+/// `is_live_running_session`.
+fn base_sessions_admit_new_generation(sessions: &[SessionRecord]) -> bool {
     sessions
         .iter()
         .filter(|session| session.network_id == "base-mainnet")
-        .all(|session| is_non_running_state(&session.observed_state))
+        .all(|session| !is_live_running_session(&session.observed_state, &session.health))
 }
 
 fn read_file(path: &Path) -> Result<Vec<u8>> {
@@ -163,14 +194,14 @@ async fn register(
         .await
         .map_err(storage_error)?;
     // Generation 1 keeps the exact original rule: any existing base-mainnet session
-    // blocks a new registration. A later generation only needs every existing
-    // base-mainnet session to be safely non-running (#193) — it never reuses,
+    // blocks a new registration. A later generation only needs no existing
+    // base-mainnet session to be actively live (#193) — it never reuses,
     // resets or touches those sessions or their streams.
     let blocked = page.next_cursor.is_some()
         || if generation == 1 {
             page.items.iter().any(|s| s.network_id == "base-mainnet")
         } else {
-            !base_sessions_all_non_running(&page.items)
+            !base_sessions_admit_new_generation(&page.items)
         };
     if blocked {
         // A concurrent same-key registration may have committed between the reads.
@@ -208,7 +239,7 @@ async fn run() -> Result<Value> {
     if args.len() != 2 || !matches!(args[0].as_str(), "--register" | "--status") {
         return Err("SESSION_ARGUMENTS_REJECTED");
     }
-    let generation = generation_from_env(std::env::var("ARB_BASE_GENERATION").ok().as_deref())?;
+    let generation = generation_setting()?;
     let operator = std::env::var("ARB_OPERATOR_ID").map_err(|_| "OPERATOR_REQUIRED")?;
     if !scope(&operator) {
         return Err("OPERATOR_REJECTED");
@@ -320,13 +351,13 @@ mod tests {
         assert_eq!(session_key(99), format!("{CREATION_KEY}.g99"));
     }
 
-    fn session(network_id: &str, observed_state: &str) -> SessionRecord {
+    fn session(network_id: &str, observed_state: &str, health: &str) -> SessionRecord {
         SessionRecord {
             session_id: "session".into(),
             network_id: network_id.into(),
             mode: "OBSERVE".into(),
             observed_state: observed_state.into(),
-            health: "OK".into(),
+            health: health.into(),
             desired_revision: "0".into(),
             applied_revision: "0".into(),
             outstanding_attempts: 0,
@@ -338,38 +369,53 @@ mod tests {
 
     #[test]
     fn empty_session_list_allows_a_new_base_session() {
-        assert!(base_sessions_all_non_running(&[]));
+        assert!(base_sessions_admit_new_generation(&[]));
     }
 
     #[test]
     fn all_stopped_or_faulted_base_sessions_allow_a_new_one() {
         let sessions = [
-            session("base-mainnet", "STOPPED"),
-            session("base-mainnet", "FAULTED"),
+            session("base-mainnet", "STOPPED", "DEGRADED"),
+            session("base-mainnet", "FAULTED", "UNKNOWN"),
         ];
-        assert!(base_sessions_all_non_running(&sessions));
+        assert!(base_sessions_admit_new_generation(&sessions));
     }
 
     #[test]
-    fn one_running_base_session_refuses_a_new_one() {
-        let sessions = [
-            session("base-mainnet", "STOPPED"),
-            session("base-mainnet", "RUNNING"),
-        ];
-        assert!(!base_sessions_all_non_running(&sessions));
+    fn running_with_a_live_lease_refuses_a_new_one() {
+        let sessions = [session("base-mainnet", "RUNNING", "DEGRADED")];
+        assert!(!base_sessions_admit_new_generation(&sessions));
     }
 
     #[test]
-    fn a_starting_or_stopping_transition_refuses_a_new_session() {
+    fn recovering_with_a_live_lease_refuses_a_new_one() {
+        let sessions = [session("base-mainnet", "RECOVERING", "DEGRADED")];
+        assert!(!base_sessions_admit_new_generation(&sessions));
+    }
+
+    #[test]
+    fn running_with_an_expired_lease_is_an_orphan_and_allows_a_new_one() {
+        let sessions = [session("base-mainnet", "RUNNING", "UNREACHABLE")];
+        assert!(base_sessions_admit_new_generation(&sessions));
+    }
+
+    #[test]
+    fn recovering_with_no_lease_ever_taken_is_an_orphan_and_allows_a_new_one() {
+        let sessions = [session("base-mainnet", "RECOVERING", "UNKNOWN")];
+        assert!(base_sessions_admit_new_generation(&sessions));
+    }
+
+    #[test]
+    fn a_starting_or_stopping_transition_with_a_live_lease_refuses_a_new_session() {
         for observed_state in ["RECOVERING", "PAUSING", "PAUSED", "DRAINING"] {
-            let sessions = [session("base-mainnet", observed_state)];
-            assert!(!base_sessions_all_non_running(&sessions));
+            let sessions = [session("base-mainnet", observed_state, "DEGRADED")];
+            assert!(!base_sessions_admit_new_generation(&sessions));
         }
     }
 
     #[test]
     fn a_non_base_network_session_never_blocks_a_base_registration() {
-        let sessions = [session("solana-mainnet", "RUNNING")];
-        assert!(base_sessions_all_non_running(&sessions));
+        let sessions = [session("solana-mainnet", "RUNNING", "DEGRADED")];
+        assert!(base_sessions_admit_new_generation(&sessions));
     }
 }
