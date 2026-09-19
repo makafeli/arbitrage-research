@@ -36,6 +36,7 @@ DEFAULT_RPC = 'https://mainnet.base.org'
 BLOCK_TIME_SECONDS = 2
 BLOCKS_PER_HOUR = 3600 // BLOCK_TIME_SECONDS
 MIN_POLITE_INTERVAL_MS = 250
+USER_AGENT = 'arbitrage-research-history-gap-study/1.0 (+https://github.com/makafeli/arbitrage-research)'
 Q96 = 2 ** 96
 RANGE_ERROR_HINTS = ('block range', 'query returned more', 'limit exceeded',
                       'exceeds', 'too large', 'more than', 'response size')
@@ -102,7 +103,8 @@ class Rpc:
             try:
                 req = urllib.request.Request(
                     self.endpoint, data=body,
-                    headers={'Content-Type': 'application/json'}, method='POST')
+                    headers={'Content-Type': 'application/json', 'User-Agent': USER_AGENT},
+                    method='POST')
                 with urllib.request.urlopen(req, timeout=self.timeout) as response:
                     raw = response.read()
                 parsed = json.loads(raw)
