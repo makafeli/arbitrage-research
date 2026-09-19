@@ -284,14 +284,21 @@ fn excessive_gap_does_not_skip_old_blocks_or_begin_unbounded_recovery() {
     change(&mut fixture.records[fixture.finalized_header], |v| {
         *v = block(200)
     });
+    // Truncate to exactly the 3 calls that must happen before the limit check
+    // (chain id, checkpoint header, finalized header) and require the whole
+    // transcript to be consumed: this pins that recovery does not begin
+    // fetching code, block headers or logs once the gap is already too large.
+    fixture.records.truncate(3);
+    let mut rpc = TranscriptRpc::new(fixture.records);
     let error = recover_logs(
-        &mut TranscriptRpc::new(fixture.records),
+        &mut rpc,
         &pools(),
         &checkpoint(),
         BackfillLimits::default(),
         || false,
     )
     .unwrap_err();
+    rpc.finish().unwrap();
     assert_eq!(error.reason, GapReason::BackfillLimitExceeded);
     assert_eq!(error.requested_through, Some(200));
     assert_eq!(error.checkpoint.number, 100);
@@ -599,13 +606,15 @@ fn counting() -> CountingRpc {
 
 #[test]
 fn one_provider_failure_stops_without_retry_and_preserves_trusted_checkpoint() {
-    // Fixed call, a bound code check, a per-block header, and the ranged log call.
+    // Fixed call, a bound code check, a per-block header, the ranged log
+    // call, and the final target recheck after the range.
     let fixture = step(100, 102, 102, false);
     for failure in [
         0,
         fixture.code_checks[0],
         fixture.block_headers[0],
         fixture.logs.unwrap(),
+        fixture.final_target_recheck,
     ] {
         let mut rpc = counting();
         rpc.fail_at = Some(failure);
@@ -912,9 +921,10 @@ fn exact_target_requires_matching_finalized_canonical_header_and_ancestry() {
     let through = BlockHeader::from_rpc(&block(102)).unwrap();
     let mut fixture = step(100, 101, 102, true);
     fixture.records.truncate(3);
+    let mut rpc = TranscriptRpc::new(fixture.records);
     assert_eq!(
         recover_logs_through(
-            &mut TranscriptRpc::new(fixture.records),
+            &mut rpc,
             &pools(),
             &checkpoint(),
             &through,
@@ -925,6 +935,7 @@ fn exact_target_requires_matching_finalized_canonical_header_and_ancestry() {
         .reason,
         GapReason::FinalityRegressed
     );
+    rpc.finish().unwrap();
     for pick in [
         |f: &Step| f.finalized_header,
         |f: &Step| f.target_resolution.unwrap(),
@@ -934,8 +945,13 @@ fn exact_target_requires_matching_finalized_canonical_header_and_ancestry() {
         change(&mut fixture.records[index], |v| {
             v["hash"] = json!(hash(777))
         });
+        // Only the mutated call and everything before it can be reached
+        // before the mismatch is detected; truncate so `finish()` proves
+        // nothing beyond it was requested.
+        fixture.records.truncate(index + 1);
+        let mut rpc = TranscriptRpc::new(fixture.records);
         let error = recover_logs_through(
-            &mut TranscriptRpc::new(fixture.records),
+            &mut rpc,
             &pools(),
             &checkpoint(),
             &through,
@@ -943,6 +959,7 @@ fn exact_target_requires_matching_finalized_canonical_header_and_ancestry() {
             || false,
         )
         .unwrap_err();
+        rpc.finish().unwrap();
         assert_eq!(error.reason, GapReason::TargetChanged);
         assert_eq!(error.requested_through, Some(102));
     }
@@ -951,9 +968,11 @@ fn exact_target_requires_matching_finalized_canonical_header_and_ancestry() {
     change(&mut fixture.records[index], |v| {
         v["parentHash"] = json!(hash(777))
     });
+    fixture.records.truncate(index + 1);
+    let mut rpc = TranscriptRpc::new(fixture.records);
     assert_eq!(
         recover_logs_through(
-            &mut TranscriptRpc::new(fixture.records),
+            &mut rpc,
             &pools(),
             &checkpoint(),
             &through,
@@ -964,6 +983,7 @@ fn exact_target_requires_matching_finalized_canonical_header_and_ancestry() {
         .reason,
         GapReason::BrokenAncestry
     );
+    rpc.finish().unwrap();
 }
 
 #[test]
@@ -1035,8 +1055,9 @@ fn bounded_recovery_walks_only_the_first_max_blocks_of_a_long_range() {
 fn bounded_recovery_with_a_short_range_matches_recover_logs_through() {
     let through = BlockHeader::from_rpc(&block(104)).unwrap();
     let fixture = step(100, 120, 104, true);
+    let mut expected_rpc = TranscriptRpc::new(fixture.records.clone());
     let expected = recover_logs_through(
-        &mut TranscriptRpc::new(fixture.records.clone()),
+        &mut expected_rpc,
         &pools(),
         &checkpoint(),
         &through,
@@ -1044,8 +1065,10 @@ fn bounded_recovery_with_a_short_range_matches_recover_logs_through() {
         || false,
     )
     .unwrap();
+    expected_rpc.finish().unwrap();
+    let mut actual_rpc = TranscriptRpc::new(fixture.records);
     let actual = recover_logs_bounded(
-        &mut TranscriptRpc::new(fixture.records),
+        &mut actual_rpc,
         &pools(),
         &checkpoint(),
         &through,
@@ -1053,6 +1076,7 @@ fn bounded_recovery_with_a_short_range_matches_recover_logs_through() {
         || false,
     )
     .unwrap();
+    actual_rpc.finish().unwrap();
     assert_eq!(actual, expected);
 }
 
@@ -1069,8 +1093,9 @@ fn bounded_recovery_at_exactly_max_blocks_takes_the_exact_path() {
         json!(["0x84", false]),
         "transcript must contain the requested-header confirmation of 0x84"
     );
+    let mut expected_rpc = TranscriptRpc::new(fixture.records.clone());
     let expected = recover_logs_through(
-        &mut TranscriptRpc::new(fixture.records.clone()),
+        &mut expected_rpc,
         &pools(),
         &checkpoint(),
         &through,
@@ -1078,8 +1103,10 @@ fn bounded_recovery_at_exactly_max_blocks_takes_the_exact_path() {
         || false,
     )
     .unwrap();
+    expected_rpc.finish().unwrap();
+    let mut actual_rpc = TranscriptRpc::new(fixture.records);
     let actual = recover_logs_bounded(
-        &mut TranscriptRpc::new(fixture.records),
+        &mut actual_rpc,
         &pools(),
         &checkpoint(),
         &through,
@@ -1087,6 +1114,7 @@ fn bounded_recovery_at_exactly_max_blocks_takes_the_exact_path() {
         || false,
     )
     .unwrap();
+    actual_rpc.finish().unwrap();
     assert_eq!(actual, expected);
 }
 
@@ -1095,8 +1123,9 @@ fn bounded_recovery_still_rejects_a_target_beyond_finality() {
     let through = BlockHeader::from_rpc(&block(125)).unwrap();
     let mut fixture = step(100, 120, 125, true);
     fixture.records.truncate(3);
+    let mut rpc = TranscriptRpc::new(fixture.records);
     let error = recover_logs_bounded(
-        &mut TranscriptRpc::new(fixture.records),
+        &mut rpc,
         &pools(),
         &checkpoint(),
         &through,
@@ -1104,6 +1133,7 @@ fn bounded_recovery_still_rejects_a_target_beyond_finality() {
         || false,
     )
     .unwrap_err();
+    rpc.finish().unwrap();
     assert_eq!(error.reason, GapReason::FinalityRegressed);
 }
 
