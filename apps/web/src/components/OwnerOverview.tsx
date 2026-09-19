@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import type { CommandReceipt, ControlApi, Network, Session } from '../api/client';
 import { useResearchResource } from '../hooks/useResearchResource';
-import { EmptyResearch, Exact, ResourceStatus } from './ResearchShared';
+import type { Resource } from '../hooks/useResearchResource';
+import { EmptyResearch, Exact, OriginBadge } from './ResearchShared';
 import {
-  statusSummary, healthSummary, findingsSummary, whatIfSummary, roadToLiveChecklist, copy,
-  parseProgressFile, fetchWindow, uuidV7FloorForTimestamp, MAX_WINDOW_PAGES, DAY_MS,
+  statusSummary, healthSummary, findingsSummary, whatIfSummary, roadToLiveChecklist, copy, parseProgressFile,
 } from '../domain/ownerOverview';
 import type { Lang } from '../domain/ownerOverview';
 // Build-time JSON import: bundled by Vite. This file is maintained by hand outside this module's
@@ -18,6 +18,24 @@ function loadLang(): Lang {
 }
 function saveLang(lang: Lang) { try { localStorage.setItem(LANG_STORAGE_KEY, lang); } catch { /* ponytail: best-effort only, a lost preference is not a failure */ } }
 
+// A single, bilingual status line per resource group instead of one raw ResourceStatus per
+// resource (L4): the Dutch page previously carried five English-only lines. Kept local to this
+// component rather than folded into the shared ResearchShared.tsx, which other, deliberately
+// English-only pages also use.
+function CombinedResourceStatus({ resources, lang }: { resources: Resource<unknown>[]; lang: Lang }) {
+  const loading = resources.some(r => r.loading);
+  const failed = resources.filter(r => r.error !== null);
+  const latestAt = resources.reduce<number | null>((max, r) => r.at !== null && (max === null || r.at > max) ? r.at : max, null);
+  const anyMissingData = failed.some(r => r.data === null);
+  return <>
+    {loading && <p className="notice" role="status">{lang === 'nl' ? 'Onderzoeksgegevens laden…' : 'Loading research records…'}</p>}
+    {failed.length > 0 && <div className="notice error-notice" role="alert">
+      <strong>{lang === 'en' ? (anyMissingData ? 'Research records unavailable.' : 'Stale snapshot retained.') : (anyMissingData ? 'Onderzoeksgegevens niet beschikbaar.' : 'Verouderde momentopname behouden.')}</strong>
+    </div>}
+    {latestAt !== null && <p className="tiny space-top">{lang === 'nl' ? `Momentopname ontvangen ${new Date(latestAt).toISOString()}. Handmatige verversing; dit paneel claimt geen doorlopende dekking.` : `Snapshot received ${new Date(latestAt).toISOString()}. Explicit refresh; this panel does not claim continuous coverage.`}</p>}
+  </>;
+}
+
 interface Props { active: boolean; api: ControlApi; sessions: Session[]; filter: Network | 'all'; commands: Record<string, { receipt?: CommandReceipt }> }
 export function OwnerOverview({ active, api, sessions, filter, commands }: Props) {
   const [lang, setLang] = useState<Lang>(loadLang);
@@ -27,23 +45,23 @@ export function OwnerOverview({ active, api, sessions, filter, commands }: Props
   const selected = sessions.find(session => session.session_id === sessionId) ?? null;
   const enabled = active && Boolean(selected);
 
-  // Attempts are listed oldest-first (see ownerOverview.ts's windowing comment), so Status/Health
-  // need the last 24h fetched explicitly rather than page one. `at` below is this fetch's own
-  // completion time, used as `now` so Status/Health don't resample Date.now() on every render.
-  const attempts = useResearchResource(enabled, 'owner-attempts:' + sessionId, signal =>
-    fetchWindow(cursor => api.collectionAttempts(sessionId, cursor, signal), uuidV7FloorForTimestamp(Date.now() - DAY_MS), MAX_WINDOW_PAGES));
+  // Collection coverage is a single, un-paginated, whole-session aggregate (unlike the old 24h
+  // attempt-page walk, it can never be truncated), so it drives both the Status source-lag reading
+  // and the Health counters (H1).
+  const collectionCoverage = useResearchResource(enabled, 'owner-collection-coverage:' + sessionId, signal => api.collectionCoverage(sessionId, signal));
   const coverage = useResearchResource(enabled, 'owner-coverage:' + sessionId, signal => api.coverage(sessionId, signal));
   const groups = useResearchResource(enabled, 'owner-groups:' + sessionId, signal => api.decisionGroups(sessionId, undefined, signal));
   const decisions = useResearchResource(enabled, 'owner-decisions:' + sessionId, signal => api.decisions(sessionId, undefined, signal));
   const costAssessments = useResearchResource(enabled, 'owner-costs:' + sessionId, signal => api.costAssessments(sessionId, undefined, signal));
-  const now = attempts.at ?? Date.now();
+  // Live wall-clock time, not a fetch timestamp: ConnectedApp already re-renders this component on
+  // its own 5s poll tick, so the worker-alive/source-lag reading is never frozen at fetch time (H1).
+  const now = Date.now();
 
   const options = sessions.filter(session => filter === 'all' || session.network_id === filter || session.session_id === sessionId);
   const receipt = commands[sessionId]?.receipt ?? null;
 
-  const attemptsTruncated = attempts.data?.truncated ?? false;
-  const status = statusSummary(selected, receipt, attempts.data?.items ?? [], now, attemptsTruncated, lang);
-  const health = healthSummary(attempts.data?.items ?? [], selected, now, attemptsTruncated, lang);
+  const status = statusSummary(selected, receipt, collectionCoverage.data ?? null, now, lang);
+  const health = healthSummary(collectionCoverage.data ?? null, selected, now, lang);
   const findings = findingsSummary(coverage.data ?? null, groups.data?.items ?? [], decisions.data?.items ?? [], lang);
   const whatIf = selected ? whatIfSummary(stakeInput, selected.network_id, decisions.data?.items ?? [], costAssessments.data?.items ?? [], lang) : null;
   const checklist = roadToLiveChecklist(parseProgressFile(progressFile), lang);
@@ -63,39 +81,32 @@ export function OwnerOverview({ active, api, sessions, filter, commands }: Props
           {options.map(session => <option key={session.session_id} value={session.session_id}>{session.session_id} · {session.network_id} · {session.mode}</option>)}
         </select>
       </div>
-      <button disabled={!enabled} onClick={() => { attempts.refresh(); coverage.refresh(); groups.refresh(); decisions.refresh(); costAssessments.refresh(); }}>{lang === 'nl' ? 'Vernieuwen' : 'Refresh'}</button>
+      <button disabled={!enabled} onClick={() => { collectionCoverage.refresh(); coverage.refresh(); groups.refresh(); decisions.refresh(); costAssessments.refresh(); }}>{lang === 'nl' ? 'Vernieuwen' : 'Refresh'}</button>
     </div>
 
     {!selected ? <EmptyResearch>{lang === 'nl' ? 'Kies een sessie om het overzicht te zien.' : 'Choose a session to see the overview.'}</EmptyResearch> : <>
-      <ResourceStatus resource={attempts} />
-      <ResourceStatus resource={coverage} />
-      <ResourceStatus resource={groups} />
-      <ResourceStatus resource={decisions} />
-      <ResourceStatus resource={costAssessments} />
+      <CombinedResourceStatus resources={[collectionCoverage, coverage, groups, decisions, costAssessments]} lang={lang} />
 
       <section className="panel space-top" aria-labelledby="owner-status-title">
         <h3 id="owner-status-title">{lang === 'nl' ? '1. Status' : '1. Status'}</h3>
         <div className="research-facts">
           <div className="fact"><span className="metriclabel">{lang === 'nl' ? 'Modus' : 'Mode'}</span><strong>{status.modeLabel}</strong></div>
           <div className="fact"><span className="metriclabel">{lang === 'nl' ? 'Toestand' : 'State'}</span><strong>{status.stateLabel}</strong></div>
-          <div className="fact"><span className="metriclabel">{lang === 'nl' ? 'Werker actief (leeftijd laatste verzameling)' : 'Worker alive (age of last collection)'}</span><strong>{status.workerAliveLabel}</strong></div>
+          <div className="fact"><span className="metriclabel">{lang === 'nl' ? 'Werker actief (leeftijd hartslag)' : 'Worker alive (heartbeat age)'}</span><strong>{status.workerAliveLabel}</strong></div>
           <div className="fact"><span className="metriclabel">{lang === 'nl' ? 'Bronachterstand' : 'Source lag'}</span><strong>{status.sourceLagLabel}</strong></div>
           <div className="fact"><span className="metriclabel">{lang === 'nl' ? 'Laatste commando-ontvangst' : 'Last command receipt'}</span><strong>{status.lastCommandReceiptLabel}</strong></div>
         </div>
       </section>
 
       <section className="panel space-top" aria-labelledby="owner-health-title">
-        <h3 id="owner-health-title">{lang === 'nl' ? '2. Gezondheid (laatste 24 uur)' : '2. Health (last 24h)'}</h3>
+        <h3 id="owner-health-title">{lang === 'nl' ? '2. Gezondheid (sinds start sessie)' : '2. Health (since session start)'}</h3>
         <p><span className={'pill ' + (health.level === 'red' ? 'red' : health.level === 'amber' ? 'amber' : health.level === 'green' ? 'green' : '')}>{c[`health_${health.level}` as keyof typeof c]}</span> — {health.reasonLabel}</p>
         <div className="research-metrics">
-          <div className="fact"><span className="metriclabel">{lang === 'nl' ? 'Verzamelingen' : 'Collections'}</span><strong>{health.collections}</strong></div>
+          <div className="fact"><span className="metriclabel">{lang === 'nl' ? 'Verzamelpogingen' : 'Collection attempts'}</span><strong><Exact value={health.collections} /></strong></div>
           <div className="fact"><span className="metriclabel">{lang === 'nl' ? 'Toegelaten aandeel' : 'Admitted share'}</span><strong>{health.admittedLabel}</strong></div>
-          <div className="fact"><span className="metriclabel">{lang === 'nl' ? 'Halts/storingen' : 'Halts/faults'}</span><strong>{health.halts + health.faults}</strong></div>
-          <div className="fact"><span className="metriclabel">{lang === 'nl' ? 'Providerfouten' : 'Provider failures'}</span><strong>{health.providerFailures}</strong></div>
+          <div className="fact"><span className="metriclabel">{lang === 'nl' ? 'Mislukte pogingen' : 'Failed attempts'}</span><strong><Exact value={health.failedAttempts} /></strong></div>
         </div>
-        <p className="tiny">{lang === 'nl'
-          ? `Gebaseerd op verzamelpogingen van de afgelopen 24 uur (tot ${MAX_WINDOW_PAGES} pagina's).${attempts.data?.truncated ? ' Deze 24 uur bevat meer pogingen dan opgehaald; de telling hierboven is een ondergrens.' : ''}`
-          : `Based on collection attempts from the last 24h (up to ${MAX_WINDOW_PAGES} pages).${attempts.data?.truncated ? ' This 24h window holds more attempts than were fetched; the counts above are a lower bound.' : ''}`}</p>
+        <p className="tiny">{c.health_failed_attempts_note}</p>
       </section>
 
       <section className="panel space-top" aria-labelledby="owner-findings-title">
@@ -108,11 +119,14 @@ export function OwnerOverview({ active, api, sessions, filter, commands }: Props
             <div className="fact"><span className="metriclabel">{lang === 'nl' ? 'Geen route' : 'No route'}</span><strong><Exact value={findings.totals.noRoute} /></strong></div>
             <div className="fact"><span className="metriclabel">{lang === 'nl' ? 'Data onbeschikbaar' : 'Data unavailable'}</span><strong><Exact value={findings.totals.dataUnavailable} /></strong></div>
           </div>}
-          <p className="tiny space-top">{lang === 'nl' ? `${findings.batches.length} oudste beslissingsbatch(es) geladen — niet per se de meest recente.` : `${findings.batches.length} oldest decision batch(es) loaded — not necessarily the most recent.`}</p>
+          <p className="tiny space-top">{lang === 'nl' ? `Eerste ${findings.batches.length} groepen geladen.` : `First ${findings.batches.length} groups loaded.`}</p>
+          {(findings.firstBatchAtMs !== null || findings.lastBatchAtMs !== null) && <p className="tiny">{lang === 'nl'
+            ? `Eerste batch ${findings.firstBatchAtMs === null ? 'onbekend' : new Date(findings.firstBatchAtMs).toISOString()} · laatste batch ${findings.lastBatchAtMs === null ? 'onbekend' : new Date(findings.lastBatchAtMs).toISOString()}.`
+            : `First batch ${findings.firstBatchAtMs === null ? 'unknown' : new Date(findings.firstBatchAtMs).toISOString()} · last batch ${findings.lastBatchAtMs === null ? 'unknown' : new Date(findings.lastBatchAtMs).toISOString()}.`}</p>}
           {findings.topCandidates.length > 0 && <div className="research-scroll" tabIndex={0} aria-label={lang === 'nl' ? 'Beste kandidaten' : 'Top candidates'}>
-            <table className="research-table"><caption>{lang === 'nl' ? 'Beste kandidaten op gemodelleerde marge' : 'Top candidates by modeled edge'}</caption>
-              <thead><tr><th>{lang === 'nl' ? 'Observatie' : 'Observation'}</th><th>{lang === 'nl' ? 'Route' : 'Route'}</th><th>{lang === 'nl' ? 'Bruto marge (minor)' : 'Gross edge (minor)'}</th><th>{lang === 'nl' ? 'Bewijsniveau' : 'Evidence ceiling'}</th></tr></thead>
-              <tbody>{findings.topCandidates.map(candidate => <tr key={candidate.observationId}><td className="mono">{candidate.observationId}</td><td>{candidate.assetIn} → {candidate.assetOut}</td><td><Exact value={candidate.grossDeltaMinor} /></td><td>{candidate.evidenceLabel}</td></tr>)}</tbody>
+            <table className="research-table"><caption>{lang === 'nl' ? `Beste kandidaten op gemodelleerde marge, ${c.top_candidates_source}` : `Top candidates by modeled edge, ${c.top_candidates_source}`}</caption>
+              <thead><tr><th>{lang === 'nl' ? 'Observatie' : 'Observation'}</th><th>{lang === 'nl' ? 'Route' : 'Route'}</th><th>{lang === 'nl' ? 'Bruto marge (minor)' : 'Gross edge (minor)'}</th><th>{lang === 'nl' ? 'Bewijsniveau' : 'Evidence ceiling'}</th><th>{lang === 'nl' ? 'Herkomst' : 'Origin'}</th></tr></thead>
+              <tbody>{findings.topCandidates.map(candidate => <tr key={candidate.observationId}><td className="mono">{candidate.observationId}</td><td>{candidate.assetIn} → {candidate.assetOut}</td><td><Exact value={candidate.grossDeltaMinor} /></td><td>{candidate.evidenceLabel}</td><td><OriginBadge origin={candidate.datasetOrigin} /></td></tr>)}</tbody>
             </table>
           </div>}
         </>}
@@ -121,11 +135,12 @@ export function OwnerOverview({ active, api, sessions, filter, commands }: Props
       <section className="panel space-top" aria-labelledby="owner-whatif-title">
         <h3 id="owner-whatif-title">{lang === 'nl' ? '4. Wat als (hypothetisch)' : '4. What if (hypothetical)'}</h3>
         <div className="research-field"><label htmlFor="owner-stake">{lang === 'nl' ? 'Inzet (USDC)' : 'Stake (USDC)'}</label><input id="owner-stake" value={stakeInput} onChange={event => setStakeInput(event.target.value)} inputMode="decimal" /></div>
+        <p className="tiny">{c.stake_ticket_note}</p>
         {whatIf && !whatIf.stakeValid && <p className="notice" role="alert">{lang === 'nl' ? 'Ongeldige inzet.' : 'Invalid stake.'}</p>}
         {whatIf && whatIf.stakeValid && (whatIf.candidates.length === 0 ? <EmptyResearch>{c.whatif_no_candidates}</EmptyResearch> : <div className="research-scroll" tabIndex={0} aria-label={lang === 'nl' ? 'Wat-als kandidaten' : 'What-if candidates'}>
-          <table className="research-table"><caption>{lang === 'nl' ? 'Gemodelleerde bruto marge bij deze inzet' : 'Modeled gross edge at this stake'}</caption>
-            <thead><tr><th>{lang === 'nl' ? 'Observatie' : 'Observation'}</th><th>{lang === 'nl' ? 'Gemodelleerde bruto marge (minor)' : 'Modeled gross edge (minor)'}</th><th>{lang === 'nl' ? 'Vastgelegde kostenbeoordeling' : 'Recorded cost assessment'}</th></tr></thead>
-            <tbody>{whatIf.candidates.map(candidate => <tr key={candidate.observationId}><td className="mono">{candidate.observationId}</td><td><Exact value={candidate.modeledGrossEdgeMinor} /></td><td>{candidate.recordedCostLabel}</td></tr>)}</tbody>
+          <table className="research-table"><caption>{lang === 'nl' ? `Gemodelleerde bruto marge bij deze inzet, ${c.top_candidates_source}` : `Modeled gross edge at this stake, ${c.top_candidates_source}`}</caption>
+            <thead><tr><th>{lang === 'nl' ? 'Observatie' : 'Observation'}</th><th>{lang === 'nl' ? 'Gemodelleerde bruto marge (minor)' : 'Modeled gross edge (minor)'}</th><th>{lang === 'nl' ? 'Vastgelegde kostenbeoordeling' : 'Recorded cost assessment'}</th><th>{lang === 'nl' ? 'Herkomst' : 'Origin'}</th></tr></thead>
+            <tbody>{whatIf.candidates.map(candidate => <tr key={candidate.observationId}><td className="mono">{candidate.observationId}</td><td><Exact value={candidate.modeledGrossEdgeMinor} /></td><td>{candidate.recordedCostLabel}</td><td><OriginBadge origin={candidate.datasetOrigin} /></td></tr>)}</tbody>
           </table>
         </div>)}
         {whatIf && whatIf.skippedOtherAssetCount > 0 && <p className="tiny">{c.whatif_other_asset} ({whatIf.skippedOtherAssetCount})</p>}
