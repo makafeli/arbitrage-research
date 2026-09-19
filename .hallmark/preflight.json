@@ -1,0 +1,10 @@
+{
+  "scanned_at": "2026-09-19",
+  "target": "apps/web",
+  "framework": "Vite 8 + React 19 (apps/web/package.json)",
+  "font_stack": "Space Grotesk / Inter / JetBrains Mono via Google Fonts link (apps/web/index.html)",
+  "palette": "OKLCH custom properties (apps/web/src/tokens.css)",
+  "motion": "none installed — motion-cut project",
+  "spacing": "4-pt named scale (apps/web/src/tokens.css)",
+  "design_md": "design.md at project root"
+}
