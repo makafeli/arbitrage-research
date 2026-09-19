@@ -1,9 +1,19 @@
 //! Ordered transport transcripts are synthetic recovery fixtures, not mainnet evidence.
+//!
+//! Call shape pinned by issue #180 (owner decision 2026-09-19, option 1): code
+//! identity is verified only at the two ends of a step (Base is Cancun,
+//! EIP-6780 means a pre-existing contract's code cannot change block to
+//! block), and one ranged `eth_getLogs(fromBlock..toBlock)` replaces the old
+//! per-block filter. A step of N blocks over P pools costs
+//! `6 + 2*(P+1) + N + 1` requests when the caller supplies an explicit
+//! target (`recover_logs_through`/`recover_logs_bounded`); plain
+//! `recover_logs` folds "finalized" and "target resolution" into one call,
+//! so it costs one less.
 use arb_adapter_api::{AdapterError, ReadMethod, ReadRpc, RpcRecord, TranscriptRpc};
 use arb_evm::{
     PoolRegistry, UNISWAP_V3_FACTORY,
     backfill::*,
-    events::{BlockHeader, INITIALIZE},
+    events::{BlockHeader, INITIALIZE, PoolLog},
 };
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -17,6 +27,9 @@ fn pools() -> Vec<PoolRegistry> {
         p.factory_runtime_sha256 = p.pool_runtime_sha256.clone();
     }
     pools
+}
+fn addresses() -> Vec<String> {
+    pools().iter().map(|p| p.pool.clone()).collect()
 }
 fn hash(n: u64) -> String {
     format!("0x{n:064x}")
@@ -32,66 +45,158 @@ fn event(n: u64, index: u64) -> Value {
         "transactionHash":hash(900+n),"transactionIndex":"0x0","logIndex":format!("0x{index:x}"),
         "removed":false,"topics":[INITIALIZE],"data":format!("0x{:064x}{:064x}",1_u128<<96,0)})
 }
-fn records(last: u64) -> Vec<RpcRecord> {
+fn default_logs(checkpoint_n: u64, target_n: u64) -> Vec<Value> {
+    ((checkpoint_n + 1)..=target_n)
+        .map(|n| event(n, 0))
+        .collect()
+}
+fn push(records: &mut Vec<RpcRecord>, method: ReadMethod, params: Value, result: Value) -> usize {
+    let sequence = records.len() as u64;
+    let index = records.len();
+    records.push(RpcRecord {
+        sequence,
+        method,
+        params,
+        response: json!({"jsonrpc":"2.0","id":sequence,"result":result}).to_string(),
+    });
+    index
+}
+
+/// One bounded finalized step, built in exactly the request order
+/// `recover_logs`/`recover_logs_through`/`recover_logs_bounded` issue it in.
+/// `has_resolution` is true for the two functions that take an explicit
+/// target (a separate "target resolution" fetch, confirmed-exact or capped:
+/// both look identical on the wire); it is false for the plain, unbounded
+/// `recover_logs`, where "finalized" doubles as the target and there is no
+/// separate resolution call. Named fields let tests mutate or truncate a
+/// specific call without guessing positions.
+struct Step {
+    records: Vec<RpcRecord>,
+    checkpoint_header: usize,
+    finalized_header: usize,
+    target_resolution: Option<usize>,
+    /// Two bounds (`from` then `through`), each factory-then-pools: length is
+    /// `0` when the step covers no blocks, else `2 * (pools().len() + 1)`.
+    code_checks: Vec<usize>,
+    /// One `eth_getBlockByNumber` per historical block, `checkpoint_n+1..=target_n`.
+    block_headers: Vec<usize>,
+    /// The single ranged `eth_getLogs` call, absent when the step is empty.
+    logs: Option<usize>,
+    final_target_recheck: usize,
+    final_checkpoint_recheck: Option<usize>,
+}
+fn step(checkpoint_n: u64, finalized_n: u64, target_n: u64, has_resolution: bool) -> Step {
+    step_with_logs(
+        checkpoint_n,
+        finalized_n,
+        target_n,
+        has_resolution,
+        default_logs(checkpoint_n, target_n),
+    )
+}
+fn step_with_logs(
+    checkpoint_n: u64,
+    finalized_n: u64,
+    target_n: u64,
+    has_resolution: bool,
+    logs: Vec<Value>,
+) -> Step {
     let mut records = Vec::new();
-    let mut push = |method, params, result| {
-        let sequence = records.len() as u64;
-        records.push(RpcRecord {
-            sequence,
-            method,
-            params,
-            response: json!({"jsonrpc":"2.0","id":sequence,"result":result}).to_string(),
-        });
-    };
-    push(ReadMethod::EthChainId, json!([]), json!("0x2105"));
     push(
-        ReadMethod::EthGetBlockByNumber,
-        json!(["0x64", false]),
-        block(100),
+        &mut records,
+        ReadMethod::EthChainId,
+        json!([]),
+        json!("0x2105"),
     );
-    push(
+    let checkpoint_header = push(
+        &mut records,
+        ReadMethod::EthGetBlockByNumber,
+        json!([format!("0x{checkpoint_n:x}"), false]),
+        block(checkpoint_n),
+    );
+    let finalized_header = push(
+        &mut records,
         ReadMethod::EthGetBlockByNumber,
         json!(["finalized", false]),
-        block(last),
+        block(finalized_n),
     );
-    let pools = pools();
-    let addresses: Vec<_> = pools.iter().map(|p| p.pool.clone()).collect();
-    for n in 101..=last {
+    let target_resolution = has_resolution.then(|| {
         push(
+            &mut records,
             ReadMethod::EthGetBlockByNumber,
-            json!([format!("0x{n:x}"), false]),
-            block(n),
-        );
-        for address in [
-            UNISWAP_V3_FACTORY.to_string(),
-            pools[0].pool.clone(),
-            pools[1].pool.clone(),
-        ] {
-            push(
+            json!([format!("0x{target_n:x}"), false]),
+            block(target_n),
+        )
+    });
+    let distance = target_n
+        .checked_sub(checkpoint_n)
+        .expect("fixtures only build a forward step");
+    let mut code_checks = Vec::new();
+    if distance > 0 {
+        for bound_n in [checkpoint_n, target_n] {
+            code_checks.push(push(
+                &mut records,
                 ReadMethod::EthGetCode,
-                json!([address,{"blockHash":hash(n),"requireCanonical":true}]),
+                json!([UNISWAP_V3_FACTORY, {"blockHash":hash(bound_n),"requireCanonical":true}]),
                 json!("0x6000"),
-            );
+            ));
+            for pool in &pools() {
+                code_checks.push(push(
+                    &mut records,
+                    ReadMethod::EthGetCode,
+                    json!([pool.pool, {"blockHash":hash(bound_n),"requireCanonical":true}]),
+                    json!("0x6000"),
+                ));
+            }
         }
+    }
+    let block_headers: Vec<_> = ((checkpoint_n + 1)..=target_n)
+        .map(|n| {
+            push(
+                &mut records,
+                ReadMethod::EthGetBlockByNumber,
+                json!([format!("0x{n:x}"), false]),
+                block(n),
+            )
+        })
+        .collect();
+    let logs_index = (distance > 0).then(|| {
         push(
+            &mut records,
             ReadMethod::EthGetLogs,
-            json!([{"blockHash":hash(n),"address":addresses}]),
-            json!([event(n, 0)]),
-        );
-    }
-    push(
+            json!([{
+                "fromBlock": format!("0x{:x}", checkpoint_n + 1),
+                "toBlock": format!("0x{:x}", target_n),
+                "address": addresses(),
+            }]),
+            json!(logs),
+        )
+    });
+    let final_target_recheck = push(
+        &mut records,
         ReadMethod::EthGetBlockByNumber,
-        json!([format!("0x{last:x}"), false]),
-        block(last),
+        json!([format!("0x{target_n:x}"), false]),
+        block(target_n),
     );
-    if last > 100 {
+    let final_checkpoint_recheck = (distance > 0).then(|| {
         push(
+            &mut records,
             ReadMethod::EthGetBlockByNumber,
-            json!(["0x64", false]),
-            block(100),
-        );
+            json!([format!("0x{checkpoint_n:x}"), false]),
+            block(checkpoint_n),
+        )
+    });
+    Step {
+        records,
+        checkpoint_header,
+        finalized_header,
+        target_resolution,
+        code_checks,
+        block_headers,
+        logs: logs_index,
+        final_target_recheck,
+        final_checkpoint_recheck,
     }
-    records
 }
 fn change(record: &mut RpcRecord, mutate: impl FnOnce(&mut Value)) {
     let mut response: Value = serde_json::from_str(&record.response).unwrap();
@@ -112,7 +217,8 @@ fn run(records: Vec<RpcRecord>) -> Result<BackfillBatch, BackfillError> {
 fn complete_range_is_hash_pinned_replayable_and_does_not_advance_the_callers_checkpoint() {
     let checkpoint = checkpoint();
     let before = checkpoint.clone();
-    let mut rpc = TranscriptRpc::new(records(102));
+    let fixture = step(100, 102, 102, false);
+    let mut rpc = TranscriptRpc::new(fixture.records);
     let batch = recover_logs(
         &mut rpc,
         &pools(),
@@ -138,24 +244,27 @@ fn complete_range_is_hash_pinned_replayable_and_does_not_advance_the_callers_che
 }
 
 #[test]
-fn empty_log_result_is_bound_to_the_requested_hash_not_assumed_missing() {
-    let mut input = records(102);
-    for record in &mut input {
-        if record.method == ReadMethod::EthGetLogs {
-            change(record, |v| *v = json!([]));
-        }
-    }
-    let batch = run(input).unwrap();
+fn empty_log_result_is_bound_to_the_requested_range_not_assumed_missing() {
+    let mut fixture = step_with_logs(100, 102, 102, false, vec![]);
+    change(&mut fixture.records[fixture.logs.unwrap()], |v| {
+        *v = json!([])
+    });
+    let batch = run(fixture.records).unwrap();
     assert_eq!(batch.blocks.len(), 2);
     assert!(batch.blocks.iter().all(|b| b.logs.is_empty()));
     assert_eq!(batch.through.number, 102);
 }
 
 #[test]
-fn caught_up_checkpoint_is_rechecked_without_log_queries() {
-    let input = records(100);
-    assert!(!input.iter().any(|r| r.method == ReadMethod::EthGetLogs));
-    let mut rpc = TranscriptRpc::new(input);
+fn caught_up_checkpoint_is_rechecked_without_log_or_code_queries() {
+    let fixture = step(100, 100, 100, false);
+    assert!(
+        !fixture
+            .records
+            .iter()
+            .any(|r| r.method == ReadMethod::EthGetLogs || r.method == ReadMethod::EthGetCode)
+    );
+    let mut rpc = TranscriptRpc::new(fixture.records);
     let batch = recover_logs(
         &mut rpc,
         &pools(),
@@ -171,11 +280,12 @@ fn caught_up_checkpoint_is_rechecked_without_log_queries() {
 
 #[test]
 fn excessive_gap_does_not_skip_old_blocks_or_begin_unbounded_recovery() {
-    let mut input = records(101);
-    change(&mut input[2], |v| *v = block(200));
-    let mut rpc = TranscriptRpc::new(input[..3].to_vec());
+    let mut fixture = step(100, 101, 101, false);
+    change(&mut fixture.records[fixture.finalized_header], |v| {
+        *v = block(200)
+    });
     let error = recover_logs(
-        &mut rpc,
+        &mut TranscriptRpc::new(fixture.records),
         &pools(),
         &checkpoint(),
         BackfillLimits::default(),
@@ -185,18 +295,31 @@ fn excessive_gap_does_not_skip_old_blocks_or_begin_unbounded_recovery() {
     assert_eq!(error.reason, GapReason::BackfillLimitExceeded);
     assert_eq!(error.requested_through, Some(200));
     assert_eq!(error.checkpoint.number, 100);
-    rpc.finish().unwrap();
 }
 
 #[test]
 fn regressing_finality_or_replaced_starting_checkpoint_fails() {
-    let mut input = records(101);
-    change(&mut input[2], |v| *v = block(99));
-    assert_eq!(run(input).unwrap_err().reason, GapReason::FinalityRegressed);
-    for index in [1, 2] {
-        let mut input = records(100);
-        change(&mut input[index], |v| v["hash"] = json!(hash(888)));
-        assert_eq!(run(input).unwrap_err().reason, GapReason::CheckpointChanged);
+    let mut fixture = step(100, 101, 101, false);
+    change(&mut fixture.records[fixture.finalized_header], |v| {
+        *v = block(99)
+    });
+    assert_eq!(
+        run(fixture.records).unwrap_err().reason,
+        GapReason::FinalityRegressed
+    );
+    for pick in [
+        |f: &Step| f.checkpoint_header,
+        |f: &Step| f.finalized_header,
+    ] {
+        let mut fixture = step(100, 100, 100, false);
+        let index = pick(&fixture);
+        change(&mut fixture.records[index], |v| {
+            v["hash"] = json!(hash(888))
+        });
+        assert_eq!(
+            run(fixture.records).unwrap_err().reason,
+            GapReason::CheckpointChanged
+        );
     }
 }
 
@@ -207,49 +330,86 @@ fn missing_block_height_or_parent_chain_is_not_accepted() {
         ("parentHash", json!(hash(777))),
         ("timestamp", json!("0x1")),
     ] {
-        let mut input = records(102);
-        change(&mut input[3], |v| v[key] = value);
-        assert_eq!(run(input).unwrap_err().reason, GapReason::BrokenAncestry);
+        let mut fixture = step(100, 102, 102, false);
+        let index = fixture.block_headers[0];
+        change(&mut fixture.records[index], |v| v[key] = value);
+        assert_eq!(
+            run(fixture.records).unwrap_err().reason,
+            GapReason::BrokenAncestry
+        );
     }
-    let mut input = records(102);
-    change(&mut input[3], |v| *v = Value::Null);
+    let mut fixture = step(100, 102, 102, false);
+    let index = fixture.block_headers[0];
+    change(&mut fixture.records[index], |v| *v = Value::Null);
     assert_eq!(
-        run(input).unwrap_err().reason,
+        run(fixture.records).unwrap_err().reason,
         GapReason::MissingOrMalformedBlock
     );
 }
 
 #[test]
 fn a_late_reorg_discards_the_whole_recovered_prefix() {
-    let mut input = records(102);
-    let count = input.len();
-    change(&mut input[count - 2], |v| v["hash"] = json!(hash(123)));
-    let error = run(input).unwrap_err();
+    let mut fixture = step(100, 102, 102, false);
+    let index = fixture.final_target_recheck;
+    change(&mut fixture.records[index], |v| {
+        v["hash"] = json!(hash(123))
+    });
+    let error = run(fixture.records).unwrap_err();
     assert_eq!(error.reason, GapReason::TargetChanged);
     assert_eq!(error.checkpoint, checkpoint());
-    let mut input = records(102);
-    let count = input.len();
-    change(&mut input[count - 1], |v| {
+
+    let mut fixture = step(100, 102, 102, false);
+    let index = fixture.final_checkpoint_recheck.unwrap();
+    change(&mut fixture.records[index], |v| {
         v["parentHash"] = json!(hash(123))
     });
-    assert_eq!(run(input).unwrap_err().reason, GapReason::CheckpointChanged);
+    assert_eq!(
+        run(fixture.records).unwrap_err().reason,
+        GapReason::CheckpointChanged
+    );
 }
 
 #[test]
 fn changed_target_header_during_walk_is_rejected_before_its_logs() {
-    let mut input = records(101);
-    change(&mut input[3], |v| v["hash"] = json!(hash(666)));
-    assert_eq!(run(input).unwrap_err().reason, GapReason::TargetChanged);
+    let mut fixture = step(100, 101, 101, false);
+    let index = fixture.block_headers[0];
+    change(&mut fixture.records[index], |v| {
+        v["hash"] = json!(hash(666))
+    });
+    assert_eq!(
+        run(fixture.records).unwrap_err().reason,
+        GapReason::TargetChanged
+    );
 }
 
+/// Pins issue #180: code identity is checked only at the two ends of a step
+/// (the checkpoint block `from`, and the target block `through`) — never at
+/// an interior block — because Base runs Cancun and EIP-6780 forbids a
+/// pre-existing contract's code from changing between two blocks.
 #[test]
-fn code_identity_is_verified_at_each_historical_block() {
-    for index in [4, 5, 6] {
+fn code_identity_is_verified_only_at_the_step_bounds() {
+    let p = pools().len();
+    let fixture = step(100, 103, 103, false);
+    assert_eq!(
+        fixture.code_checks.len(),
+        2 * (p + 1),
+        "factory+pools at 2 bounds"
+    );
+    assert_eq!(
+        fixture
+            .records
+            .iter()
+            .filter(|r| r.method == ReadMethod::EthGetCode)
+            .count(),
+        2 * (p + 1),
+        "no eth_getCode for an interior block, only the two step bounds"
+    );
+    for &index in &fixture.code_checks {
         for replacement in [json!("0x"), json!("0x6001"), Value::Null] {
-            let mut input = records(101);
-            change(&mut input[index], |v| *v = replacement);
+            let mut fixture = step(100, 103, 103, false);
+            change(&mut fixture.records[index], |v| *v = replacement.clone());
             assert_eq!(
-                run(input).unwrap_err().reason,
+                run(fixture.records).unwrap_err().reason,
                 GapReason::UnexpectedContractCode
             );
         }
@@ -269,26 +429,70 @@ fn removed_wrong_pool_or_other_block_logs_never_enter_a_recovered_batch() {
         ("blockNumber", json!("0x66"), GapReason::MalformedLog),
         ("topics", json!([]), GapReason::MalformedLog),
     ] {
-        let mut input = records(101);
-        change(&mut input[7], |v| v[0][key] = value);
-        assert_eq!(run(input).unwrap_err().reason, expected);
+        let mut fixture = step(100, 101, 101, false);
+        let index = fixture.logs.unwrap();
+        change(&mut fixture.records[index], |v| v[0][key] = value);
+        assert_eq!(run(fixture.records).unwrap_err().reason, expected);
     }
 }
 
+/// A reorg landing between the header fetch and the ranged log fetch shows up
+/// as a log whose `blockHash` no longer matches the header already verified
+/// for that height; it is rejected before any log is admitted.
 #[test]
-fn out_of_order_logs_are_sorted_without_reordering_transaction_identity() {
-    let mut input = records(101);
-    change(&mut input[7], |v| {
+fn a_reorg_between_the_header_and_log_fetch_is_rejected() {
+    let mut fixture = step(100, 101, 101, false);
+    let index = fixture.logs.unwrap();
+    change(&mut fixture.records[index], |v| {
+        v[0]["blockHash"] = json!(hash(555))
+    });
+    assert_eq!(
+        run(fixture.records).unwrap_err().reason,
+        GapReason::MalformedLog
+    );
+}
+
+#[test]
+fn a_log_for_a_block_number_outside_the_step_is_rejected() {
+    let mut fixture = step(100, 102, 102, false);
+    let index = fixture.logs.unwrap();
+    change(&mut fixture.records[index], |v| {
+        *v = json!([event(101, 0), event(104, 0)])
+    });
+    assert_eq!(
+        run(fixture.records).unwrap_err().reason,
+        GapReason::MalformedLog
+    );
+}
+
+#[test]
+fn logs_returned_out_of_block_order_across_the_step_are_rejected() {
+    let mut fixture = step(100, 103, 103, false);
+    let index = fixture.logs.unwrap();
+    change(&mut fixture.records[index], |v| {
+        *v = json!([event(102, 0), event(101, 0), event(103, 0)])
+    });
+    assert_eq!(
+        run(fixture.records).unwrap_err().reason,
+        GapReason::MalformedLog
+    );
+}
+
+/// A ranged fetch trusts the provider's own order instead of re-sorting: an
+/// eth_getLogs response is expected ascending by (blockNumber, logIndex), so
+/// a lower logIndex following a higher one within the same block is rejected
+/// rather than silently reordered.
+#[test]
+fn out_of_order_log_index_within_a_block_is_rejected() {
+    let mut fixture = step(100, 101, 101, false);
+    let index = fixture.logs.unwrap();
+    change(&mut fixture.records[index], |v| {
         *v = json!([event(101, 12), event(101, 3)])
     });
-    let batch = run(input).unwrap();
-    let logs = &batch.blocks[0].logs;
     assert_eq!(
-        logs.iter().map(|l| l.log_index).collect::<Vec<_>>(),
-        [3, 12]
+        run(fixture.records).unwrap_err().reason,
+        GapReason::ConflictingLog
     );
-    // Gaps between indexes can belong to other contracts, and are not fabricated omissions.
-    assert_eq!(logs[0].transaction_hash, logs[1].transaction_hash);
 }
 
 #[test]
@@ -307,16 +511,21 @@ fn duplicate_indexes_or_conflicting_transactions_fail_instead_of_being_deduplica
         json!([duplicate.clone(), differing_index]),
         json!([reversed_index, event(101, 1)]),
     ] {
-        let mut input = records(101);
-        change(&mut input[7], |v| *v = values);
-        assert_eq!(run(input).unwrap_err().reason, GapReason::ConflictingLog);
+        let mut fixture = step(100, 101, 101, false);
+        let index = fixture.logs.unwrap();
+        change(&mut fixture.records[index], |v| *v = values);
+        assert_eq!(
+            run(fixture.records).unwrap_err().reason,
+            GapReason::ConflictingLog
+        );
     }
 }
 
 #[test]
 fn per_block_and_total_log_bounds_remain_independent() {
-    let mut input = records(101);
-    change(&mut input[7], |v| {
+    let mut fixture = step(100, 101, 101, false);
+    let index = fixture.logs.unwrap();
+    change(&mut fixture.records[index], |v| {
         *v = json!([event(101, 0), event(101, 1)])
     });
     let limits = BackfillLimits {
@@ -326,7 +535,7 @@ fn per_block_and_total_log_bounds_remain_independent() {
     };
     assert_eq!(
         recover_logs(
-            &mut TranscriptRpc::new(input),
+            &mut TranscriptRpc::new(fixture.records),
             &pools(),
             &checkpoint(),
             limits,
@@ -341,8 +550,9 @@ fn per_block_and_total_log_bounds_remain_independent() {
         max_logs_per_block: 1,
         max_total_logs: 1,
     };
+    let fixture = step(100, 102, 102, false);
     let error = recover_logs(
-        &mut TranscriptRpc::new(records(102)),
+        &mut TranscriptRpc::new(fixture.records),
         &pools(),
         &checkpoint(),
         limits,
@@ -381,7 +591,7 @@ impl ReadRpc for CountingRpc {
 fn counting() -> CountingRpc {
     CountingRpc {
         calls: 0,
-        records: records(102).into(),
+        records: step(100, 102, 102, false).records.into(),
         fail_at: None,
         cancel: None,
     }
@@ -389,7 +599,14 @@ fn counting() -> CountingRpc {
 
 #[test]
 fn one_provider_failure_stops_without_retry_and_preserves_trusted_checkpoint() {
-    for failure in [0, 4, 7, 13] {
+    // Fixed call, a bound code check, a per-block header, and the ranged log call.
+    let fixture = step(100, 102, 102, false);
+    for failure in [
+        0,
+        fixture.code_checks[0],
+        fixture.block_headers[0],
+        fixture.logs.unwrap(),
+    ] {
         let mut rpc = counting();
         rpc.fail_at = Some(failure);
         let error = recover_logs(
@@ -494,10 +711,10 @@ fn cancellation_after_inflight_response_does_not_accept_that_response() {
 
 #[test]
 fn wrong_chain_never_starts_header_or_log_reads() {
-    let mut input = records(101);
-    change(&mut input[0], |v| *v = json!("0x1"));
+    let mut fixture = step(100, 101, 101, false);
+    change(&mut fixture.records[0], |v| *v = json!("0x1"));
     let mut rpc = CountingRpc {
-        records: input.into(),
+        records: fixture.records.into(),
         ..counting()
     };
     assert_eq!(
@@ -517,54 +734,137 @@ fn wrong_chain_never_starts_header_or_log_reads() {
 
 #[test]
 fn a_repeated_hash_cannot_represent_another_recovered_height() {
-    let mut input = records(102);
-    change(&mut input[3], |v| v["hash"] = json!(hash(100)));
-    assert_eq!(run(input).unwrap_err().reason, GapReason::BrokenAncestry);
+    let mut fixture = step(100, 102, 102, false);
+    let index = fixture.block_headers[0];
+    change(&mut fixture.records[index], |v| {
+        v["hash"] = json!(hash(100))
+    });
+    assert_eq!(
+        run(fixture.records).unwrap_err().reason,
+        GapReason::BrokenAncestry
+    );
 }
 
 #[test]
 fn the_same_transaction_cannot_appear_in_two_finalized_blocks() {
-    let mut input = records(102);
-    change(&mut input[12], |v| {
-        v[0]["transactionHash"] = json!(hash(1001))
+    let mut fixture = step(100, 102, 102, false);
+    let index = fixture.logs.unwrap();
+    change(&mut fixture.records[index], |v| {
+        v[1]["transactionHash"] = json!(hash(1001))
     });
-    assert_eq!(run(input).unwrap_err().reason, GapReason::ConflictingLog);
+    assert_eq!(
+        run(fixture.records).unwrap_err().reason,
+        GapReason::ConflictingLog
+    );
+}
+
+/// Pins the request shape and log-to-header attribution of issue #180's
+/// ranged fetch across a mix of empty and non-empty blocks, and pins the
+/// resulting batch byte-for-byte against hand-decoded expectations — the
+/// same content the old per-block path produced for this fixture, since
+/// `arb-storage::ingestion::validate_batch` depends on the shape staying
+/// identical.
+#[test]
+fn ranged_log_fetch_shape_and_attribution_across_mixed_blocks() {
+    let logs = vec![event(101, 0), event(103, 0), event(103, 1)];
+    let fixture = step_with_logs(100, 103, 103, false, logs.clone());
+    let logs_record = &fixture.records[fixture.logs.unwrap()];
+    assert_eq!(
+        logs_record.params,
+        json!([{
+            "fromBlock": "0x65",
+            "toBlock": "0x67",
+            "address": addresses(),
+        }])
+    );
+    let batch = run(fixture.records).unwrap();
+    assert_eq!(batch.blocks.len(), 3);
+    assert_eq!(
+        batch
+            .blocks
+            .iter()
+            .map(|b| b.header.number)
+            .collect::<Vec<_>>(),
+        [101, 102, 103]
+    );
+    let decode = |value: &Value| arb_evm::events::decode_log(value, &pools()[0]).unwrap();
+    let expected: Vec<Vec<PoolLog>> = vec![
+        vec![decode(&logs[0])],
+        vec![],
+        vec![decode(&logs[1]), decode(&logs[2])],
+    ];
+    for (block, expected) in batch.blocks.iter().zip(expected) {
+        assert_eq!(block.logs, expected);
+    }
+    assert!(batch.blocks[1].logs.is_empty(), "block 102 had no events");
+}
+
+#[test]
+fn a_single_step_costs_exactly_six_plus_two_pools_plus_one_plus_blocks_plus_one_requests() {
+    let p = pools().len();
+    let fixture = step(100, 110, 105, true);
+    let expected = 6 + 2 * (p + 1) + 5 + 1;
+    assert_eq!(fixture.records.len(), expected);
+    let count = |method: ReadMethod| {
+        fixture
+            .records
+            .iter()
+            .filter(|r| r.method == method)
+            .count()
+    };
+    assert_eq!(count(ReadMethod::EthChainId), 1);
+    assert_eq!(count(ReadMethod::EthGetCode), 2 * (p + 1));
+    assert_eq!(count(ReadMethod::EthGetLogs), 1);
+    // checkpoint + finalized + target resolution + 5 per-block headers +
+    // final target recheck + final checkpoint recheck.
+    assert_eq!(count(ReadMethod::EthGetBlockByNumber), 3 + 5 + 2);
+
+    let mut rpc = CountingRpc {
+        calls: 0,
+        records: fixture.records.into(),
+        fail_at: None,
+        cancel: None,
+    };
+    let batch = recover_logs_through(
+        &mut rpc,
+        &pools(),
+        &checkpoint(),
+        &BlockHeader::from_rpc(&block(105)).unwrap(),
+        BackfillLimits::default(),
+        || false,
+    )
+    .unwrap();
+    assert_eq!(batch.blocks.len(), 5);
+    assert_eq!(rpc.calls, expected);
 }
 
 #[test]
 fn hard_bounds_accept_their_exact_edge_and_refuse_the_next_block_or_log() {
+    let p = pools().len();
     let limits = BackfillLimits {
         max_blocks: 32,
         max_logs_per_block: 512,
         max_total_logs: 4096,
     };
+    let fixture = step(100, 132, 132, false);
+    let expected_calls = 5 + 2 * (p + 1) + 32 + 1;
     let mut rpc = CountingRpc {
-        records: records(132).into(),
-        ..counting()
+        calls: 0,
+        records: fixture.records.into(),
+        fail_at: None,
+        cancel: None,
     };
     let result = recover_logs(&mut rpc, &pools(), &checkpoint(), limits, || false).unwrap();
     assert_eq!(result.blocks.len(), 32);
-    assert_eq!(rpc.calls, 5 + 32 * 5);
+    assert_eq!(rpc.calls, expected_calls);
+
     for last in [108, 109] {
-        let mut input = records(last);
-        for record in &mut input {
-            if record.method == ReadMethod::EthGetLogs {
-                let old: Value = serde_json::from_str(&record.response).unwrap();
-                let n = u64::from_str_radix(
-                    old["result"][0]["blockNumber"]
-                        .as_str()
-                        .unwrap()
-                        .trim_start_matches("0x"),
-                    16,
-                )
-                .unwrap();
-                change(record, |v| {
-                    *v = json!((0..512).map(|index| event(n, index)).collect::<Vec<_>>())
-                });
-            }
-        }
+        let logs: Vec<Value> = (101..=last)
+            .flat_map(|n| (0..512).map(move |index| event(n, index)))
+            .collect();
+        let fixture = step_with_logs(100, last, last, false, logs);
         let result = recover_logs(
-            &mut TranscriptRpc::new(input),
+            &mut TranscriptRpc::new(fixture.records),
             &pools(),
             &checkpoint(),
             limits,
@@ -586,34 +886,12 @@ fn hard_bounds_accept_their_exact_edge_and_refuse_the_next_block_or_log() {
     }
 }
 
-// Targeted recovery uses genuine responses for the captured height, even when
-// the finalized tip has moved. These remain manually constructed transcripts.
-fn targeted_records(target: u64, finalized: u64) -> Vec<RpcRecord> {
-    let mut input = records(target);
-    change(&mut input[2], |v| *v = block(finalized));
-    input.insert(
-        3,
-        RpcRecord {
-            sequence: 0,
-            method: ReadMethod::EthGetBlockByNumber,
-            params: json!([format!("0x{target:x}"), false]),
-            response: json!({"jsonrpc":"2.0","id":0,"result":block(target)}).to_string(),
-        },
-    );
-    for (index, item) in input.iter_mut().enumerate() {
-        item.sequence = index as u64;
-        let mut response: Value = serde_json::from_str(&item.response).unwrap();
-        response["id"] = json!(index);
-        item.response = response.to_string();
-    }
-    input
-}
-
 #[test]
 fn exact_capture_target_does_not_follow_a_newer_finalized_tip() {
     let start = checkpoint();
     let through = BlockHeader::from_rpc(&block(102)).unwrap();
-    let mut rpc = TranscriptRpc::new(targeted_records(102, 200));
+    let fixture = step(100, 200, 102, true);
+    let mut rpc = TranscriptRpc::new(fixture.records);
     let batch = recover_logs_through(
         &mut rpc,
         &pools(),
@@ -632,12 +910,11 @@ fn exact_capture_target_does_not_follow_a_newer_finalized_tip() {
 #[test]
 fn exact_target_requires_matching_finalized_canonical_header_and_ancestry() {
     let through = BlockHeader::from_rpc(&block(102)).unwrap();
-    let mut input = targeted_records(102, 101);
-    input.truncate(3);
-    let mut rpc = TranscriptRpc::new(input);
+    let mut fixture = step(100, 101, 102, true);
+    fixture.records.truncate(3);
     assert_eq!(
         recover_logs_through(
-            &mut rpc,
+            &mut TranscriptRpc::new(fixture.records),
             &pools(),
             &checkpoint(),
             &through,
@@ -648,12 +925,17 @@ fn exact_target_requires_matching_finalized_canonical_header_and_ancestry() {
         .reason,
         GapReason::FinalityRegressed
     );
-    rpc.finish().unwrap();
-    for index in [2, 3] {
-        let mut input = targeted_records(102, 102);
-        change(&mut input[index], |v| v["hash"] = json!(hash(777)));
+    for pick in [
+        |f: &Step| f.finalized_header,
+        |f: &Step| f.target_resolution.unwrap(),
+    ] {
+        let mut fixture = step(100, 102, 102, true);
+        let index = pick(&fixture);
+        change(&mut fixture.records[index], |v| {
+            v["hash"] = json!(hash(777))
+        });
         let error = recover_logs_through(
-            &mut TranscriptRpc::new(input),
+            &mut TranscriptRpc::new(fixture.records),
             &pools(),
             &checkpoint(),
             &through,
@@ -664,11 +946,14 @@ fn exact_target_requires_matching_finalized_canonical_header_and_ancestry() {
         assert_eq!(error.reason, GapReason::TargetChanged);
         assert_eq!(error.requested_through, Some(102));
     }
-    let mut input = targeted_records(102, 103);
-    change(&mut input[4], |v| v["parentHash"] = json!(hash(777)));
+    let mut fixture = step(100, 103, 102, true);
+    let index = fixture.block_headers[0];
+    change(&mut fixture.records[index], |v| {
+        v["parentHash"] = json!(hash(777))
+    });
     assert_eq!(
         recover_logs_through(
-            &mut TranscriptRpc::new(input),
+            &mut TranscriptRpc::new(fixture.records),
             &pools(),
             &checkpoint(),
             &through,
@@ -683,9 +968,9 @@ fn exact_target_requires_matching_finalized_canonical_header_and_ancestry() {
 
 #[test]
 fn exact_target_keeps_gap_limits_and_caught_up_rechecks() {
-    let mut input = targeted_records(100, 150);
     let through = checkpoint();
-    let mut rpc = TranscriptRpc::new(input.clone());
+    let fixture = step(100, 150, 100, true);
+    let mut rpc = TranscriptRpc::new(fixture.records);
     let batch = recover_logs_through(
         &mut rpc,
         &pools(),
@@ -697,96 +982,32 @@ fn exact_target_keeps_gap_limits_and_caught_up_rechecks() {
     .unwrap();
     assert!(batch.blocks.is_empty());
     rpc.finish().unwrap();
-    input = targeted_records(117, 118);
-    let target = BlockHeader::from_rpc(&block(117)).unwrap();
-    input.truncate(4);
-    let mut rpc = TranscriptRpc::new(input);
-    assert_eq!(
-        recover_logs_through(
-            &mut rpc,
-            &pools(),
-            &checkpoint(),
-            &target,
-            BackfillLimits::default(),
-            || false
-        )
-        .unwrap_err()
-        .reason,
-        GapReason::BackfillLimitExceeded
-    );
-    rpc.finish().unwrap();
+
+    let target = BlockHeader::from_rpc(&block(133)).unwrap();
+    let mut fixture = step(100, 134, 133, true);
+    fixture.records.truncate(4);
+    let error = recover_logs_through(
+        &mut TranscriptRpc::new(fixture.records),
+        &pools(),
+        &checkpoint(),
+        &target,
+        BackfillLimits::default(),
+        || false,
+    )
+    .unwrap_err();
+    assert_eq!(error.reason, GapReason::BackfillLimitExceeded);
 }
 
-fn bounded_walk_records(checkpoint_n: u64, finalized_n: u64, cap: u64) -> Vec<RpcRecord> {
-    let mut records = Vec::new();
-    let mut push = |method, params, result| {
-        let sequence = records.len() as u64;
-        records.push(RpcRecord {
-            sequence,
-            method,
-            params,
-            response: json!({"jsonrpc":"2.0","id":sequence,"result":result}).to_string(),
-        });
-    };
-    push(ReadMethod::EthChainId, json!([]), json!("0x2105"));
-    push(
-        ReadMethod::EthGetBlockByNumber,
-        json!([format!("0x{checkpoint_n:x}"), false]),
-        block(checkpoint_n),
-    );
-    push(
-        ReadMethod::EthGetBlockByNumber,
-        json!(["finalized", false]),
-        block(finalized_n),
-    );
-    push(
-        ReadMethod::EthGetBlockByNumber,
-        json!([format!("0x{cap:x}"), false]),
-        block(cap),
-    );
-    let pools = pools();
-    let addresses: Vec<_> = pools.iter().map(|p| p.pool.clone()).collect();
-    for n in (checkpoint_n + 1)..=cap {
-        push(
-            ReadMethod::EthGetBlockByNumber,
-            json!([format!("0x{n:x}"), false]),
-            block(n),
-        );
-        for address in [
-            UNISWAP_V3_FACTORY.to_string(),
-            pools[0].pool.clone(),
-            pools[1].pool.clone(),
-        ] {
-            push(
-                ReadMethod::EthGetCode,
-                json!([address,{"blockHash":hash(n),"requireCanonical":true}]),
-                json!("0x6000"),
-            );
-        }
-        push(
-            ReadMethod::EthGetLogs,
-            json!([{"blockHash":hash(n),"address":addresses}]),
-            json!([event(n, 0)]),
-        );
-    }
-    push(
-        ReadMethod::EthGetBlockByNumber,
-        json!([format!("0x{cap:x}"), false]),
-        block(cap),
-    );
-    push(
-        ReadMethod::EthGetBlockByNumber,
-        json!([format!("0x{checkpoint_n:x}"), false]),
-        block(checkpoint_n),
-    );
-    records
+fn bounded_walk(checkpoint_n: u64, finalized_n: u64, cap: u64) -> Step {
+    step(checkpoint_n, finalized_n, cap, true)
 }
 
 #[test]
 fn bounded_recovery_walks_only_the_first_max_blocks_of_a_long_range() {
     let checkpoint = checkpoint();
-    let through = BlockHeader::from_rpc(&block(120)).unwrap();
-    let mut rpc = TranscriptRpc::new(bounded_walk_records(100, 120, 116));
+    let through = BlockHeader::from_rpc(&block(200)).unwrap();
+    let fixture = bounded_walk(100, 200, 132);
+    let mut rpc = TranscriptRpc::new(fixture.records);
     let batch = recover_logs_bounded(
         &mut rpc,
         &pools(),
@@ -797,8 +1018,8 @@ fn bounded_recovery_walks_only_the_first_max_blocks_of_a_long_range() {
     )
     .unwrap();
     rpc.finish().unwrap();
-    assert_eq!(batch.through.number, 116);
-    assert_eq!(batch.blocks.len(), 16);
+    assert_eq!(batch.through.number, 132);
+    assert_eq!(batch.blocks.len(), 32);
     assert_eq!(batch.from_checkpoint, checkpoint);
     assert_eq!(
         batch
@@ -806,17 +1027,16 @@ fn bounded_recovery_walks_only_the_first_max_blocks_of_a_long_range() {
             .iter()
             .map(|b| b.header.number)
             .collect::<Vec<_>>(),
-        (101..=116).collect::<Vec<_>>()
+        (101..=132).collect::<Vec<_>>()
     );
 }
 
 #[test]
 fn bounded_recovery_with_a_short_range_matches_recover_logs_through() {
     let through = BlockHeader::from_rpc(&block(104)).unwrap();
-    let input = targeted_records(104, 120);
-    let mut rpc_through = TranscriptRpc::new(input.clone());
+    let fixture = step(100, 120, 104, true);
     let expected = recover_logs_through(
-        &mut rpc_through,
+        &mut TranscriptRpc::new(fixture.records.clone()),
         &pools(),
         &checkpoint(),
         &through,
@@ -824,10 +1044,8 @@ fn bounded_recovery_with_a_short_range_matches_recover_logs_through() {
         || false,
     )
     .unwrap();
-    rpc_through.finish().unwrap();
-    let mut rpc_bounded = TranscriptRpc::new(input);
     let actual = recover_logs_bounded(
-        &mut rpc_bounded,
+        &mut TranscriptRpc::new(fixture.records),
         &pools(),
         &checkpoint(),
         &through,
@@ -835,28 +1053,24 @@ fn bounded_recovery_with_a_short_range_matches_recover_logs_through() {
         || false,
     )
     .unwrap();
-    rpc_bounded.finish().unwrap();
     assert_eq!(actual, expected);
 }
 
-/// At exactly `max_blocks` distance the walk must take the exact path (confirm
-/// the requested header by number) in a single attempt, not the capped path
-/// used for a range that is *longer* than `max_blocks`. This pins the `>` vs
-/// `>=` comparison against `limits.max_blocks`.
+/// At exactly `max_blocks` distance the walk must take the exact path
+/// (confirm the requested header by number) in a single attempt, not the
+/// capped path used for a range *longer* than `max_blocks`. This pins the
+/// `>` vs `>=` comparison against `limits.max_blocks` (now 32).
 #[test]
 fn bounded_recovery_at_exactly_max_blocks_takes_the_exact_path() {
-    let through = BlockHeader::from_rpc(&block(116)).unwrap();
-    let input = targeted_records(116, 120);
-    assert!(
-        input
-            .iter()
-            .any(|r| r.method == ReadMethod::EthGetBlockByNumber
-                && r.params == json!(["0x74", false])),
-        "transcript must contain the requested-header confirmation of 0x74"
+    let through = BlockHeader::from_rpc(&block(132)).unwrap();
+    let fixture = step(100, 140, 132, true);
+    assert_eq!(
+        fixture.records[fixture.target_resolution.unwrap()].params,
+        json!(["0x84", false]),
+        "transcript must contain the requested-header confirmation of 0x84"
     );
-    let mut rpc_through = TranscriptRpc::new(input.clone());
     let expected = recover_logs_through(
-        &mut rpc_through,
+        &mut TranscriptRpc::new(fixture.records.clone()),
         &pools(),
         &checkpoint(),
         &through,
@@ -864,10 +1078,8 @@ fn bounded_recovery_at_exactly_max_blocks_takes_the_exact_path() {
         || false,
     )
     .unwrap();
-    rpc_through.finish().unwrap();
-    let mut rpc_bounded = TranscriptRpc::new(input);
     let actual = recover_logs_bounded(
-        &mut rpc_bounded,
+        &mut TranscriptRpc::new(fixture.records),
         &pools(),
         &checkpoint(),
         &through,
@@ -875,18 +1087,16 @@ fn bounded_recovery_at_exactly_max_blocks_takes_the_exact_path() {
         || false,
     )
     .unwrap();
-    rpc_bounded.finish().unwrap();
     assert_eq!(actual, expected);
 }
 
 #[test]
 fn bounded_recovery_still_rejects_a_target_beyond_finality() {
     let through = BlockHeader::from_rpc(&block(125)).unwrap();
-    let mut input = targeted_records(125, 120);
-    input.truncate(3);
-    let mut rpc = TranscriptRpc::new(input);
+    let mut fixture = step(100, 120, 125, true);
+    fixture.records.truncate(3);
     let error = recover_logs_bounded(
-        &mut rpc,
+        &mut TranscriptRpc::new(fixture.records),
         &pools(),
         &checkpoint(),
         &through,
@@ -895,18 +1105,19 @@ fn bounded_recovery_still_rejects_a_target_beyond_finality() {
     )
     .unwrap_err();
     assert_eq!(error.reason, GapReason::FinalityRegressed);
-    rpc.finish().unwrap();
 }
 
 #[test]
 fn exact_target_preserves_cancellation_and_late_reorg_rejection() {
     let through = BlockHeader::from_rpc(&block(102)).unwrap();
-    let mut input = targeted_records(102, 200);
-    let last = input.len() - 2;
-    change(&mut input[last], |v| v["timestamp"] = json!("0x0"));
+    let mut fixture = step(100, 200, 102, true);
+    let index = fixture.final_target_recheck;
+    change(&mut fixture.records[index], |v| {
+        v["timestamp"] = json!("0x0")
+    });
     assert_eq!(
         recover_logs_through(
-            &mut TranscriptRpc::new(input),
+            &mut TranscriptRpc::new(fixture.records),
             &pools(),
             &checkpoint(),
             &through,
