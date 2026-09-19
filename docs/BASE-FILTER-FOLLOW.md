@@ -69,7 +69,7 @@ An expired filter remains an explicit failure requiring diagnosis, not permissio
 to skip the gap.
 
 Existing SIGINT/SIGTERM cancellation, immutable binding, atomic cursor persistence,
-16-block default recovery range, 4096-batch/64-MiB retention and STOPPED/error
+32-block default recovery range, 4096-batch/64-MiB retention and STOPPED/error
 semantics are preserved. The dashboard session STOP still does not control this
 separately launched foreground process; use its process controls.
 

@@ -1,5 +1,6 @@
 //! PostgreSQL-controlled OBSERVE/PAPER read-only capture and research runtime.
 //! Captures feed bounded research-only route evaluation. Gross quotes never imply fills or executable profit.
+mod capture_retention;
 mod capture_source;
 mod managed_ingestion;
 mod pipeline_metrics;
@@ -15,12 +16,15 @@ use arb_registry::{PoolRegistry, RegistryDocument};
 use arb_storage::{
     CollectionFinish, CollectionOutcome, CollectionPurpose, CollectionReason, Store, StoreError,
 };
+use capture_retention::directory_bytes;
 use serde_json::{Value, json};
 use std::{
     error::Error,
     fs,
+    future::Future,
     io::Read,
-    path::{Path, PathBuf},
+    path::PathBuf,
+    pin::Pin,
     process::ExitCode,
     sync::Arc,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -118,6 +122,35 @@ struct AcquisitionRpc {
     correlation: Uuid,
     rpc_elapsed: Duration,
 }
+/// Fixed adapter error labels only (`arb_adapter_api::AdapterError(&'static str)`
+/// can never carry an endpoint, header or response body).
+fn map_rpc_failure(label: &'static str) -> CollectionReason {
+    match label {
+        "capture RPC deadline exceeded" => CollectionReason::AcquisitionDeadline,
+        "RPC request quota exhausted" | "RPC response or capture exceeds byte quota" => {
+            CollectionReason::ResourceLimit
+        }
+        _ => CollectionReason::ProviderUnavailable,
+    }
+}
+
+/// One log line per failed acquisition RPC call. `label` is always one of the
+/// fixed strings from `arb_adapter_api`, never a param, endpoint or response body.
+fn rpc_failure_event(
+    correlation: Uuid,
+    method: arb_adapter_api::ReadMethod,
+    label: &'static str,
+    reason: CollectionReason,
+) -> Value {
+    json!({
+        "event": "acquisition-rpc-failed",
+        "correlation": correlation.to_string(),
+        "method": method,
+        "label": label,
+        "reason": reason,
+    })
+}
+
 impl ReadRpc for AcquisitionRpc {
     fn call(
         &mut self,
@@ -125,16 +158,16 @@ impl ReadRpc for AcquisitionRpc {
         params: Value,
     ) -> arb_adapter_api::Result<Value> {
         let started = Instant::now();
-        let result = self.inner.call(method, params).inspect_err(|error| {
-            self.failure = Some(match error.0 {
-                "capture RPC deadline exceeded" => CollectionReason::AcquisitionDeadline,
-                "RPC request quota exhausted" | "RPC response or capture exceeds byte quota" => {
-                    CollectionReason::ResourceLimit
-                }
-                _ => CollectionReason::ProviderUnavailable,
-            });
-        });
+        let result = self.inner.call(method, params);
         let elapsed = started.elapsed();
+        let result = result.inspect_err(|error| {
+            let reason = map_rpc_failure(error.0);
+            println!(
+                "{}",
+                rpc_failure_event(self.correlation, method, error.0, reason)
+            );
+            self.failure = Some(reason);
+        });
         self.rpc_elapsed = self.rpc_elapsed.saturating_add(elapsed);
         self.metrics.record(
             Component::Rpc,
@@ -391,42 +424,6 @@ fn resolve_reference(reference: &str) -> Result<String, AnyError> {
     required_env(name)
 }
 
-/// Bound the scan and reject symlinks. The initial deployment owns one capture volume
-/// with one worker process; quota is shared across its retained old run directories.
-fn directory_bytes(root: &Path) -> Result<u64, AnyError> {
-    let mut paths = vec![(root.to_owned(), 0)];
-    let mut entries = 0_u32;
-    let mut total = 0_u64;
-    while let Some((path, depth)) = paths.pop() {
-        if depth > 4 {
-            return Err("capture directory nesting exceeds supported layout".into());
-        }
-        for entry in fs::read_dir(path)? {
-            let entry = entry?;
-            entries = entries
-                .checked_add(1)
-                .ok_or("capture directory count overflow")?;
-            if entries > 100_000 {
-                return Err("capture directory entry quota exceeded".into());
-            }
-            let meta = fs::symlink_metadata(entry.path())?;
-            if meta.file_type().is_symlink() {
-                return Err("capture volume contains symlink".into());
-            }
-            if meta.is_dir() {
-                paths.push((entry.path(), depth + 1));
-            } else if meta.is_file() {
-                total = total
-                    .checked_add(meta.len())
-                    .ok_or("capture byte count overflow")?;
-            } else {
-                return Err("capture volume contains unsupported file type".into());
-            }
-        }
-    }
-    Ok(total)
-}
-
 fn capture_blocking(
     plan: &CapturePlan,
     correlation: Uuid,
@@ -624,6 +621,101 @@ fn capture_blocking(
     })
 }
 
+/// A Railway redeploy starts the new container while the outgoing one still holds
+/// its lease (at most `arb_storage::worker` accepts a 60 s lease). Retry only that
+/// exact conflict, bounded by the lease length plus margin (not by the 15 s this
+/// worker itself requests below), then fail as before.
+const CLAIM_RETRY_BUDGET: Duration = Duration::from_secs(75);
+const CLAIM_RETRY_INTERVAL: Duration = Duration::from_millis(1_500);
+
+fn is_lease_active_conflict(error: &StoreError) -> bool {
+    matches!(error, StoreError::Conflict("worker lease is active"))
+}
+
+/// Whether the worker start-up claim should retry given the prior error and how
+/// long it has already spent trying. Any error other than the lease-active
+/// conflict, or exhausting the bounded budget, fails immediately as before.
+fn should_retry_claim(error: &StoreError, elapsed: Duration) -> bool {
+    is_lease_active_conflict(error) && elapsed < CLAIM_RETRY_BUDGET
+}
+
+/// Core bounded-retry loop, generic over the claim attempt, the elapsed-time clock
+/// and the sleep so it runs under fast, deterministic unit tests without a real
+/// store or a real 75 s wait. `shutdown` lets a start-up-time SIGTERM interrupt the
+/// wait between attempts instead of being silently discarded: this worker runs as
+/// PID 1, so an unhandled SIGTERM during the wait would otherwise kill it outright
+/// rather than let it fence gracefully.
+async fn retry_claim_while_lease_active<T, Fut, SleepFut, ShutdownFut>(
+    mut attempt: impl FnMut() -> Fut,
+    mut elapsed: impl FnMut() -> Duration,
+    mut sleep: impl FnMut(Duration) -> SleepFut,
+    mut shutdown: Pin<&mut ShutdownFut>,
+    mut on_retry: impl FnMut(u32, Duration),
+) -> Result<T, StoreError>
+where
+    Fut: Future<Output = Result<T, StoreError>>,
+    SleepFut: Future<Output = ()>,
+    ShutdownFut: Future<Output = ()>,
+{
+    let mut attempt_number: u32 = 0;
+    loop {
+        match attempt().await {
+            Ok(value) => return Ok(value),
+            Err(error) if should_retry_claim(&error, elapsed()) => {
+                attempt_number += 1;
+                on_retry(attempt_number, elapsed());
+                tokio::select! {
+                    _ = sleep(CLAIM_RETRY_INTERVAL) => {}
+                    _ = &mut shutdown => return Err(error),
+                }
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+/// Bounded start-up retry around `ControlWorker::claim`, for exactly the lease-overlap
+/// case a merge-triggered redeploy produces. Never changes lease length, lease
+/// semantics or the single-writer guarantee enforced in `arb_storage::worker`.
+async fn claim_worker_with_lease_retry(
+    store: &Store,
+    operator: &str,
+    session_id: &str,
+    network: &str,
+    worker_id: &str,
+    lease_seconds: u32,
+    shutdown: Pin<&mut impl Future<Output = ()>>,
+) -> Result<ControlWorker, StoreError> {
+    let start = Instant::now();
+    retry_claim_while_lease_active(
+        || {
+            ControlWorker::claim(
+                store.clone(),
+                operator,
+                session_id,
+                network,
+                worker_id,
+                lease_seconds,
+            )
+        },
+        || start.elapsed(),
+        tokio::time::sleep,
+        shutdown,
+        |attempt, elapsed| {
+            println!(
+                "{}",
+                json!({
+                    "event": "worker-claim-retry",
+                    "session_id": session_id,
+                    "attempt": attempt,
+                    "elapsed_ms": u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX)
+                })
+            );
+        },
+    )
+    .await
+}
+
 fn is_generation_fence(error: &StoreError) -> bool {
     matches!(
         error,
@@ -702,6 +794,24 @@ async fn run() -> Result<(), AnyError> {
         return Err("capture root must be a directory".into());
     }
     let root = root.canonicalize()?;
+    // A full volume from prior runs must not refuse a start; relieve quota
+    // pressure by pruning the oldest committed bundles first. A prune failure
+    // must not block startup: the quota check right after it still catches an
+    // over-quota volume and returns the existing typed error for that case.
+    if let Err(error) = capture_retention::prune_under_quota_pressure(
+        &root,
+        config.capture_quota_bytes(),
+        now_ms()?,
+    ) {
+        println!(
+            "{}",
+            serde_json::json!({
+                "event": "capture-prune-failed",
+                "stage": "startup",
+                "error": error.to_string(),
+            })
+        );
+    }
     if directory_bytes(&root)? >= config.capture_quota_bytes() {
         return Err("capture volume quota exhausted".into());
     }
@@ -733,13 +843,16 @@ async fn run() -> Result<(), AnyError> {
         // The operator-approved source seed remains the coverage boundary.
         managed_ingestion::cursor(&store, &operator, bound_source.as_ref()).await?;
     }
-    let worker = ControlWorker::claim(
-        store.clone(),
+    let shutdown = shutdown_signal();
+    tokio::pin!(shutdown);
+    let worker = claim_worker_with_lease_retry(
+        &store,
         &operator,
         &session_id,
         network.as_str(),
         &Uuid::new_v4().to_string(),
         15,
+        shutdown.as_mut(),
     )
     .await?;
     worker.complete_recovery().await?;
@@ -773,8 +886,6 @@ async fn run() -> Result<(), AnyError> {
     let mut last_good_capture: Option<Instant> = None;
     let mut next_capture = Instant::now();
     let mut stopping = false;
-    let shutdown = shutdown_signal();
-    tokio::pin!(shutdown);
     loop {
         tokio::select! {
             _ = metrics_poll.tick(), if metrics.is_some() && !stopping => {
@@ -944,7 +1055,9 @@ async fn run() -> Result<(), AnyError> {
                             }
                         }
                         Ok(Err(failure)) => {
-                            last_good_capture=None;
+                            // Readiness is a good capture younger than CAPTURE_READY_AGE, not
+                            // "the last attempt succeeded"; a failed attempt (including a
+                            // retried provider failure) does not by itself drop readiness.
                             collection.captured_pools=failure.captured_pools;
                             // Terminal source faults invalidate dependent history. Never
                             // overwrite a concurrently advanced cursor or halt on shutdown.
@@ -988,6 +1101,13 @@ async fn run() -> Result<(), AnyError> {
                     return Err("capture readiness lost; worker faulted and requires explicit recovery".into());
                 }
                 if job.is_none() && evaluation.is_none() && Instant::now()>=next_capture {
+                    // Relieve quota pressure before every collection, research and
+                    // readiness alike, so a full volume never blocks the next capture.
+                    // A prune failure here must not exit the worker: log and keep going,
+                    // the same as at startup.
+                    if let Err(error) = capture_retention::prune_under_quota_pressure(&plan.root, plan.quota_bytes, now_ms()?) {
+                        println!("{}", json!({ "event": "capture-prune-failed", "stage": "tick", "error": error.to_string() }));
+                    }
                     let generation=worker.generation().await.ok();
                     let purpose=if generation.is_some() { CollectionPurpose::Research } else { CollectionPurpose::Readiness };
                     let correlation=Uuid::now_v7();
@@ -1049,6 +1169,125 @@ fn main() -> ExitCode {
 mod tests {
     use super::*;
     use arb_adapter_api::{RpcRecord, TranscriptRpc};
+    use std::cell::{Cell, RefCell};
+
+    #[test]
+    fn claim_retry_targets_only_the_lease_active_conflict_within_budget() {
+        let lease_active = StoreError::Conflict("worker lease is active");
+        assert!(should_retry_claim(&lease_active, Duration::from_secs(0)));
+        assert!(should_retry_claim(&lease_active, Duration::from_secs(74)));
+        assert!(!should_retry_claim(&lease_active, Duration::from_secs(75)));
+        assert!(!should_retry_claim(&lease_active, Duration::from_secs(200)));
+
+        // Any other error, including a superficially similar conflict, fails fast.
+        let lease_lost = StoreError::Conflict("worker lease lost");
+        assert!(!should_retry_claim(&lease_lost, Duration::from_secs(0)));
+        let invalid_input = StoreError::InvalidInput("lease must be 1..60 seconds");
+        assert!(!should_retry_claim(&invalid_input, Duration::from_secs(0)));
+    }
+
+    #[tokio::test]
+    async fn claim_retry_recovers_after_a_single_lease_conflict() {
+        let calls = Cell::new(0u32);
+        let sleep_calls = Cell::new(0u32);
+        let retries = RefCell::new(Vec::new());
+        let never = std::future::pending::<()>();
+        tokio::pin!(never);
+
+        let result = retry_claim_while_lease_active(
+            || {
+                let call = calls.get();
+                calls.set(call + 1);
+                async move {
+                    if call == 0 {
+                        Err(StoreError::Conflict("worker lease is active"))
+                    } else {
+                        Ok(42)
+                    }
+                }
+            },
+            || Duration::ZERO,
+            |_duration| {
+                sleep_calls.set(sleep_calls.get() + 1);
+                async {}
+            },
+            never.as_mut(),
+            |attempt, _elapsed| retries.borrow_mut().push(attempt),
+        )
+        .await;
+
+        assert_eq!(result.unwrap(), 42);
+        assert_eq!(calls.get(), 2, "claim attempted exactly twice");
+        assert_eq!(sleep_calls.get(), 1, "exactly one wait between attempts");
+        assert_eq!(*retries.borrow(), vec![1]);
+    }
+
+    #[tokio::test]
+    async fn claim_retry_fails_fast_on_a_non_lease_active_error() {
+        let calls = Cell::new(0u32);
+        let sleep_calls = Cell::new(0u32);
+        let never = std::future::pending::<()>();
+        tokio::pin!(never);
+
+        let result: Result<(), StoreError> = retry_claim_while_lease_active(
+            || {
+                calls.set(calls.get() + 1);
+                async { Err(StoreError::Conflict("worker lease lost")) }
+            },
+            || Duration::ZERO,
+            |_duration| {
+                sleep_calls.set(sleep_calls.get() + 1);
+                async {}
+            },
+            never.as_mut(),
+            |_attempt, _elapsed| panic!("must not retry a non-lease-active conflict"),
+        )
+        .await;
+
+        assert!(matches!(
+            result,
+            Err(StoreError::Conflict("worker lease lost"))
+        ));
+        assert_eq!(calls.get(), 1, "no retry after a non-lease-active error");
+        assert_eq!(sleep_calls.get(), 0);
+    }
+
+    #[tokio::test]
+    async fn claim_retry_gives_up_after_the_lease_budget_is_exhausted() {
+        let calls = Cell::new(0u32);
+        let sleep_calls = Cell::new(0u32);
+        let simulated_elapsed = Cell::new(Duration::ZERO);
+        let retries = RefCell::new(Vec::new());
+        let never = std::future::pending::<()>();
+        tokio::pin!(never);
+
+        let result: Result<(), StoreError> = retry_claim_while_lease_active(
+            || {
+                calls.set(calls.get() + 1);
+                async { Err(StoreError::Conflict("worker lease is active")) }
+            },
+            || simulated_elapsed.get(),
+            |_duration| {
+                sleep_calls.set(sleep_calls.get() + 1);
+                // Simulate the wait actually elapsing, without a real 75 s sleep.
+                simulated_elapsed.set(simulated_elapsed.get() + CLAIM_RETRY_INTERVAL);
+                async {}
+            },
+            never.as_mut(),
+            |attempt, _elapsed| retries.borrow_mut().push(attempt),
+        )
+        .await;
+
+        assert!(matches!(
+            result,
+            Err(StoreError::Conflict("worker lease is active"))
+        ));
+        // 75s budget / 1.5s interval = exactly 50 retries before giving up.
+        let expected_retries = 50u32;
+        assert_eq!(calls.get(), expected_retries + 1);
+        assert_eq!(sleep_calls.get(), expected_retries);
+        assert_eq!(retries.borrow().len(), expected_retries as usize);
+    }
 
     #[test]
     fn admission_invariant_conflicts_are_not_misreported_as_operator_suppression() {
@@ -1212,5 +1451,53 @@ mod tests {
             assert!(directory_bytes(&root).is_err());
         }
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn rpc_failure_event_has_exactly_the_five_fields() {
+        let correlation = Uuid::new_v4();
+        let event = rpc_failure_event(
+            correlation,
+            arb_adapter_api::ReadMethod::EthCall,
+            "RPC transport failed (endpoint redacted)",
+            CollectionReason::ProviderUnavailable,
+        );
+        let object = event.as_object().unwrap();
+        assert_eq!(object.len(), 5);
+        assert_eq!(object["event"], "acquisition-rpc-failed");
+        assert_eq!(object["correlation"], correlation.to_string());
+        assert_eq!(
+            object["method"],
+            serde_json::to_value(arb_adapter_api::ReadMethod::EthCall).unwrap()
+        );
+        assert_eq!(object["label"], "RPC transport failed (endpoint redacted)");
+        assert_eq!(
+            object["reason"],
+            serde_json::to_value(CollectionReason::ProviderUnavailable).unwrap()
+        );
+    }
+
+    #[test]
+    fn map_rpc_failure_keeps_the_three_existing_mappings() {
+        assert_eq!(
+            map_rpc_failure("capture RPC deadline exceeded"),
+            CollectionReason::AcquisitionDeadline
+        );
+        assert_eq!(
+            map_rpc_failure("RPC request quota exhausted"),
+            CollectionReason::ResourceLimit
+        );
+        assert_eq!(
+            map_rpc_failure("RPC response or capture exceeds byte quota"),
+            CollectionReason::ResourceLimit
+        );
+        assert_eq!(
+            map_rpc_failure("RPC transport failed (endpoint redacted)"),
+            CollectionReason::ProviderUnavailable
+        );
+        assert_eq!(
+            map_rpc_failure("anything else"),
+            CollectionReason::ProviderUnavailable
+        );
     }
 }

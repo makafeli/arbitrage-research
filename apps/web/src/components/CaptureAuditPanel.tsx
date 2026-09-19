@@ -44,7 +44,7 @@ export function CaptureAuditPanel({ api, bundle, active }: { api: ControlApi; bu
     <h4>Check the retained capture files</h4>
     <p className="tiny space-top">Download a request for every reference in this frozen export. Run the local auditor beside the quiesced capture volume, then import its JSON result here. No filesystem paths, credentials or report files are sent to the API.</p>
     <div className="research-actions space-top"><button disabled={!enabled} onClick={() => { if (state.request) download(state.request, 'audit-request'); }}>Download capture audit request</button>
-      <label>Import local audit JSON <input type="file" accept=".json,application/json" style={{ maxWidth: '100%' }} disabled={!enabled || state.busy} onChange={event => {
+      <label>Import local audit JSON <input type="file" accept=".json,application/json" className="audit-file" disabled={!enabled || state.busy} onChange={event => {
         const file = event.currentTarget.files?.[0]; event.currentTarget.value = ''; if (file) void importReport(file);
       }} /></label>
       {report && <button onClick={() => download(report, 'audit-report')}>Download bound audit report</button>}
@@ -52,7 +52,7 @@ export function CaptureAuditPanel({ api, bundle, active }: { api: ControlApi; bu
     {enabled && <p className="tiny space-top">Audit request covers {state.request!.capture_request.captures.length} capture references. Maximum: 1,000; larger requests are refused, never truncated.</p>}
     <details className="space-top"><summary>Local audit command and trust limits</summary>
       <p className="tiny">Run from the checked-out repository with private local paths and an explicit audit time in Unix milliseconds. See docs/25-EXPORT-CAPTURE-AUDIT.md. Save output outside the capture root.</p>
-      <p className="mono tiny" style={{ overflowWrap: 'anywhere' }}>python3 scripts/export_capture_audit.py --root /private/captures --request /private/request.json --now-ms AUDIT_TIME_MS &gt; /private/report.json</p>
+      <p className="mono tiny">python3 scripts/export_capture_audit.py --root /private/captures --request /private/request.json --now-ms AUDIT_TIME_MS &gt; /private/report.json</p>
       <p className="tiny">This browser validates the report structure and its link to this export, not who executed it or the truth of a supplied timestamp. A hash is not a signature. Empty reference sets do not establish complete coverage.</p>
     </details>
     {state.busy && <p role="status">Checking local report binding...</p>}

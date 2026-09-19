@@ -1,0 +1,77 @@
+/* Design tokens — source of truth for design.md at the repository root.
+ * Every colour and font-family in styles.css references one of these names. */
+:root {
+  color-scheme: dark;
+
+  /* Dark, cool graphite ground (default). */
+  --color-paper: oklch(20% 0.016 260);
+  --color-paper-2: oklch(23.5% 0.016 260);
+  --color-paper-3: oklch(27.5% 0.017 260);
+  --color-ink: oklch(95% 0.008 250);
+  --color-ink-2: oklch(76% 0.014 252);
+  --color-rule: oklch(31% 0.018 258);
+  --color-rule-2: oklch(38% 0.02 258);
+  --color-accent: oklch(74% 0.16 256);
+  --color-accent-ink: oklch(16% 0.03 258);
+  --color-warn: oklch(82% 0.13 80);
+  --color-danger: oklch(82% 0.13 25);
+  --color-focus: var(--color-accent);
+  --color-scrim: oklch(10% 0.01 260 / 0.7);
+  --shadow-lift: 0 1px 2px oklch(0% 0 0 / 0.3);
+
+  --font-display: "Space Grotesk", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-body: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
+
+  /* 4-pt spacing scale. */
+  --space-3xs: 2px;
+  --space-2xs: 4px;
+  --space-xs: 8px;
+  --space-sm: 12px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-2xl: 48px;
+  --space-3xl: 64px;
+  --space-4xl: 96px;
+
+  /* Type scale, ~1.25 ratio from the 15px base. */
+  --text-xs: 0.6875rem;
+  --text-sm: 0.75rem;
+  --text-md: 0.8125rem;
+  --text-base: 0.9375rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.375rem;
+  --text-2xl: 1.75rem;
+  --text-display: clamp(1.75rem, 1.3rem + 1.4vw, 2.25rem);
+  --tracking-display: -0.02em;
+  --tracking-mono: 0.06em;
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-inout: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-fast: 120ms;
+  --dur-base: 180ms;
+  --dur-slow: 240ms;
+
+  --radius-chip: 4px;
+  --radius-input: 6px;
+  --radius-card: 10px;
+  --touch: 44px;
+}
+
+body.light {
+  color-scheme: light;
+  --color-paper: oklch(98.5% 0.004 250);
+  --color-paper-2: oklch(96.5% 0.005 250);
+  --color-paper-3: oklch(94% 0.006 250);
+  --color-ink: oklch(24% 0.02 258);
+  --color-ink-2: oklch(42% 0.018 257);
+  --color-rule: oklch(89% 0.008 252);
+  --color-rule-2: oklch(82% 0.01 252);
+  --color-accent: oklch(50% 0.20 256);
+  --color-accent-ink: oklch(99% 0.002 250);
+  --color-warn: oklch(52% 0.13 70);
+  --color-danger: oklch(52% 0.13 25);
+  --color-scrim: oklch(24% 0.02 258 / 0.5);
+  --shadow-lift: 0 1px 2px oklch(24% 0.02 258 / 0.08);
+}

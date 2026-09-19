@@ -205,6 +205,10 @@ impl ReadRpc for HttpReadRpc {
             .map_err(|_| AdapterError("RPC transport failed (endpoint redacted)"))?;
         if !response.status().is_success() {
             return Err(AdapterError(match response.status().as_u16() {
+                400 => "RPC HTTP error: bad request (details redacted)",
+                402 => "RPC HTTP error: payment required (details redacted)",
+                404 => "RPC HTTP error: not found (details redacted)",
+                408 => "RPC HTTP error: request timeout (details redacted)",
                 429 => "RPC HTTP error: rate limited (details redacted)",
                 401 | 403 => "RPC HTTP error: access refused (details redacted)",
                 500..=599 => "RPC HTTP error: provider server failure (details redacted)",

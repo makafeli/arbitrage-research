@@ -150,6 +150,40 @@ expect_failure BASE_SESSION_NOT_REGISTERED "${run[@]}" -e ARB_OPERATOR_ID=operat
 "${run[@]}" -e ARB_OPERATOR_ID=operator "$image" worker-session --register /data/runtime/base-v1 > "$work/first.json"
 "${run[@]}" -e ARB_OPERATOR_ID=operator "$image" worker-session --register /data/runtime/base-v1 > "$work/reused.json"
 "${run[@]}" -e ARB_OPERATOR_ID=operator "$image" worker-session --status /data/runtime/base-v1 > "$work/status.json"
+# Refusal drill (#193): the generation-1 session is still RECOVERING here
+# (asserted below) with no live lease, an orphan analog of a crash between
+# the halt path's separate halt_ingestion/finish_collection/fault commits.
+# Give it a live lease, as a real worker still renewing every 250ms would
+# have, without touching observed_state or the lifecycle snapshot: a
+# generation-2 registration must now be refused rather than silently
+# succeed, and must create nothing.
+docker exec "$database" psql -XqAt -U postgres -v ON_ERROR_STOP=1 -c \
+    "UPDATE research_sessions SET lease_until = now() + interval '1 hour' WHERE operator_id='operator' AND network_id='base-mainnet'" >/dev/null
+expect_failure EXISTING_BASE_SESSION_REQUIRES_SELECTION "${run[@]}" -e ARB_OPERATOR_ID=operator -e ARB_BASE_GENERATION=2 "$image" \
+    worker-session --register /data/runtime/base-v1
+docker exec "$database" psql -XqAt -U postgres -v ON_ERROR_STOP=1 -c \
+    "SELECT count(*) FROM research_sessions WHERE operator_id='operator'" > "$work/refusal-session-count.txt"
+grep -Fx 1 "$work/refusal-session-count.txt" >/dev/null
+# A halted-source successor (#193): once operator's generation-1 session is no
+# longer running, ARB_BASE_GENERATION selects a distinct session key and
+# registers a second, independent session for the same operator instead of
+# reusing or resetting the first. Direct SQL flips both observed_state and the
+# lifecycle snapshot's state to STOPPED, matching what the real
+# Session::complete_recovery() reducer produces for a freshly created,
+# zero-outstanding session (mode/revisions/generation/local_fence untouched):
+# arb-storage's session_record() cross-checks observed_state against the
+# lifecycle snapshot on every read and rejects a mismatch as corrupt state.
+# Neither column is protected by immutable_session_identity, and STOPPED still
+# satisfies the table's `local_fence OR observed_state='RUNNING'` check.
+# lease_until is cleared in the same statement: once STOPPED, is_non_running_state
+# already blocks the old predicate before the lease is even considered, and a
+# genuinely stopped worker holds no lease.
+docker exec "$database" psql -XqAt -U postgres -v ON_ERROR_STOP=1 -c \
+    "UPDATE research_sessions SET observed_state='STOPPED', lifecycle=jsonb_set(lifecycle,'{state}','\"STOPPED\"'), lease_until=NULL WHERE operator_id='operator' AND network_id='base-mainnet'" >/dev/null
+"${run[@]}" -e ARB_OPERATOR_ID=operator -e ARB_BASE_GENERATION=2 "$image" \
+    worker-session --register /data/runtime/base-v1 > "$work/gen2-first.json"
+"${run[@]}" -e ARB_OPERATOR_ID=operator -e ARB_BASE_GENERATION=2 "$image" \
+    worker-session --register /data/runtime/base-v1 > "$work/gen2-replay.json"
 # The launcher also authenticates the server before any source initialization.
 expect_failure DATABASE_CA_REQUIRED "${run[@]}" -e ARB_OPERATOR_ID=operator \
     -e ARB_DATABASE_CA_PEM= -e ARB_BASE_RPC_URL=https://rpc.invalid/unused \
@@ -202,7 +236,17 @@ assert b['registration_requested'] is False
 for f in ('first.json','reused.json','status.json','race1.json','race2.json'):
     v=read(f); assert v['provider_requests']==0 and v['worker_started'] is False
 assert read('race1.json')['session']['session_id']==read('race2.json')['session']['session_id']
-assert read('counts.json')==dict(sessions=2,configurations=2,commands=0,streams=0,audit=2)
+# Generation 2 (#193): a distinct session for the same operator, never the
+# generation-1 session id, registered exactly once and replayed idempotently.
+g1,g2,g2r=a,read('gen2-first.json'),read('gen2-replay.json')
+assert g2['status']==g2r['status']=='BASE_SESSION_REGISTERED'
+assert g2['session']==g2r['session']
+assert g2['session']['session_id']!=g1['session']['session_id']
+gs=g2['session']; assert gs['mode']=='OBSERVE' and gs['network_id']=='base-mainnet'
+assert gs['configuration_digest']==sys.argv[2] and gs['observed_state']=='RECOVERING'
+assert g2['registration_requested'] is True and g2r['registration_requested'] is False
+assert g2['provider_requests']==0 and g2['worker_started'] is False
+assert read('counts.json')==dict(sessions=3,configurations=2,commands=0,streams=0,audit=3)
 PY
 # Validate matching API catalog inputs with the shipped wrapper, still no network.
 docker run --rm --pull=never --network none --read-only --user 10001:10001 \
@@ -223,4 +267,4 @@ expect_failure API_BASE_PROFILE_INCOMPLETE docker run --rm --pull=never --networ
     -e "ARB_BASE_PROFILE_DIGEST=$anchor" "$api_image" --check-profile
 docker run --rm --pull=never --network none --read-only "$api_image" --check-profile > "$work/api-inert.json"
 grep -F 'API_PROFILE_NOT_CONFIGURED' "$work/api-inert.json" >/dev/null
-printf '%s\n' 'Anchored session registration and API profile passed: verified TLS, wrong CA/hostname/CA-leaf refusal, same-key reuse, concurrent registration, wrong anchor refusal, no commands/streams/provider calls.'
+printf '%s\n' 'Anchored session registration and API profile passed: verified TLS, wrong CA/hostname/CA-leaf refusal, same-key reuse, concurrent registration, wrong anchor refusal, generation-2 registration after a non-running generation-1 session plus its replay, no commands/streams/provider calls.'

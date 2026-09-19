@@ -1,0 +1,18 @@
+[
+  {
+    "date": "2026-09-19",
+    "verb": "redesign",
+    "scope": "app",
+    "target": "apps/web",
+    "genre": "modern-minimal",
+    "macrostructure": "workbench",
+    "theme": "custom (Cobalt-family: cool graphite paper, electric cobalt signal; light variant behind body.light)",
+    "fonts": { "display": "Space Grotesk", "body": "Inter", "mono": "JetBrains Mono" },
+    "nav": "side rail (existing sidebar, hairline + accent bar)",
+    "footer": "none",
+    "design_system": "design.md",
+    "pages": ["Sign in", "Overview", "Opportunities", "Experiments", "Runs", "Strategies", "System", "Real trading"],
+    "critique": { "philosophy": 4, "hierarchy": 4, "execution": 4, "specificity": 4, "restraint": 5, "variety": 3 },
+    "ticket": "ARB-069 (#191)"
+  }
+]

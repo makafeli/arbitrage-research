@@ -109,7 +109,7 @@ impl Provider {
                     } else {
                         i64::from_str_radix(selector.strip_prefix("0x").unwrap(), 16).unwrap() - 100
                     };
-                    assert!((-1..=40).contains(&offset));
+                    assert!((-1..=80).contains(&offset));
                     header(offset)
                 } else if method == "eth_getLogs" {
                     held_s.store(true, Ordering::SeqCst);
@@ -122,7 +122,19 @@ impl Provider {
                     }
                     assert!(params[0]["address"].as_array().unwrap().len() == 2);
                     let tip_now = tip_s.load(Ordering::SeqCst) as i64;
-                    assert!((0..=tip_now).any(|k| header(k)["hash"] == params[0]["blockHash"]));
+                    let block_offset = |key: &str| {
+                        i64::from_str_radix(
+                            params[0][key].as_str().unwrap().strip_prefix("0x").unwrap(),
+                            16,
+                        )
+                        .unwrap()
+                            - 100
+                    };
+                    let from = block_offset("fromBlock");
+                    let to = block_offset("toBlock");
+                    assert!(
+                        (0..=tip_now).contains(&from) && (0..=tip_now).contains(&to) && from <= to
+                    );
                     if malformed_s.load(Ordering::SeqCst) {
                         json!([{"private":"provider diagnostic must not escape"}])
                     } else {
@@ -133,7 +145,12 @@ impl Provider {
                     if method == "eth_call" || method == "eth_getCode" {
                         assert_eq!(params[1]["requireCanonical"], true);
                         let tip_now = tip_s.load(Ordering::SeqCst) as i64;
-                        assert!((0..=tip_now).any(|k| header(k)["hash"] == params[1]["blockHash"]));
+                        // Issue #180: code identity is now also verified at the
+                        // checkpoint (`from`) bound of every step, and a seeded
+                        // checkpoint can sit at offset -1.
+                        assert!(
+                            (-1..=tip_now).any(|k| header(k)["hash"] == params[1]["blockHash"])
+                        );
                         comparable[1]["blockHash"] = header(0)["hash"].clone();
                     }
                     let record = records
@@ -653,8 +670,8 @@ async fn sigterm_during_recovery_preserves_the_cursor_without_fabricating_a_sour
     assert_eq!(f.quoted().await, 0);
 }
 
-/// A finalized step of 20 blocks exceeds `BackfillLimits::default().max_blocks`
-/// (16), so the bounded walk must span two consecutive capture attempts instead
+/// A finalized step of 40 blocks exceeds `BackfillLimits::default().max_blocks`
+/// (32), so the bounded walk must span two consecutive capture attempts instead
 /// of halting the source. Neither attempt skips a block or raises the limit.
 #[tokio::test]
 async fn a_finalized_step_beyond_the_bounded_range_is_walked_over_consecutive_captures() {
@@ -674,7 +691,7 @@ async fn a_finalized_step_beyond_the_bounded_range_is_walked_over_consecutive_ca
         )
         .await
         .unwrap();
-    f.provider.tip.store(20, Ordering::SeqCst);
+    f.provider.tip.store(40, Ordering::SeqCst);
     wait_until(
         async || {
             f.store
@@ -682,7 +699,7 @@ async fn a_finalized_step_beyond_the_bounded_range_is_walked_over_consecutive_ca
                 .await
                 .unwrap()
                 .checkpoint
-                == stored(16)
+                == stored(32)
         },
         30,
     )
@@ -702,7 +719,7 @@ async fn a_finalized_step_beyond_the_bounded_range_is_walked_over_consecutive_ca
                 .await
                 .unwrap()
                 .checkpoint
-                == stored(20)
+                == stored(40)
         },
         30,
     )
@@ -733,10 +750,10 @@ async fn a_finalized_step_beyond_the_bounded_range_is_walked_over_consecutive_ca
         .await
         .unwrap();
     assert_eq!(batches.len(), 2, "batches: {batches:?}");
-    assert_eq!(batches[0]["through"]["number"].as_u64(), Some(116));
-    assert_eq!(batches[0]["blocks"].as_array().unwrap().len(), 16);
-    assert_eq!(batches[1]["through"]["number"].as_u64(), Some(120));
-    assert_eq!(batches[1]["blocks"].as_array().unwrap().len(), 4);
+    assert_eq!(batches[0]["through"]["number"].as_u64(), Some(132));
+    assert_eq!(batches[0]["blocks"].as_array().unwrap().len(), 32);
+    assert_eq!(batches[1]["through"]["number"].as_u64(), Some(140));
+    assert_eq!(batches[1]["blocks"].as_array().unwrap().len(), 8);
     wait_until(
         async || capture_events(&f).iter().any(admitted_caught_up),
         10,
@@ -748,7 +765,7 @@ async fn a_finalized_step_beyond_the_bounded_range_is_walked_over_consecutive_ca
             .iter()
             .any(|e| e["admission"] == "UNADMITTED_RAW_CAPTURE"
                 && e["source_caught_up"] == false
-                && e["source_lag_blocks"] == 4),
+                && e["source_lag_blocks"] == 8),
         "events: {events:?}"
     );
     assert!(events.iter().any(admitted_caught_up), "events: {events:?}");
@@ -763,7 +780,7 @@ async fn a_finalized_step_beyond_the_bounded_range_is_walked_over_consecutive_ca
         .iter()
         .filter(|e| admitted_caught_up(e))
         .count();
-    f.provider.tip.store(40, Ordering::SeqCst);
+    f.provider.tip.store(80, Ordering::SeqCst);
     wait_until(
         async || {
             f.store
@@ -771,7 +788,7 @@ async fn a_finalized_step_beyond_the_bounded_range_is_walked_over_consecutive_ca
                 .await
                 .unwrap()
                 .checkpoint
-                == stored(36)
+                == stored(72)
         },
         30,
     )
@@ -795,7 +812,7 @@ async fn a_finalized_step_beyond_the_bounded_range_is_walked_over_consecutive_ca
                 .await
                 .unwrap()
                 .checkpoint
-                == stored(40)
+                == stored(80)
         },
         30,
     )
@@ -856,7 +873,7 @@ async fn a_finalized_step_beyond_the_bounded_range_is_walked_over_consecutive_ca
             .iter()
             .any(|e| e["admission"] == "UNADMITTED_RAW_CAPTURE"
                 && e["source_caught_up"] == false
-                && e["source_lag_blocks"] == 4),
+                && e["source_lag_blocks"] == 8),
         "events: {events:?}"
     );
     assert!(

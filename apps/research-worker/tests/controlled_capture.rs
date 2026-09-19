@@ -1603,6 +1603,11 @@ async fn provider_failure_is_redacted_and_killed_collection_stays_unresolved() {
     .await
     .unwrap();
     let log = fs::read_to_string(root.join("worker.log")).unwrap();
+    assert!(log.contains("\"event\":\"acquisition-rpc-failed\""));
+    assert!(
+        log.contains("\"label\":\"RPC HTTP error: provider server failure (details redacted)\"")
+    );
+    assert!(log.contains("\"reason\":\"PROVIDER_UNAVAILABLE\""));
     for text in persisted
         .iter()
         .map(String::as_str)
@@ -1759,9 +1764,12 @@ async fn canonical_batch_failure_admits_no_partial_captures_or_decisions() {
     // Readiness loss deliberately faults and terminates the worker. A STOP
     // issued after that exit cannot be acknowledged by the departed process.
     // Require the existing durable fault/generation fence and bounded exit.
+    // Since #197, a failed attempt no longer drops readiness immediately: it
+    // decays over CAPTURE_READY_AGE (90s), so the wait must clear that decay
+    // window (with margin) instead of the near-instant fault this used to be.
     let failed_generation: i64 = sqlx::query_scalar("SELECT generation FROM collection_attempts WHERE session_id=$1 AND purpose='RESEARCH' AND outcome='ACQUISITION_FAILED' ORDER BY attempt_id LIMIT 1")
         .bind(&id).fetch_one(&pool).await.unwrap();
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + Duration::from_secs(105);
     loop {
         let state: (String, bool, i64) = sqlx::query_as("SELECT observed_state,local_fence,generation FROM research_sessions WHERE session_id=$1")
             .bind(&id).fetch_one(&pool).await.unwrap();
@@ -1776,7 +1784,7 @@ async fn canonical_batch_failure_admits_no_partial_captures_or_decisions() {
         }
         if Instant::now() >= deadline {
             panic!(
-                "canonical batch stage=fault-exit expected durable FAULTED, closed fence, newer generation and process exit within 5s; actual={state:?}, failed_generation={failed_generation}, exit={exit:?}; {}",
+                "canonical batch stage=fault-exit expected durable FAULTED, closed fence, newer generation and process exit within 105s; actual={state:?}, failed_generation={failed_generation}, exit={exit:?}; {}",
                 diagnostics().await
             );
         }

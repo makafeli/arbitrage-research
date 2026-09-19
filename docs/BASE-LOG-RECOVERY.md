@@ -22,31 +22,85 @@ proves finality. Removed logs remain explicitly marked for invalidation.
 `arb_evm::backfill::recover_logs` takes approved pool registries, an immutable
 starting checkpoint, explicit limits, the existing `ReadRpc` and a cancellation
 predicate. It checks Base chain identity and the checkpoint, reads a finalized
-upper bound, then walks every intervening header in order. Logs are requested by
-**blockHash**, without fromBlock/toBlock fallback. Factory and pool runtime hashes
-are checked at every recovered block with `requireCanonical: true`. The target
-and starting checkpoint are rechecked after the complete range.
+upper bound, then walks every intervening header in order to verify ancestry.
+Logs for the whole step are requested with **ranged `eth_getLogs` calls**
+(`fromBlock`/`toBlock` spanning the step, `address` = the pool list), not one
+call per block. Factory and pool runtime code are checked only at the
+step's two bounds — the checkpoint block itself (`from`) and the target block
+(`through`) — each pinned by blockHash with `requireCanonical: true`, not at
+every intervening block; see "Residual risk of the ranged fetch" below for
+what this does and does not prove. The target and starting checkpoint are
+rechecked after the complete range.
 
-Defaults are 16 blocks, 256 logs per block and 1,024 logs per attempt. Hard maximums
-are 32 blocks, 512 logs per block, 4,096 logs total and the existing eight-pool
-limit. With B recovered blocks and P pools, a successful nonempty attempt uses
-`5 + B * (P + 3)` RPC calls, at most 357. Existing HTTP response/cumulative byte,
-request and 60-second capture limits still apply. Configured request pacing is
-inherited; this component has no retries, endpoint changes or quota reset.
-Cancellation is checked before and after every request. An already-sent request
-cannot be recalled and remains bounded by the existing transport timeout.
+Since issue #202 (2026-09-19), the ranged fetch is split into consecutive
+chunks of at most `LOG_RANGE_CHUNK_BLOCKS` (10) blocks each, concatenated in
+ascending order before the grouping/order/conflict checks above ever see
+them; a step of 10 blocks or fewer still issues exactly one `eth_getLogs`
+call. The chunk size matches the free-tier range cap a live Base RPC provider
+was observed enforcing: a probe found spans wider than 10 blocks rejected
+with JSON-RPC `-32600` ("Under the Free tier plan, you can make eth_getLogs
+requests with up to a 10 block range"), which `HttpReadRpc` surfaces as
+`RPC HTTP error: bad request (details redacted)` — the exact symptom
+(`acquisition-rpc-failed method=EthGetLogs`) that halted every catch-up step
+wider than 10 blocks after #187 doubled the default step to 32 blocks, until
+this chunking fix landed. A paid plan raises the provider's own cap;
+`LOG_RANGE_CHUNK_BLOCKS` may be raised to match it, up to
+`BackfillLimits::max_blocks`, without any other change here. A failure on any
+chunk still stops the attempt immediately with `GapReason::ProviderFailure`
+and the untouched checkpoint — there is no retry within or across chunks.
+
+Defaults are 32 blocks, 256 logs per block and 2,048 logs per attempt. Hard
+maximums are 32 blocks, 512 logs per block, 4,096 logs total and the existing
+eight-pool limit (issue #180, 2026-09-19: the default recovery range doubled
+from 16 to 32 blocks and now equals the hard maximum; the default log-per-
+attempt budget doubled from 1,024 to 2,048 in step, keeping ~64 logs/block of
+headroom — the hard maximum of 4,096 is unchanged). With B recovered blocks
+and P pools, a successful nonempty attempt uses
+`6 + 2 * (P + 1) + B + ceil(B / LOG_RANGE_CHUNK_BLOCKS)` RPC calls — 6 fixed
+calls (chain id, checkpoint header, finalized header, target confirmation,
+final target recheck, final checkpoint recheck), two bound code checks of
+`P + 1` calls each, one ancestry header per recovered block, and one ranged
+`eth_getLogs` call per 10-block chunk (issue #202, 2026-09-19; a single call
+before that fix) — at most 60 at P = 8, B = 32. Existing HTTP
+response/cumulative byte, request and 60-second capture limits still apply.
+Configured request pacing is inherited; this component has no retries,
+endpoint changes or quota reset. Cancellation is checked before and after
+every request. An already-sent request cannot be recalled and remains bounded
+by the existing transport timeout.
 
 Each complete block retains an explicitly empty or nonempty provider result.
-Logs are sorted by log index; duplicates, changed transaction/index bindings,
-removed logs, foreign pools and mismatched block references fail the whole range.
-Noncontiguous log indexes are valid because other contracts may occupy them.
+The ranged response's provider-advertised order is trusted instead of being
+re-sorted: **provider order is trusted; a non-increasing `logIndex` within a
+block is `ConflictingLog`.** This is a deliberate tightening introduced with
+the ranged fetch (issue #180, 2026-09-19), not a pre-existing invariant — the
+earlier per-block, blockHash-filtered request had no cross-log ordering within
+a single block's result to violate. Duplicates, changed transaction/index
+bindings, removed logs, foreign pools and mismatched block references still
+fail the whole range. Noncontiguous log indexes are valid because other
+contracts may occupy them.
 
 A failed or over-limit recovery returns a typed gap reason, the unchanged starting
 checkpoint, requested end and failing height where known. No partial prefix is
 returned as success, and the function never advances an external cursor. The
 caller must persist the entire result before committing `through` as its new
 checkpoint. Versioned output retains Base identity, exact registry digest, pinned
-ABI revision and complete per-block event metadata.
+ABI revision and complete per-block event metadata. This function itself still
+has no retry: any RPC error during a step, including any one of its
+(possibly chunked) `eth_getLogs` calls, stops that attempt with
+`GapReason::ProviderFailure` and the untouched
+checkpoint (issue #197, 2026-09-19). The retry is the caller's next attempt,
+not a loop in here — the research-worker caller (`managed_ingestion::recover`
+in `apps/research-worker/src/managed_ingestion.rs`) now treats
+`ProviderFailure` as a plain attempt failure rather than a source halt,
+because the checkpoint it would resume from is already untouched; every other
+`GapReason` still marks the source HALTED exactly as before. This widening is
+deliberate and covers every RPC error inside a step, including deterministic
+`400`/`402`/`404` answers and a quota or deadline hit on the transport: a STOPPED
+session keeps retrying the same endpoint every cycle until the owner acts, a
+RUNNING one faults after `CAPTURE_READY_AGE`. The session side
+is in `docs/MANAGED-BASE-WORKER.md`: no successful capture for
+`CAPTURE_READY_AGE` still faults the session, the stream stays ACTIVE, and the
+owner recovers with a `--start` redeploy and START.
 
 `arb_evm::backfill::recover_logs_bounded` runs the same chain-identity, ancestry,
 code-identity, log-bound and recheck logic as `recover_logs_through` against an
@@ -61,7 +115,33 @@ requested header is reached, at which point it behaves exactly like
 
 ## Evidence and capability boundaries
 
-An empty blockHash-bound result is not a missing block, but is still a single
+### Residual risk of the ranged fetch
+
+A **present** log is verified: it is attributed to its own block by matching
+`blockNumber`/`blockHash` against that block's independently fetched,
+ancestry-checked header. An **absent** log is not independently verifiable by
+the request itself — a stale or split-view provider can return an "explicitly
+empty" range for blocks that later have logs committed on the canonical chain,
+and there is no per-block blockHash-pinned call left to catch that on its own
+(issue #180, 2026-09-19: this is the ranged-fetch replacement for the earlier
+per-block, blockHash-bound empty-result caveat below).
+
+What bounds this: the target is always the `finalized` header, never a
+provisional tip, and the by-number rechecks of both the target and the
+starting checkpoint after the whole range (the final-target and
+final-checkpoint recheck calls in `crates/arb-evm/src/backfill.rs`) catch a
+reorg or a provider swap that would otherwise let a stale empty range through
+undetected. Absent-log correctness is bounded by finality plus these rechecks,
+not proven per block the way a present log is.
+
+**Optional follow-up, not implemented here:** a blockHash-pinned `eth_getLogs`
+call for each block the ranged response returned no logs for, to
+independently confirm "no logs" per block instead of relying on the bounds
+above. Left as a follow-up because it reintroduces one call per empty block,
+undoing part of the ranged fetch's call-count reduction; owner decision
+pending.
+
+An empty ranged result is not a missing block, but is still a single
 provider's assertion. These reads do **not** prove that a malicious or silently
 truncating provider returned every log; receipt-root verification is not present.
 The checkpoint is caller-supplied, not authenticated storage. A reorganization
@@ -79,6 +159,40 @@ A continuously running WebSocket/IPC subscription transport, reconnect schedulin
 durable cursor/rollback integration with the worker, representative real event
 captures and complete quote-state qualification remain original #30 work. Do not
 close #30, #29 or EPIC-02 on these component tests alone. No new task is required.
+
+## Acquisition RPC failure logging
+
+When the adapter call inside `AcquisitionRpc::call`
+(`apps/research-worker/src/main.rs`) fails, the worker prints one
+`acquisition-rpc-failed` JSON line carrying the collection's correlation ID,
+the `ReadMethod` (serialized under its serde variant name, e.g. `EthCall`),
+the adapter's fixed error `label`, and the `CollectionReason` that label maps
+to, serialized in its wire form: `ACQUISITION_DEADLINE`, `RESOURCE_LIMIT`, or
+`PROVIDER_UNAVAILABLE`. `correlation` equals the `collection_attempt_id` on
+the `collection-finished` line of the same attempt — that shared value is the
+join key between the two log lines. `label` is always one of the fixed
+strings `HttpReadRpc::call` returns from `crates/arb-adapter-api/src/lib.rs`:
+`RPC request quota exhausted`, `capture RPC deadline exceeded`, `RPC transport
+failed (endpoint redacted)`, `RPC HTTP error: bad request (details
+redacted)`, `RPC HTTP error: payment required (details redacted)`, `RPC HTTP
+error: not found (details redacted)`, `RPC HTTP error: request timeout
+(details redacted)`, `RPC HTTP error: rate limited (details
+redacted)`, `RPC HTTP error: access refused (details redacted)`, `RPC HTTP
+error: provider server failure (details redacted)`, `RPC HTTP error (details
+redacted)`, `RPC response read failed`, `RPC response or capture exceeds byte
+quota`, `RPC response is not UTF-8`, `malformed JSON-RPC response`, and
+`JSON-RPC identity mismatch or error (details redacted)`. All of these still
+map to `PROVIDER_UNAVAILABLE` except the deadline and quota/byte-limit labels
+noted above. Because
+`AdapterError` wraps only a `&'static str` chosen from this fixed set, the
+label is the only provider detail the worker ever logs — it can never carry
+an endpoint, a header or a response body.
+
+Sample line (serde_json emits object keys alphabetically):
+
+```json
+{"correlation":"3fa2b6d1-3c22-4a51-9e0b-7e5a2f9b6a10","event":"acquisition-rpc-failed","label":"RPC HTTP error: rate limited (details redacted)","method":"EthGetLogs","reason":"PROVIDER_UNAVAILABLE"}
+```
 
 ## Verification
 
@@ -106,8 +220,15 @@ The existing pinned revision supplies the ABI shape and provenance:
 
 - Uniswap ABI: https://github.com/Uniswap/v3-core/blob/d0831dc6b8a318df3872b6d68f6de135c9f3ec29/contracts/interfaces/pool/IUniswapV3PoolEvents.sol
   (Git blob `9d915dde934fc7a0430195f29bb2172c47783a3d`).
-- Hash-specific log filtering and the empty-result ambiguity:
-  https://eips.ethereum.org/EIPS/eip-234
-- Canonical hash-pinned code reads: https://eips.ethereum.org/EIPS/eip-1898
+- Hash-specific log filtering and the empty-result ambiguity (the per-block
+  design superseded by the ranged `eth_getLogs` fetch, issue #180,
+  2026-09-19; kept for the empty-result-ambiguity background, which still
+  applies to a ranged response — see "Residual risk of the ranged fetch"
+  above): https://eips.ethereum.org/EIPS/eip-234
+- Canonical hash-pinned code reads (still the mechanism behind the two bound
+  code checks): https://eips.ethereum.org/EIPS/eip-1898
+- Cancun/Ecotone immutable contract code (the basis for checking code
+  identity only at the step's two bounds instead of every block, issue #180,
+  2026-09-19): https://eips.ethereum.org/EIPS/eip-6780
 - Connection-scoped notifications, skipped heads and removed logs:
   https://geth.ethereum.org/docs/interacting-with-geth/rpc/pubsub
