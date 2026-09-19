@@ -29,7 +29,7 @@ with open(sys.argv[1], encoding='utf-8') as stream:
     value = json.load(stream)
 assert value == {
     'status': 'NOT_STARTED', 'provider_requests': 0,
-    'actions': ['--migrate', '--initialize', '--run', '--follow', '--status'],
+    'actions': ['--migrate', '--initialize', '--run', '--follow', '--status', '--rotate'],
     'execution_authorized': False,
 }, value
 PYJSON

@@ -187,7 +187,8 @@ checkpoint the old one had at rotation time.
    committing batches on the old stream. Its worker lease expires within 15s;
    `--rotate` refuses with `ROTATION_BLOCKED_BY_LIVE_LEASE` while any
    `base-mainnet` session still holds a live lease, so a refusal here almost
-   always means this step was skipped.
+   always means this step was skipped — or the previous container overlapped
+   this deploy; wait 15 s and redeploy.
 3. Stage the `ARB_BASE_GENERATION` deployment variable at the next number and
    the start command `worker-entrypoint worker-launch-base --rotate-and-start`
    in the same patch, then deploy. This registers the new generation's
@@ -207,6 +208,19 @@ checkpoint the old one had at rotation time.
 `ARB_INGEST_ROTATE_FROM`/`ARB_INGEST_STREAM_ID`, checks the live-lease and
 next-generation conditions above, and performs the storage rotation. A retry
 of the same rotation is idempotent and stays `ROTATED`.
+
+### `--rotate` refusal codes
+
+| Code | Cause |
+|---|---|
+| `ROTATION_TARGET_NOT_NEXT_GENERATION` | The target (`ARB_INGEST_STREAM_ID`) is not the immediate next generation of the source (`ARB_INGEST_ROTATE_FROM`). |
+| `ROTATION_BLOCKED_BY_LIVE_LEASE` | A `base-mainnet` session still holds a live lease — a worker container may still be committing batches to the source. |
+| `ROTATION_SOURCE_MISSING` | The `from` stream does not exist. |
+| `ROTATION_SOURCE_HALTED` | The source is HALTED, **or** the target `.gN` already exists and is HALTED. |
+| `ROTATION_SOURCE_ADVANCED` | The source committed a batch after an earlier rotation, **or** `.gN` already exists with a different anchor (for example, seeded by an earlier `--initialize-and-start`) — in that second case, look at the target stream, not the source. |
+| `ROTATION_LOCKED` | A concurrent rotate attempt is already in flight; retry. |
+| `ROTATION_REQUIRES_GENERATION` | Generation 1 has no prior generation to rotate from. |
+| `ROTATION_REFUSED_OR_UNCERTAIN` | The launcher's `--rotate` subprocess call returned non-zero. |
 
 ## Verification
 

@@ -1,6 +1,6 @@
 //! `--rotate` executable tests: database-only, no RPC endpoint, no provider contact.
 use arb_storage::{
-    IngestionBinding, IngestionCursor, IngestionHead, NewSession, Store, StoreError,
+    IngestionBinding, IngestionCursor, IngestionHalt, IngestionHead, NewSession, Store, StoreError,
 };
 use serde_json::{Value, json};
 use std::{
@@ -108,9 +108,43 @@ impl Fixture {
 #[tokio::test]
 async fn rotate_happy_path_anchors_the_new_generation_and_leaves_the_source_untouched() {
     let f = Fixture::new().await;
-    let source = seed(&f.store, &f.operator, "stream").await;
+    let source = seed(&f.store, &f.operator, "stream.g3").await;
 
-    let output = f.success("stream.g2", "stream");
+    // A live lease on a session of a different network must never block a
+    // Base rotation: this pins the `network_id == "base-mainnet"` filter,
+    // not merely the absence of any live lease at all.
+    let digest = format!("sha256:{}", "d".repeat(64));
+    f.store
+        .save_configuration(&f.operator, &digest, json!({"mode": "OBSERVE"}))
+        .await
+        .unwrap();
+    let solana_session = f
+        .store
+        .create_session(
+            &f.operator,
+            "solana-session",
+            NewSession {
+                network_id: "solana-mainnet".into(),
+                mode: "OBSERVE".into(),
+                configuration_digest: digest,
+                experiment_id: "rotate-test-solana".into(),
+                strategy_ids: vec!["strategy".into()],
+            },
+        )
+        .await
+        .unwrap();
+    f.store
+        .claim_worker(
+            &f.operator,
+            &solana_session.session_id,
+            "solana-mainnet",
+            "worker",
+            60,
+        )
+        .await
+        .unwrap();
+
+    let output = f.success("stream.g4", "stream.g3");
     assert_eq!(output["status"], "ROTATED");
     assert_eq!(output["state"], "ACTIVE");
     assert_eq!(output["revision"], "0");
@@ -119,7 +153,7 @@ async fn rotate_happy_path_anchors_the_new_generation_and_leaves_the_source_unto
 
     let rotated = f
         .store
-        .ingestion_cursor(&f.operator, "stream.g2")
+        .ingestion_cursor(&f.operator, "stream.g4")
         .await
         .unwrap();
     assert_eq!(rotated.checkpoint, source.checkpoint);
@@ -128,7 +162,7 @@ async fn rotate_happy_path_anchors_the_new_generation_and_leaves_the_source_unto
 
     let untouched = f
         .store
-        .ingestion_cursor(&f.operator, "stream")
+        .ingestion_cursor(&f.operator, "stream.g3")
         .await
         .unwrap();
     assert_eq!(untouched, source);
@@ -175,8 +209,9 @@ async fn rotate_refuses_while_a_base_mainnet_session_holds_a_live_lease() {
         )
         .await
         .unwrap();
-    // A 1-second lease is the minimum `claim_worker` accepts; the test waits it
-    // out rather than reaching for raw SQL the crate does not expose publicly.
+    // A 5-second lease gives the spawned `--rotate` binary a wide margin over
+    // the 1-second `claim_worker` minimum, so the sleep below cannot race the
+    // process spawn/exec/connect overhead and see a lease that already expired.
     let claim = f
         .store
         .claim_worker(
@@ -184,7 +219,7 @@ async fn rotate_refuses_while_a_base_mainnet_session_holds_a_live_lease() {
             &session.session_id,
             "base-mainnet",
             "worker",
-            1,
+            5,
         )
         .await
         .unwrap();
@@ -202,10 +237,37 @@ async fn rotate_refuses_while_a_base_mainnet_session_holds_a_live_lease() {
         Err(StoreError::NotFound)
     ));
 
-    tokio::time::sleep(Duration::from_millis(1_100)).await;
+    tokio::time::sleep(Duration::from_millis(5_100)).await;
 
     let rotated = f.success("stream.g2", "stream");
     assert_eq!(rotated["status"], "ROTATED");
+}
+
+#[tokio::test]
+async fn rotate_refuses_when_the_source_is_halted() {
+    let f = Fixture::new().await;
+    let source = seed(&f.store, &f.operator, "stream").await;
+    f.store
+        .halt_ingestion(&f.operator, "stream", &source, IngestionHalt::ResourceLimit)
+        .await
+        .unwrap();
+
+    let output = f.run("stream.g2", "stream");
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("ROTATION_SOURCE_HALTED"));
+    assert!(matches!(
+        f.store.ingestion_cursor(&f.operator, "stream.g2").await,
+        Err(StoreError::NotFound)
+    ));
+}
+
+#[tokio::test]
+async fn rotate_refuses_when_the_source_is_missing() {
+    let f = Fixture::new().await;
+
+    let output = f.run("absent.g2", "absent");
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("ROTATION_SOURCE_MISSING"));
 }
 
 #[tokio::test]
