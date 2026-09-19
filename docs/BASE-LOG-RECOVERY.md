@@ -125,6 +125,26 @@ durable cursor/rollback integration with the worker, representative real event
 captures and complete quote-state qualification remain original #30 work. Do not
 close #30, #29 or EPIC-02 on these component tests alone. No new task is required.
 
+## Acquisition RPC failure logging
+
+When the adapter call inside `AcquisitionRpc::call`
+(`apps/research-worker/src/main.rs`) fails, the worker prints one
+`acquisition-rpc-failed` JSON line carrying the collection's correlation ID,
+the `ReadMethod`, the adapter's fixed error `label`, and the `CollectionReason`
+that label maps to (`AcquisitionDeadline`, `ResourceLimit`, or
+`ProviderUnavailable`). `label` is always one of the fixed strings
+`HttpReadRpc::call` returns from `crates/arb-adapter-api/src/lib.rs`: `RPC
+request quota exhausted`, `capture RPC deadline exceeded`, `RPC transport
+failed (endpoint redacted)`, `RPC HTTP error: rate limited (details
+redacted)`, `RPC HTTP error: access refused (details redacted)`, `RPC HTTP
+error: provider server failure (details redacted)`, `RPC HTTP error (details
+redacted)`, `RPC response read failed`, `RPC response or capture exceeds byte
+quota`, `RPC response is not UTF-8`, `malformed JSON-RPC response`, and
+`JSON-RPC identity mismatch or error (details redacted)`. Because
+`AdapterError` wraps only a `&'static str` chosen from this fixed set, the
+label is the only provider detail the worker ever logs — it can never carry
+an endpoint, a header or a response body.
+
 ## Verification
 
 Run with the repository's pinned Rust toolchain:

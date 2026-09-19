@@ -122,6 +122,36 @@ struct AcquisitionRpc {
     correlation: Uuid,
     rpc_elapsed: Duration,
 }
+/// Fixed adapter error labels only (`arb_adapter_api::AdapterError(&'static str)`
+/// can never carry an endpoint, header or response body). Behaviour unchanged
+/// from the previous inline match.
+fn map_rpc_failure(label: &str) -> CollectionReason {
+    match label {
+        "capture RPC deadline exceeded" => CollectionReason::AcquisitionDeadline,
+        "RPC request quota exhausted" | "RPC response or capture exceeds byte quota" => {
+            CollectionReason::ResourceLimit
+        }
+        _ => CollectionReason::ProviderUnavailable,
+    }
+}
+
+/// One log line per failed acquisition RPC call. `label` is always one of the
+/// fixed strings from `arb_adapter_api`, never a param, endpoint or response body.
+fn rpc_failure_event(
+    correlation: Uuid,
+    method: arb_adapter_api::ReadMethod,
+    label: &str,
+    reason: CollectionReason,
+) -> Value {
+    json!({
+        "event": "acquisition-rpc-failed",
+        "correlation": correlation.to_string(),
+        "method": method,
+        "label": label,
+        "reason": reason,
+    })
+}
+
 impl ReadRpc for AcquisitionRpc {
     fn call(
         &mut self,
@@ -130,13 +160,12 @@ impl ReadRpc for AcquisitionRpc {
     ) -> arb_adapter_api::Result<Value> {
         let started = Instant::now();
         let result = self.inner.call(method, params).inspect_err(|error| {
-            self.failure = Some(match error.0 {
-                "capture RPC deadline exceeded" => CollectionReason::AcquisitionDeadline,
-                "RPC request quota exhausted" | "RPC response or capture exceeds byte quota" => {
-                    CollectionReason::ResourceLimit
-                }
-                _ => CollectionReason::ProviderUnavailable,
-            });
+            let reason = map_rpc_failure(error.0);
+            println!(
+                "{}",
+                rpc_failure_event(self.correlation, method, error.0, reason)
+            );
+            self.failure = Some(reason);
         });
         let elapsed = started.elapsed();
         self.rpc_elapsed = self.rpc_elapsed.saturating_add(elapsed);
@@ -1420,5 +1449,53 @@ mod tests {
             assert!(directory_bytes(&root).is_err());
         }
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn rpc_failure_event_has_exactly_the_five_fields() {
+        let correlation = Uuid::new_v4();
+        let event = rpc_failure_event(
+            correlation,
+            arb_adapter_api::ReadMethod::EthCall,
+            "RPC transport failed (endpoint redacted)",
+            CollectionReason::ProviderUnavailable,
+        );
+        let object = event.as_object().unwrap();
+        assert_eq!(object.len(), 5);
+        assert_eq!(object["event"], "acquisition-rpc-failed");
+        assert_eq!(object["correlation"], correlation.to_string());
+        assert_eq!(
+            object["method"],
+            serde_json::to_value(arb_adapter_api::ReadMethod::EthCall).unwrap()
+        );
+        assert_eq!(object["label"], "RPC transport failed (endpoint redacted)");
+        assert_eq!(
+            object["reason"],
+            serde_json::to_value(CollectionReason::ProviderUnavailable).unwrap()
+        );
+    }
+
+    #[test]
+    fn map_rpc_failure_keeps_the_three_existing_mappings() {
+        assert_eq!(
+            map_rpc_failure("capture RPC deadline exceeded"),
+            CollectionReason::AcquisitionDeadline
+        );
+        assert_eq!(
+            map_rpc_failure("RPC request quota exhausted"),
+            CollectionReason::ResourceLimit
+        );
+        assert_eq!(
+            map_rpc_failure("RPC response or capture exceeds byte quota"),
+            CollectionReason::ResourceLimit
+        );
+        assert_eq!(
+            map_rpc_failure("RPC transport failed (endpoint redacted)"),
+            CollectionReason::ProviderUnavailable
+        );
+        assert_eq!(
+            map_rpc_failure("anything else"),
+            CollectionReason::ProviderUnavailable
+        );
     }
 }
