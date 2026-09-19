@@ -164,6 +164,7 @@ dialog::backdrop{background:var(--color-scrim)}
 .connected-form input[type=checkbox]{width:20px;height:20px;flex-shrink:0;margin-top:var(--space-3xs);accent-color:var(--color-accent)}
 .connected-form button{justify-self:start}
 .login-panel{margin-bottom:var(--space-lg)}
+.research-actions label{min-width:0}
 .audit-file{max-width:100%}
 
 /* Research evidence workspace */
