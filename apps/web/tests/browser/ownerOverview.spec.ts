@@ -2,7 +2,9 @@ import { expect, test } from '@playwright/test';
 
 const auth = { operator_id: 'operator', csrf_token: 'owner-overview-csrf', expires_at: '2000000000' };
 const caps = { modes: ['OBSERVE', 'PAPER', 'REPLAY'], live_execution: false, market_data: false, opportunity_capture: false, registered_configurations: [] };
-const session = { session_id: 'owner-session-1', network_id: 'base-mainnet', mode: 'OBSERVE', observed_state: 'RUNNING', health: 'HEALTHY',
+// health: 'HEALTHY' is never emitted by the service (crates/arb-storage/src/lib.rs) — sessions with
+// no heartbeat yet default to UNKNOWN (F6).
+const session = { session_id: 'owner-session-1', network_id: 'base-mainnet', mode: 'OBSERVE', observed_state: 'RUNNING', health: 'UNKNOWN',
   desired_revision: '1', applied_revision: '1', outstanding_attempts: 0, execution_authorized: false, last_heartbeat_at: null, configuration_digest: 'cfg-digest' };
 const coverage = { session_id: session.session_id, raw_observations: '0', quoted_candidates: '0', rejected: '0', no_route: '0', data_unavailable: '0',
   unique_opportunity_groups: '0', eligible_attempts: null, reconciled_transactions: null, execution_accounting_available: false,
@@ -78,7 +80,8 @@ test('owner overview page shows all five plain-language blocks and a working nl/
   await expect(page.getByRole('heading', { name: '5. Road to PAPER/live' })).toBeVisible();
   await expect(page.getByText('OBSERVE candidates are not executed, not simulated end-to-end, and are not profit.')).toBeVisible();
 
-  // the language choice is remembered across a reload, per the ticket's localStorage requirement.
+  // The language choice is remembered across a reload via localStorage. This is a UX nicety this
+  // implementation chose, not a requirement stated in ticket #182 (F9).
   await page.reload();
   await expect(page.getByRole('heading', { name: 'Paper trading overview' })).toBeVisible();
   await page.getByRole('button', { name: 'Owner overview', exact: true }).click();
@@ -125,4 +128,49 @@ test('a session with an unreachable worker while running shows the red Dutch hea
   await expect(page.getByText('rood', { exact: true })).toBeVisible();
   await expect(page.getByText('de werker is niet bereikbaar')).toBeVisible();
   await expect(page.getByText('niet bereikbaar', { exact: true })).toBeVisible();
+});
+
+// F1 regression (round-2's H1/H3 fix re-broken at 97d373c): collection-coverage is fetched once
+// per session selection, not re-polled, while the parent's session poll ticks the component's own
+// re-renders every 5s. If freshness were judged against a live clock instead of the coverage
+// resource's own fetch time, a healthy session would drift from green to amber to red purely from
+// the page sitting open, with no new data. Uses Playwright's clock API instead of real sleeps.
+test('a healthy session stays green after 6 minutes with the page open (coverage read once, not by a live clock)', async ({ page }) => {
+  const t0 = Date.parse('2026-01-01T00:00:00.000Z');
+  await page.clock.install({ time: t0 });
+  let coverageCalls = 0;
+  let sessionCalls = 0;
+  await page.route('**/v1/**', async route => {
+    const p = new URL(route.request().url()).pathname;
+    if (p === '/v1/auth/session') { await route.fulfill({ json: auth }); return; }
+    if (p === '/v1/capabilities') { await route.fulfill({ json: caps }); return; }
+    if (p === '/v1/sessions') {
+      sessionCalls += 1;
+      // The worker is alive and collecting: every poll returns a fresh heartbeat.
+      const activeSession = { ...session, health: 'DEGRADED', last_heartbeat_at: new Date(t0 + sessionCalls * 5_000).toISOString() };
+      await route.fulfill({ json: { items: [activeSession], next_cursor: null } }); return;
+    }
+    if (p === '/v1/decision-coverage') { await route.fulfill({ json: coverage }); return; }
+    if (p.endsWith('/collection-coverage')) {
+      coverageCalls += 1;
+      const fresh = { ...collectionCoverage, attempts_started: '5', research_attempts: '5', decisions_recorded: '5',
+        window_start_at: new Date(t0 - 60_000).toISOString(), window_end_at: new Date(t0).toISOString() };
+      await route.fulfill({ json: fresh }); return;
+    }
+    await route.fulfill({ json: emptyPage });
+  });
+
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Owner overview', exact: true }).click();
+  await page.getByLabel('Sessie').selectOption(session.session_id);
+  await page.getByRole('button', { name: 'English', exact: true }).click();
+  await expect(page.getByText('green', { exact: true })).toBeVisible();
+  await expect(page.getByText('is caught up (recently updated)')).toBeVisible();
+  const callsAfterLoad = coverageCalls;
+
+  // Six minutes pass with the page open; the parent keeps polling sessions every 5s.
+  await page.clock.fastForward('06:00');
+  await expect(page.getByText('green', { exact: true })).toBeVisible();
+  await expect(page.getByText('is caught up (recently updated)')).toBeVisible();
+  expect(coverageCalls).toBe(callsAfterLoad); // collection-coverage was not re-fetched.
 });
