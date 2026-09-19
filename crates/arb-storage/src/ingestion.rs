@@ -7,7 +7,7 @@ use sqlx::{Row, postgres::PgRow};
 
 const MAX_BATCH_BYTES: usize = 2 * 1024 * 1024;
 const MAX_STREAM_BYTES: i64 = 64 * 1024 * 1024;
-const MAX_BATCHES: u64 = 4096;
+pub const MAX_BATCHES: u64 = 4096;
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -66,6 +66,14 @@ pub struct IngestionCursor {
     pub state: String,
     pub halt_reason: Option<String>,
 }
+impl IngestionCursor {
+    /// True once the stream has committed the maximum number of retained batches
+    /// and can no longer accept another `commit_ingestion` call. Callers decide
+    /// whether and when to `rotate_ingestion` in response.
+    pub fn retention_reached(&self) -> bool {
+        self.revision >= MAX_BATCHES
+    }
+}
 
 #[derive(Clone, Copy, Debug)]
 pub enum IngestionHalt {
@@ -92,18 +100,43 @@ fn hex_id(value: &str, prefix: &str, digits: usize) -> bool {
                 .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
     })
 }
+fn is_identity(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && value
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || b"-_.:".contains(&c))
+}
 fn identity(operator: &str, stream: &str) -> Result<(), StoreError> {
-    for value in [operator, stream] {
-        if value.is_empty()
-            || value.len() > 128
-            || !value
-                .bytes()
-                .all(|c| c.is_ascii_alphanumeric() || b"-_.:".contains(&c))
-        {
-            return Err(StoreError::InvalidInput("invalid ingestion identity"));
-        }
+    if !is_identity(operator) || !is_identity(stream) {
+        return Err(StoreError::InvalidInput("invalid ingestion identity"));
     }
     Ok(())
+}
+/// Derive the next stream generation id for a continuity-preserving rotation:
+/// `railway-base-profile-v1` -> `railway-base-profile-v1.g2` -> `....g3` -> ...
+/// A pure function; it never touches storage and never mutates `stream`.
+pub fn next_generation(stream: &str) -> Result<String, StoreError> {
+    let invalid = || StoreError::InvalidInput("invalid ingestion stream generation");
+    if !is_identity(stream) {
+        return Err(invalid());
+    }
+    let next = match stream.rsplit_once(".g") {
+        Some((base, suffix))
+            if !suffix.is_empty()
+                && suffix.bytes().all(|c| c.is_ascii_digit())
+                && (suffix == "0" || !suffix.starts_with('0')) =>
+        {
+            let generation: u64 = suffix.parse().map_err(|_| invalid())?;
+            let generation = generation.checked_add(1).ok_or_else(invalid)?;
+            format!("{base}.g{generation}")
+        }
+        _ => format!("{stream}.g2"),
+    };
+    if !is_identity(&next) {
+        return Err(invalid());
+    }
+    Ok(next)
 }
 fn cursor(row: &PgRow) -> Result<IngestionCursor, StoreError> {
     let binding: IngestionBinding =
@@ -323,6 +356,61 @@ impl Store {
         Ok(result)
     }
 
+    /// Continue an ACTIVE stream in a new generation anchored at its current checkpoint.
+    /// The old stream is left ACTIVE and untouched (no halt, no cursor rewrite); its
+    /// batches keep `NO_KNOWN_INVALIDATION`. Idempotent for the identical rotation.
+    pub async fn rotate_ingestion(
+        &self,
+        operator: &str,
+        from: &str,
+        to: &str,
+    ) -> Result<IngestionCursor, StoreError> {
+        identity(operator, from)?;
+        identity(operator, to)?;
+        if from == to {
+            return Err(StoreError::InvalidInput(
+                "ingestion rotation requires a distinct stream id",
+            ));
+        }
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("SET LOCAL lock_timeout='2s'")
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("SET LOCAL statement_timeout='10s'")
+            .execute(&mut *tx)
+            .await?;
+        let row = sqlx::query(
+            "SELECT * FROM ingestion_streams WHERE operator_id=$1 AND stream_id=$2 FOR UPDATE",
+        )
+        .bind(operator)
+        .bind(from)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(StoreError::NotFound)?;
+        let source = cursor(&row)?;
+        if source.state != "ACTIVE" {
+            return Err(StoreError::Conflict("halted ingestion cursor"));
+        }
+        let binding = as_value(&source.binding)?;
+        let checkpoint = as_value(&source.checkpoint)?;
+        sqlx::query("INSERT INTO ingestion_streams(operator_id,stream_id,binding,initial_checkpoint,checkpoint) VALUES($1,$2,$3,$4,$4) ON CONFLICT DO NOTHING")
+            .bind(operator).bind(to).bind(&binding).bind(&checkpoint).execute(&mut *tx).await?;
+        let to_row =
+            sqlx::query("SELECT * FROM ingestion_streams WHERE operator_id=$1 AND stream_id=$2")
+                .bind(operator)
+                .bind(to)
+                .fetch_one(&mut *tx)
+                .await?;
+        if to_row.try_get::<Value, _>("binding")? != binding
+            || to_row.try_get::<Value, _>("initial_checkpoint")? != checkpoint
+        {
+            return Err(StoreError::Conflict("ingestion rotation changed"));
+        }
+        let result = cursor(&to_row)?;
+        tx.commit().await?;
+        Ok(result)
+    }
+
     /// Persist a terminal gap at the exact cursor, without advancing or re-arming.
     pub async fn halt_ingestion(
         &self,
@@ -357,5 +445,55 @@ impl Store {
             i64::try_from(after).map_err(|_| StoreError::InvalidInput("invalid batch revision"))?;
         sqlx::query_scalar("SELECT payload FROM ingestion_batches WHERE operator_id=$1 AND stream_id=$2 AND revision>$3 ORDER BY revision LIMIT $4")
             .bind(operator).bind(stream).bind(after).bind(i64::from(limit)).fetch_all(&self.pool).await.map_err(StoreError::from)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn next_generation_appends_g2_to_a_bare_stream_id() {
+        assert_eq!(
+            next_generation("railway-base-profile-v1").unwrap(),
+            "railway-base-profile-v1.g2"
+        );
+    }
+
+    #[test]
+    fn next_generation_increments_an_existing_generation_suffix() {
+        assert_eq!(
+            next_generation("railway-base-profile-v1.g2").unwrap(),
+            "railway-base-profile-v1.g3"
+        );
+        assert_eq!(
+            next_generation("railway-base-profile-v1.g9").unwrap(),
+            "railway-base-profile-v1.g10"
+        );
+    }
+
+    #[test]
+    fn next_generation_rejects_invalid_or_malformed_identities() {
+        assert!(next_generation("").is_err());
+        assert!(next_generation("bad id!").is_err());
+        assert!(next_generation(&"x".repeat(129)).is_err());
+    }
+
+    #[test]
+    fn next_generation_rejects_a_result_that_would_exceed_the_identity_length_limit() {
+        let stream = "x".repeat(127);
+        assert!(next_generation(&stream).is_err());
+    }
+
+    #[test]
+    fn next_generation_leaves_a_zero_padded_or_non_numeric_suffix_as_part_of_the_base() {
+        assert_eq!(
+            next_generation("railway-base-profile-v1.g02").unwrap(),
+            "railway-base-profile-v1.g02.g2"
+        );
+        assert_eq!(
+            next_generation("railway-base-profile-v1.green").unwrap(),
+            "railway-base-profile-v1.green.g2"
+        );
     }
 }
