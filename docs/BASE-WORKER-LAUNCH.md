@@ -73,24 +73,30 @@ collects bounded readiness input and awaits commands through the existing API.
 The launcher replaces itself with that worker, preserving PID1 signal handling.
 SIGTERM during preparation cancels the child and never proceeds to exec.
 
-One configured source and session remain the scope. The existing 16-block recovery
-limit, shared RPC time/byte/request budgets, capture quota and invalidation rules
-are unchanged; `plan.quota_bytes` itself is part of the session's
-`configuration_digest` and cannot be raised without a new session. Once
-`/data/captures` crosses 80% of that quota the worker prunes the oldest
-committed raw bundles itself, admitted ones included, down to 50% before their
-`raw_expires_at_ms` — pressure relief so a fixed quota survives a multi-day run,
-not long-term retention. Pruning runs before every collection attempt, research
-or readiness alike, so a STOPPED or PAUSED session does not protect a bundle
-from it. The `capture_admissions` rows (capture id, `manifest_digest`) remain in
-PostgreSQL after a bundle is pruned, but `scripts/export_capture_audit.py` only
-audits presence (`MISSING`/`COMPLETE_WITH_GAPS`) — it copies nothing. To keep
-raw evidence, copy the bundle directories to `/data/archive` (a sibling of
-`/data/captures`, never pruned) before pruning reaches them. A finalized step beyond that 16-block limit is no longer a single
-failing attempt: it is walked across consecutive captures, each committing at
-most 16 blocks with nothing skipped and no limit raised, until the step is
-closed. A capture is not admitted for research until the source has reached its
-own anchor block. A gap the bounded walk cannot close — a reorg, a finality
+One configured source and session remain the scope. The existing 32-block
+recovery limit, shared RPC time/byte/request budgets, capture quota and
+invalidation rules are unchanged. Recovery fetches each step with one ranged
+`eth_getLogs` call (`fromBlock`/`toBlock` over the pool addresses) instead of
+one call per block, and checks factory/pool runtime code only at the step's
+first and last block instead of at every block (Base runs Cancun/EIP-6780, so
+identity at both ends implies identity in between; issue #180, 2026-09-19).
+`plan.quota_bytes` itself is part of the session's `configuration_digest` and
+cannot be raised without a new session. Once `/data/captures` crosses 80% of
+that quota the worker prunes the oldest committed raw bundles itself, admitted
+ones included, down to 50% before their `raw_expires_at_ms` — pressure relief
+so a fixed quota survives a multi-day run, not long-term retention. Pruning
+runs before every collection attempt, research or readiness alike, so a STOPPED
+or PAUSED session does not protect a bundle from it. The `capture_admissions`
+rows (capture id, `manifest_digest`) remain in PostgreSQL after a bundle is
+pruned, but `scripts/export_capture_audit.py` only audits presence
+(`MISSING`/`COMPLETE_WITH_GAPS`) — it copies nothing. To keep raw evidence, copy
+the bundle directories to `/data/archive` (a sibling of `/data/captures`, never
+pruned) before pruning reaches them. A finalized step beyond that 32-block
+limit is no longer a single failing attempt: it is walked across consecutive
+captures, each committing at most 32 blocks with nothing skipped and no limit
+raised, until the step is closed. A capture is not admitted for research until
+the source has reached its own anchor block. A gap the bounded walk cannot
+close — a reorg, a finality
 regression or a provider failure — still fails exactly as before, rather than
 skipping history.
 A running process is not proof of qualified data, complete simulation, automatic

@@ -21,8 +21,10 @@ use serde_json::{Value, json};
 use std::{
     error::Error,
     fs,
+    future::Future,
     io::Read,
     path::PathBuf,
+    pin::Pin,
     process::ExitCode,
     sync::Arc,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -590,6 +592,101 @@ fn capture_blocking(
     })
 }
 
+/// A Railway redeploy starts the new container while the outgoing one still holds
+/// its lease (at most `arb_storage::worker` accepts a 60 s lease). Retry only that
+/// exact conflict, bounded by the lease length plus margin (not by the 15 s this
+/// worker itself requests below), then fail as before.
+const CLAIM_RETRY_BUDGET: Duration = Duration::from_secs(75);
+const CLAIM_RETRY_INTERVAL: Duration = Duration::from_millis(1_500);
+
+fn is_lease_active_conflict(error: &StoreError) -> bool {
+    matches!(error, StoreError::Conflict("worker lease is active"))
+}
+
+/// Whether the worker start-up claim should retry given the prior error and how
+/// long it has already spent trying. Any error other than the lease-active
+/// conflict, or exhausting the bounded budget, fails immediately as before.
+fn should_retry_claim(error: &StoreError, elapsed: Duration) -> bool {
+    is_lease_active_conflict(error) && elapsed < CLAIM_RETRY_BUDGET
+}
+
+/// Core bounded-retry loop, generic over the claim attempt, the elapsed-time clock
+/// and the sleep so it runs under fast, deterministic unit tests without a real
+/// store or a real 75 s wait. `shutdown` lets a start-up-time SIGTERM interrupt the
+/// wait between attempts instead of being silently discarded: this worker runs as
+/// PID 1, so an unhandled SIGTERM during the wait would otherwise kill it outright
+/// rather than let it fence gracefully.
+async fn retry_claim_while_lease_active<T, Fut, SleepFut, ShutdownFut>(
+    mut attempt: impl FnMut() -> Fut,
+    mut elapsed: impl FnMut() -> Duration,
+    mut sleep: impl FnMut(Duration) -> SleepFut,
+    mut shutdown: Pin<&mut ShutdownFut>,
+    mut on_retry: impl FnMut(u32, Duration),
+) -> Result<T, StoreError>
+where
+    Fut: Future<Output = Result<T, StoreError>>,
+    SleepFut: Future<Output = ()>,
+    ShutdownFut: Future<Output = ()>,
+{
+    let mut attempt_number: u32 = 0;
+    loop {
+        match attempt().await {
+            Ok(value) => return Ok(value),
+            Err(error) if should_retry_claim(&error, elapsed()) => {
+                attempt_number += 1;
+                on_retry(attempt_number, elapsed());
+                tokio::select! {
+                    _ = sleep(CLAIM_RETRY_INTERVAL) => {}
+                    _ = &mut shutdown => return Err(error),
+                }
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+/// Bounded start-up retry around `ControlWorker::claim`, for exactly the lease-overlap
+/// case a merge-triggered redeploy produces. Never changes lease length, lease
+/// semantics or the single-writer guarantee enforced in `arb_storage::worker`.
+async fn claim_worker_with_lease_retry(
+    store: &Store,
+    operator: &str,
+    session_id: &str,
+    network: &str,
+    worker_id: &str,
+    lease_seconds: u32,
+    shutdown: Pin<&mut impl Future<Output = ()>>,
+) -> Result<ControlWorker, StoreError> {
+    let start = Instant::now();
+    retry_claim_while_lease_active(
+        || {
+            ControlWorker::claim(
+                store.clone(),
+                operator,
+                session_id,
+                network,
+                worker_id,
+                lease_seconds,
+            )
+        },
+        || start.elapsed(),
+        tokio::time::sleep,
+        shutdown,
+        |attempt, elapsed| {
+            println!(
+                "{}",
+                json!({
+                    "event": "worker-claim-retry",
+                    "session_id": session_id,
+                    "attempt": attempt,
+                    "elapsed_ms": u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX)
+                })
+            );
+        },
+    )
+    .await
+}
+
 fn is_generation_fence(error: &StoreError) -> bool {
     matches!(
         error,
@@ -717,13 +814,16 @@ async fn run() -> Result<(), AnyError> {
         // The operator-approved source seed remains the coverage boundary.
         managed_ingestion::cursor(&store, &operator, bound_source.as_ref()).await?;
     }
-    let worker = ControlWorker::claim(
-        store.clone(),
+    let shutdown = shutdown_signal();
+    tokio::pin!(shutdown);
+    let worker = claim_worker_with_lease_retry(
+        &store,
         &operator,
         &session_id,
         network.as_str(),
         &Uuid::new_v4().to_string(),
         15,
+        shutdown.as_mut(),
     )
     .await?;
     worker.complete_recovery().await?;
@@ -757,8 +857,6 @@ async fn run() -> Result<(), AnyError> {
     let mut last_good_capture: Option<Instant> = None;
     let mut next_capture = Instant::now();
     let mut stopping = false;
-    let shutdown = shutdown_signal();
-    tokio::pin!(shutdown);
     loop {
         tokio::select! {
             _ = metrics_poll.tick(), if metrics.is_some() && !stopping => {
@@ -1040,6 +1138,125 @@ fn main() -> ExitCode {
 mod tests {
     use super::*;
     use arb_adapter_api::{RpcRecord, TranscriptRpc};
+    use std::cell::{Cell, RefCell};
+
+    #[test]
+    fn claim_retry_targets_only_the_lease_active_conflict_within_budget() {
+        let lease_active = StoreError::Conflict("worker lease is active");
+        assert!(should_retry_claim(&lease_active, Duration::from_secs(0)));
+        assert!(should_retry_claim(&lease_active, Duration::from_secs(74)));
+        assert!(!should_retry_claim(&lease_active, Duration::from_secs(75)));
+        assert!(!should_retry_claim(&lease_active, Duration::from_secs(200)));
+
+        // Any other error, including a superficially similar conflict, fails fast.
+        let lease_lost = StoreError::Conflict("worker lease lost");
+        assert!(!should_retry_claim(&lease_lost, Duration::from_secs(0)));
+        let invalid_input = StoreError::InvalidInput("lease must be 1..60 seconds");
+        assert!(!should_retry_claim(&invalid_input, Duration::from_secs(0)));
+    }
+
+    #[tokio::test]
+    async fn claim_retry_recovers_after_a_single_lease_conflict() {
+        let calls = Cell::new(0u32);
+        let sleep_calls = Cell::new(0u32);
+        let retries = RefCell::new(Vec::new());
+        let never = std::future::pending::<()>();
+        tokio::pin!(never);
+
+        let result = retry_claim_while_lease_active(
+            || {
+                let call = calls.get();
+                calls.set(call + 1);
+                async move {
+                    if call == 0 {
+                        Err(StoreError::Conflict("worker lease is active"))
+                    } else {
+                        Ok(42)
+                    }
+                }
+            },
+            || Duration::ZERO,
+            |_duration| {
+                sleep_calls.set(sleep_calls.get() + 1);
+                async {}
+            },
+            never.as_mut(),
+            |attempt, _elapsed| retries.borrow_mut().push(attempt),
+        )
+        .await;
+
+        assert_eq!(result.unwrap(), 42);
+        assert_eq!(calls.get(), 2, "claim attempted exactly twice");
+        assert_eq!(sleep_calls.get(), 1, "exactly one wait between attempts");
+        assert_eq!(*retries.borrow(), vec![1]);
+    }
+
+    #[tokio::test]
+    async fn claim_retry_fails_fast_on_a_non_lease_active_error() {
+        let calls = Cell::new(0u32);
+        let sleep_calls = Cell::new(0u32);
+        let never = std::future::pending::<()>();
+        tokio::pin!(never);
+
+        let result: Result<(), StoreError> = retry_claim_while_lease_active(
+            || {
+                calls.set(calls.get() + 1);
+                async { Err(StoreError::Conflict("worker lease lost")) }
+            },
+            || Duration::ZERO,
+            |_duration| {
+                sleep_calls.set(sleep_calls.get() + 1);
+                async {}
+            },
+            never.as_mut(),
+            |_attempt, _elapsed| panic!("must not retry a non-lease-active conflict"),
+        )
+        .await;
+
+        assert!(matches!(
+            result,
+            Err(StoreError::Conflict("worker lease lost"))
+        ));
+        assert_eq!(calls.get(), 1, "no retry after a non-lease-active error");
+        assert_eq!(sleep_calls.get(), 0);
+    }
+
+    #[tokio::test]
+    async fn claim_retry_gives_up_after_the_lease_budget_is_exhausted() {
+        let calls = Cell::new(0u32);
+        let sleep_calls = Cell::new(0u32);
+        let simulated_elapsed = Cell::new(Duration::ZERO);
+        let retries = RefCell::new(Vec::new());
+        let never = std::future::pending::<()>();
+        tokio::pin!(never);
+
+        let result: Result<(), StoreError> = retry_claim_while_lease_active(
+            || {
+                calls.set(calls.get() + 1);
+                async { Err(StoreError::Conflict("worker lease is active")) }
+            },
+            || simulated_elapsed.get(),
+            |_duration| {
+                sleep_calls.set(sleep_calls.get() + 1);
+                // Simulate the wait actually elapsing, without a real 75 s sleep.
+                simulated_elapsed.set(simulated_elapsed.get() + CLAIM_RETRY_INTERVAL);
+                async {}
+            },
+            never.as_mut(),
+            |attempt, _elapsed| retries.borrow_mut().push(attempt),
+        )
+        .await;
+
+        assert!(matches!(
+            result,
+            Err(StoreError::Conflict("worker lease is active"))
+        ));
+        // 75s budget / 1.5s interval = exactly 50 retries before giving up.
+        let expected_retries = 50u32;
+        assert_eq!(calls.get(), expected_retries + 1);
+        assert_eq!(sleep_calls.get(), expected_retries);
+        assert_eq!(retries.borrow().len(), expected_retries as usize);
+    }
 
     #[test]
     fn admission_invariant_conflicts_are_not_misreported_as_operator_suppression() {

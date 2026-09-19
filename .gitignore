@@ -25,3 +25,6 @@ github-setup-state.json
 .DS_Store
 .idea/
 .vscode/
+
+# Historical gap study output (scripts/history_gap_study.py); never committed
+history-study/
