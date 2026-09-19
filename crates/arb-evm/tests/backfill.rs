@@ -1324,3 +1324,17 @@ fn a_log_a_later_chunk_returns_for_an_earlier_chunks_block_is_rejected() {
         GapReason::MalformedLog
     );
 }
+
+/// A chunk whose result is not a JSON array is a malformed answer, even
+/// when the earlier chunks were fine; the attempt stops right there.
+#[test]
+fn a_chunk_that_is_not_an_array_is_rejected_as_malformed() {
+    let mut fixture = step(100, 115, 115, false);
+    assert_eq!(fixture.log_chunks.len(), 2);
+    let second_chunk = fixture.log_chunks[1];
+    change(&mut fixture.records[second_chunk], |v| *v = json!(null));
+    assert_eq!(
+        run(fixture.records).unwrap_err().reason,
+        GapReason::MalformedLog
+    );
+}

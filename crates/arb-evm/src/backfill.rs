@@ -411,7 +411,9 @@ fn recover_logs_selected(
         let mut raw_logs: Vec<Value> = Vec::new();
         let mut chunk_start = checkpoint.number + 1;
         while chunk_start <= target.number {
-            let chunk_end = (chunk_start + LOG_RANGE_CHUNK_BLOCKS - 1).min(target.number);
+            let chunk_end = chunk_start
+                .saturating_add(LOG_RANGE_CHUNK_BLOCKS - 1)
+                .min(target.number);
             let response = attempt.call(
                 ReadMethod::EthGetLogs,
                 json!([{
@@ -424,6 +426,9 @@ fn recover_logs_selected(
             match response {
                 Value::Array(chunk) => raw_logs.extend(chunk),
                 _ => return Err(attempt.error(GapReason::MalformedLog, Some(target.number))),
+            }
+            if chunk_end == target.number {
+                break;
             }
             chunk_start = chunk_end + 1;
         }
