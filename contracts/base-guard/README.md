@@ -83,6 +83,30 @@ Research-only Base guard artifact and its offline test harness (ARB-028, issue #
   in leg order) and stays encoding-only, so a field-order or
   field-substitution bug in either encoder cannot hide behind them.
 - `lib/forge-std` — pinned submodule (v1.16.2).
+- `test/ArbGuardMainnet.t.sol` — etches the REAL runtime code and every
+  fetched storage slot of the two live Base WETH/USDC pools in
+  `test/fixtures/mainnet/pools.json` (fee 500 and fee 3000, pinned at
+  finalized block 51569825) and drives a two-leg `ArbGuard.execute` route
+  through them. It proves: the route executes atomically through the real
+  pool bytecode and emits the same `PlanEncoding`/`BasePlan` digest scheme as
+  the mock-pool harness; `InsufficientFinalBalance` reverts the whole route,
+  including the real pools' own storage, when the floor is set one wei above
+  what the route actually returns; a leg's declared `feeTier` is checked
+  against the pool's REAL `fee()`; and each leg's real swap moves
+  `slot0().sqrtPriceX96` in the direction selling that leg's input token
+  implies (the trade sizes used are too small, against this fixture's real
+  liquidity, to move the discretized `slot0().tick`). It does NOT prove: that
+  the guard's math matches an offline Rust reference for these two pools (no
+  such golden output is committed — only the synthetic mock-pool fixtures
+  have one), that mainnet WETH/USDC or any real ERC-20 behaves like
+  `MockERC20` (the tests etch `MockERC20` runtime code at the real WETH/USDC
+  addresses and mint SYNTHETIC balances to both pools and the spending
+  account; the real WETH/USDC contracts are never executed), that pool
+  behaviour holds at any block other than 51569825 (both pools' non-zero
+  `fee_protocol` is exercised as recorded, but nothing here validates the
+  oracle/observation array beyond what the pool's own swap path itself
+  reads or writes for this one trade), or anything about gas, MEV, slippage
+  under real order flow, or execution at a later or different block.
 
 Every test runs offline (no RPC, no fork URL, no deploy script, no signing
 key). Nothing here is deployed to a public network, and nothing in this
