@@ -14,6 +14,7 @@
   --color-accent: var(--color-ink);
   --color-accent-ink: var(--color-paper);
   --color-warn: oklch(52% 0.13 70);
+  --color-ok: oklch(52% 0.13 145);
   --color-danger: oklch(52% 0.13 25);
   --color-focus: var(--color-ink);
   --color-scrim: oklch(10% 0 0 / 0.45);
@@ -72,6 +73,7 @@ body.dark {
   --color-accent: var(--color-ink);
   --color-accent-ink: var(--color-paper);
   --color-warn: oklch(82% 0.13 80);
+  --color-ok: oklch(82% 0.13 145);
   --color-danger: oklch(82% 0.13 25);
   --color-focus: var(--color-ink);
   --color-scrim: oklch(0% 0 0 / 0.7);

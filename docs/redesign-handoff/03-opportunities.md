@@ -212,7 +212,7 @@ Pagination `groups`.
 ## H. Drawer "Decision evidence detail" (`dialog.research-dialog`)
 
 Screenshot `02e-decision-drawer-*`. Was een gecentreerde modal (`min(850px, 100% − 32px)`), is nu een **rechter
-zijpaneel**: `dialog.drawer`-stijl (660px, 100% ≤760px), volle hoogte, slide-in 180ms. Opent bij "Inspect
+zijpaneel**: `dialog.drawer`-stijl maar 850px breed (100% ≤760px), volle hoogte, slide-in 180ms. Opent bij "Inspect
 evidence" op de Decisions-tab. Focus trap over alle knoppen/inputs, `Escape` sluit. Component: `ResearchDialog`
 in `ResearchShared.tsx`.
 

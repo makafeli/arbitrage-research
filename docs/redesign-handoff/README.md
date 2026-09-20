@@ -12,7 +12,7 @@ structurele wijzigingen t.o.v. de vorige (Cobalt, ARB-069) versie:
 - **Sidebar weg, floating topbar erbij.** Navigatie zit nu in `header.topbar` (wordmark, primaire nav, trading-mode-knoppen, acties), niet meer in een linker sidebar. ≤1280px wordt de primaire nav een vaste onderste capsule (alle 7 items, scrollbaar).
 - **Licht is nu de standaardstand**, donker de toggle — vóór v3 was het omgekeerd (`body.light` als override op een donkere standaard; nu `body.dark` als override op een lichte standaard).
 - **Tabs op drie pagina's.** Opportunities (Captured/Decisions/Costs/Exports), Runs (Sessions/Ledger/Journal/Reservations) en System (Adapters/Collection/Capabilities) zijn niet meer één lange scroll maar een `Tabs`/`TabPanel`-primitief (WAI-ARIA tabs pattern, roving tabindex). Zie elk bestand de sectie "Regels bij redesign" voor welk patroon (echte `TabPanel`'s vs. handmatige `hidden`-divs) elke pagina gebruikt en waarom dat verschil ertoe doet.
-- **Dialogen zijn nu drawers.** `RecordedDialog` (Overview/Opportunities-Captured) en `ResearchDialog` (Opportunities-Decisions) zijn niet meer gecentreerde modals maar rechter zijpanelen (`dialog.drawer` / `dialog.research-dialog`, 660px, 100% ≤760px).
+- **Dialogen zijn nu drawers.** `RecordedDialog` (Overview/Opportunities-Captured) en `ResearchDialog` (Opportunities-Decisions) zijn niet meer gecentreerde modals maar rechter zijpanelen (`dialog.drawer` 660px / `dialog.research-dialog` 850px, beide 100% ≤760px).
 - **Nieuw op Overview:** de `.stats`-strip (4 mini-statistieken).
 - **Nieuw op System:** de "Capability gates"-tabel (letterlijke spiegel van de 10 vlaggen uit `/v1/capabilities`), naast het bestaande `.facts`-blok.
 - Alle onderliggende teksten, componenten en API-contracten zijn ongewijzigd, tenzij een bestand hieronder expliciet een tekstwijziging noemt (alleen de nieuwe tab-labels en de `.stats`/`.steps`-labels zijn nieuwe strings).
@@ -105,7 +105,7 @@ Niet in productie: `DemoApp.tsx`, `ResearchViews.tsx`, `OpportunityTable.tsx`, `
 - React 19 + Vite. Geen router. Pagina = state `page` in `ConnectedApp.tsx`. Sub-werkruimtes blijven gemount met `hidden`. Binnen een pagina met tabs: zie de betreffende `0X-*.md` voor het gebruikte tabpatroon (echte `TabPanel` vs. handmatige `hidden`-div — het verschil bepaalt of state bij tabwissel bewaard blijft).
 - Polling elke 5 s. Na 15 s zonder antwoord: pill wordt `STALE / LAST KNOWN` (amber).
 - Capability-flags van `/v1/capabilities` bepalen welke secties tonen: `decision_history`, `paper_ledger`, `paper_run_creation`, `collection_telemetry`, `session_export`, `cost_assessments`, `adapter_support` — dezelfde tien vlaggen (plus `live_execution`, `market_data`, `opportunity_capture`) staan nu ook letterlijk in de nieuwe "Capability gates"-tabel op System → Capabilities.
-- Fonts: Space Grotesk (display), Inter (body), JetBrains Mono (mono).
+- Fonts: Inter (display en body), JetBrains Mono (mono).
 
 ## Harde regels bij het redesign (uit `design.md`)
 
