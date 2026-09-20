@@ -62,8 +62,8 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 def fetch(sha: str) -> dict:
-    # No credentials but the optional read-only ARB_CI_GATE_GITHUB_TOKEN header,
-    # no environment proxies, supplied URLs or remote code execution.
+    # Only the optional ARB_CI_GATE_GITHUB_TOKEN credential; no environment
+    # proxies, no redirects, no arbitrary API base.
     require(re.fullmatch(r'[0-9a-f]{40}', sha) is not None, 'CI_SOURCE_REJECTED')
     url = API + '/actions/runs?event=push&branch=main&per_page=100&head_sha=' + sha
     headers = {

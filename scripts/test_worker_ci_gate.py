@@ -182,12 +182,34 @@ class GateTests(unittest.TestCase):
 
     def test_malformed_token_rejected_before_any_request(self):
         never_called = Exception('opener must not be built for a rejected token')
-        for token in ['bad token', 'x', '!' * 25, 'a' * 19, 'a' * 256]:
+        good_token = 'ghp_' + 'a' * 36
+        malformed = [
+            'bad token', 'x', '!' * 25, 'a' * 19, 'a' * 256,
+            'Bearer ' + good_token,
+            good_token + '\n',
+            good_token + ' ',
+            good_token[:-1] + 'é',
+            good_token.replace('_', '-', 1),
+        ]
+        for token in malformed:
             with self.subTest(token=token), \
                     patch.dict(os.environ, {'ARB_CI_GATE_GITHUB_TOKEN': token}), \
-                    patch('urllib.request.build_opener', side_effect=never_called), \
-                    self.assertRaisesRegex(gate.GateError, 'CI_TOKEN_REJECTED'):
-                gate.fetch(SHA)
+                    patch('urllib.request.build_opener', side_effect=never_called):
+                with self.assertRaises(gate.GateError) as ctx:
+                    gate.fetch(SHA)
+                self.assertEqual(str(ctx.exception), 'CI_TOKEN_REJECTED')
+
+        env = dict(RAILWAY_GIT_REPO_OWNER='makafeli', RAILWAY_GIT_REPO_NAME='arbitrage-research',
+                   RAILWAY_GIT_BRANCH='main', RAILWAY_GIT_COMMIT_SHA=SHA,
+                   ARB_CI_GATE_GITHUB_TOKEN='Bearer ' + good_token)
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with patch.dict(os.environ, env, clear=True), \
+                patch('urllib.request.build_opener', side_effect=never_called), \
+                redirect_stdout(stdout), redirect_stderr(stderr):
+            self.assertEqual(gate.main([]), 2)
+        self.assertEqual(json.loads(stderr.getvalue())['reason'], 'CI_TOKEN_REJECTED')
+        self.assertNotIn(good_token, stdout.getvalue())
+        self.assertNotIn(good_token, stderr.getvalue())
 
     def test_token_never_appears_in_success_or_block_output(self):
         token = 'github_pat_' + 'z' * 40
@@ -226,7 +248,10 @@ class GateTests(unittest.TestCase):
             class Opener:
                 def open(self, req, timeout):
                     return Response(raw)
-            with self.subTest(size=len(raw)), patch('urllib.request.build_opener', return_value=Opener()), self.assertRaises(gate.GateError):
+            with self.subTest(size=len(raw)), \
+                    patch.dict(os.environ, {'ARB_CI_GATE_GITHUB_TOKEN': ''}), \
+                    patch('urllib.request.build_opener', return_value=Opener()), \
+                    self.assertRaises(gate.GateError):
                 gate.fetch(SHA)
 
     def test_wall_timeout_and_arguments_refuse(self):
