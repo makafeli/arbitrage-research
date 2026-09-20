@@ -152,6 +152,8 @@ def fetch_pool(rpc: Rpc, pool: str, block: str) -> dict:
     imm = {}
     for name, sel in SELECTORS.items():
         raw = rpc.call("eth_call", [{"to": pool, "data": "0x" + sel}, block])
+        if not (isinstance(raw, str) and len(raw) == 66 and raw.startswith("0x")):
+            raise SystemExit(f"eth_call {name} on {pool}: expected one 32-byte word, got {raw!r}")
         imm[name] = "0x" + raw[-40:] if name.startswith("token") else int(raw, 16)
     spacing = imm["tickSpacing"]
     base_slots = rpc.storage(pool, [0, 1, 2, 3, 4], block)
