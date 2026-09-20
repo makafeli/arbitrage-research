@@ -4,6 +4,7 @@ pub mod events;
 pub mod filters;
 pub mod math;
 pub mod plan;
+pub mod simulation;
 use arb_adapter_api::{AdapterError, ReadMethod, ReadRpc, Result, SnapshotQuality, StateContext};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
