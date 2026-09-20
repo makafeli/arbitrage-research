@@ -75,6 +75,7 @@ fn plan_from_fixture(value: &Value) -> BasePlan {
         chain_id: value["chain_id"]
             .as_u64()
             .expect("fixture `chain_id` must be an integer"),
+        executor: addr(str_field(value, "executor")),
         spending_account: SpendingAccount {
             address: addr(str_field(spending_account, "address")),
             principal: amount(str_field(spending_account, "principal")),
