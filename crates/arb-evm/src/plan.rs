@@ -26,8 +26,9 @@ pub struct SpendingAccount {
 /// A declared ERC-20 approval. The guard pays every pool from its own
 /// balance in the swap callback; pools never pull. The only allowance a plan
 /// should ever declare is `starting_asset: spending_account → executor`,
-/// funding the guard's own `transferFrom` of the principal (see
-/// [`PlanRejection::MissingAllowance`] / [`PlanRejection::UnexpectedAllowance`]).
+/// funding the guard's own one-time `transferFrom` of `legs[0].exact_in` (not
+/// the whole declared `principal`; see [`PlanRejection::MissingAllowance`] /
+/// [`PlanRejection::UnexpectedAllowance`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Allowance {
     pub token: Address20,
@@ -209,7 +210,11 @@ impl BasePlan {
     /// applicable [`PlanRejection`]; does not read chain state or execute
     /// anything.
     pub fn validate(&self, allowlist: &PoolAllowlist) -> Result<(), PlanRejection> {
-        if self.legs.is_empty() {
+        // A route of fewer than two legs can never be a real cycle: a single
+        // leg would need a pool that swaps a token for itself, which does
+        // not exist. Rejecting `len() < 2` here (not just `is_empty()`)
+        // keeps this in step with the guard's own `RouteTooShort` check.
+        if self.legs.len() < 2 {
             return Err(PlanRejection::RouteNotCyclic);
         }
         for leg in &self.legs {

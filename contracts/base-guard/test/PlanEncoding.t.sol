@@ -9,15 +9,16 @@ import {PlanEncoding} from "../src/PlanEncoding.sol";
 /// side's `BasePlan::digest()`, for two literal, committed fixture plans:
 /// the original "regular" fixture (`plan-digest.json`) and a second
 /// "irregular" one (`plan-digest-irregular.json`) whose principal,
-/// allowances and callback-pool set are deliberately NOT equal to the legs'
+/// allowance and callback-pool set are deliberately NOT equal to the legs'
 /// own fields (see that fixture's own comment). A fixture built only from
-/// coincidental equalities (principal == legs[0].exact_in, one allowance
-/// per leg, callback pools == leg pools in leg order) cannot catch an
-/// encoder that silently swaps or misorders those independent fields; the
-/// irregular fixture can. Both this file and
-/// `crates/arb-evm/tests/plan_parity.rs` read the same JSON files and check
-/// them against their own encoder; this file never hand-computes or
-/// hardcodes an expected hash.
+/// coincidental equalities (principal == legs[0].exact_in, callback pools
+/// == leg pools in leg order) cannot catch an encoder that silently swaps
+/// or misorders those independent fields; the irregular fixture can. Both
+/// fixtures carry exactly one allowance entry, but the irregular one's
+/// token/spender pair is not the guard pair, so it stays encoding-only.
+/// Both this file and `crates/arb-evm/tests/plan_parity.rs` read the same
+/// JSON files and check them against their own encoder; this file never
+/// hand-computes or hardcodes an expected hash.
 contract PlanEncodingTest is Test {
     string internal constant FIXTURE_PATH = "test/fixtures/plan-digest.json";
     string internal constant FIXTURE_IRREGULAR_PATH = "test/fixtures/plan-digest-irregular.json";
@@ -35,8 +36,8 @@ contract PlanEncodingTest is Test {
 
     /// Counts entries in a top-level JSON array of objects (`.legs`,
     /// `.allowances`) by probing index existence, so the two fixtures can
-    /// have different lengths (2 vs 3 legs, 2 vs 1 allowances) without this
-    /// test hardcoding either.
+    /// have different lengths (2 vs 3 legs) without this test hardcoding
+    /// either.
     function _arrayLength(string memory json, string memory field)
         internal
         view

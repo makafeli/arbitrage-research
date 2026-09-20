@@ -5,9 +5,11 @@ Research-only Base guard artifact and its offline test harness (ARB-028, issue #
 ## What is here
 
 - `src/ArbGuard.sol` — the atomic execution guard: validates a cyclic
-  two-or-more-leg route, pulls declared `principal` from the plan's
-  `spendingAccount` via a single guard-level allowance, swaps through each
-  allowlisted pool, and reverts the entire transaction if any route,
+  two-or-more-leg route, pulls `legs[0].exactIn` from the plan's
+  `spendingAccount` via a single guard-level allowance (`principal` is a
+  separately declared, guard-checked balance — see below, not the amount
+  pulled), swaps through each allowlisted pool, and reverts the entire
+  transaction if any route,
   fee-tier, allowance, callback-authorization or final-balance check fails.
   Also declares the shared `Plan`/`Leg`/`Allowance` structs and the minimal
   `IERC20`/`IUniswapV3Pool`/`IUniswapV3SwapCallback` interfaces. On-chain
@@ -27,9 +29,10 @@ Research-only Base guard artifact and its offline test harness (ARB-028, issue #
   fixture's own `expected_digest`.
 - **Allowance model**: exactly one allowance entry is expected, from
   `spendingAccount` to `executor`, covering at least `legs[0].exactIn`. The
-  guard pulls principal once via `transferFrom` and pays every pool from its
-  own balance through the swap callback; pools never pull from the spending
-  account directly. A missing or insufficient allowance for that pair is
+  guard pulls `legs[0].exactIn` once via `transferFrom` and pays every pool
+  from its own balance through the swap callback; pools never pull from the
+  spending account directly. A missing or insufficient allowance for that
+  pair is
   `MissingAllowance`; any other entry (wrong token, wrong spender, or a
   second entry even if itself valid) is `UnexpectedAllowance`. This replaces
   an earlier "one allowance per leg pool" model, which did not match how the

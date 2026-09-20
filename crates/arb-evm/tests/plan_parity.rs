@@ -8,12 +8,15 @@
 //! tests failing.
 //!
 //! Two fixtures, not one: `plan-digest.json` ("regular") happens to have
-//! `principal == legs[0].exact_in`, one allowance per leg and
-//! `callback_authorization.pools` equal to the leg pools in leg order — so it
-//! cannot by itself catch a bug that silently swaps `principal` for
-//! `legs[0].exact_in`, or that encodes callback pools in the wrong order or
-//! count. `plan-digest-irregular.json` deliberately breaks every one of
-//! those coincidences (zero principal, one allowance across three legs, a
+//! `principal == legs[0].exact_in` and `callback_authorization.pools` equal
+//! to the leg pools in leg order — so it cannot by itself catch a bug that
+//! silently swaps `principal` for `legs[0].exact_in`, or that encodes
+//! callback pools in the wrong order or count. Both fixtures carry exactly
+//! one allowance entry; the regular one is the real guard allowance
+//! (`starting_asset` / `executor`), while the irregular fixture's entry uses
+//! a token/spender pair that is not the guard pair, so it stays encoding-only
+//! and would never pass `BasePlan::validate()`. `plan-digest-irregular.json`
+//! also deliberately breaks the other coincidences above (zero principal, a
 //! reordered and partial callback pool set).
 use arb_evm::plan::{Allowance, BasePlan, CallbackAuthorization, SpendingAccount, SwapLeg};
 use primitive_types::{H160 as Address20, U256};

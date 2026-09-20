@@ -464,6 +464,65 @@ contract ArbGuardTest is Test {
         guard.execute(plan);
     }
 
+    function test_revertsUnexpectedAllowanceWhenTokenIsWrong() public {
+        // Kills the mutant that drops the `token == startingAsset` clause
+        // from `isGuardAllowance`: spender is still correct, only the token
+        // is the route's other leg.
+        Plan memory plan = _validPlan();
+        plan.allowances[0].token = address(tokenB);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ArbGuard.UnexpectedAllowance.selector, address(tokenB), address(guard)
+            )
+        );
+        vm.prank(owner);
+        guard.execute(plan);
+    }
+
+    function test_revertsUnexpectedAllowanceOnASecondIdenticalGuardEntry() public {
+        // Kills the mutant that drops the `|| foundAllowance` clause: a
+        // second entry, even a byte-for-byte copy of the one valid guard
+        // allowance, must still be rejected.
+        Plan memory plan = _validPlan();
+        Allowance[] memory allowances = new Allowance[](2);
+        allowances[0] = plan.allowances[0];
+        allowances[1] = plan.allowances[0];
+        plan.allowances = allowances;
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ArbGuard.UnexpectedAllowance.selector, address(tokenA), address(guard)
+            )
+        );
+        vm.prank(owner);
+        guard.execute(plan);
+    }
+
+    function test_revertsMissingAllowanceWhenDeclaredAmountBelowExactIn() public {
+        // Kills the mutant that hardcodes `sufficientAllowance = true`: token
+        // and spender are correct, only the declared amount is one below
+        // legs[0].exactIn.
+        Plan memory plan = _validPlan();
+        plan.allowances[0].amount = PRINCIPAL - 1;
+
+        vm.expectRevert(abi.encodeWithSelector(ArbGuard.MissingAllowance.selector));
+        vm.prank(owner);
+        guard.execute(plan);
+    }
+
+    function test_revertsInsufficientPrincipalWhenExactInExceedsDeclaredPrincipal() public {
+        // Kills the mutant that drops the `exactIn > principal` clause: the
+        // real balance and real allowance both still cover legs[0].exactIn,
+        // only the declared `principal` field is one below it.
+        Plan memory plan = _validPlan();
+        plan.principal = PRINCIPAL - 1;
+
+        vm.expectRevert(abi.encodeWithSelector(ArbGuard.InsufficientPrincipal.selector));
+        vm.prank(owner);
+        guard.execute(plan);
+    }
+
     function test_revertsCallbackPoolNotALeg() public {
         Plan memory plan = _validPlan();
         address[] memory callbackPools = new address[](3);
@@ -557,6 +616,8 @@ contract ArbGuardTest is Test {
         uint256 minOut0;
         uint256 exactIn1;
         uint256 minOut1;
+        uint24 feeTier0;
+        uint24 feeTier1;
     }
 
     function _readFixtureValues(string memory json) internal pure returns (FixtureValues memory v) {
@@ -571,6 +632,8 @@ contract ArbGuardTest is Test {
         v.minOut0 = vm.parseJsonUint(json, ".legs[0].min_out");
         v.exactIn1 = vm.parseJsonUint(json, ".legs[1].exact_in");
         v.minOut1 = vm.parseJsonUint(json, ".legs[1].min_out");
+        v.feeTier0 = uint24(vm.parseJsonUint(json, ".legs[0].fee_tier"));
+        v.feeTier1 = uint24(vm.parseJsonUint(json, ".legs[1].fee_tier"));
     }
 
     /// Deploys the fixture's tokens, pools and guard at their own literal
@@ -598,12 +661,12 @@ contract ArbGuardTest is Test {
         // turns that into exactly `minOut1`, the fixture's own final floor.
         deployCodeTo(
             "MockV3Pool.sol:MockV3Pool",
-            abi.encode(token0, token1, v.exactIn1, v.exactIn0, uint24(500)),
+            abi.encode(token0, token1, v.exactIn1, v.exactIn0, v.feeTier0),
             v.pool0
         );
         deployCodeTo(
             "MockV3Pool.sol:MockV3Pool",
-            abi.encode(token0, token1, v.minOut1, v.exactIn1, uint24(3000)),
+            abi.encode(token0, token1, v.minOut1, v.exactIn1, v.feeTier1),
             v.pool1
         );
 
@@ -630,7 +693,7 @@ contract ArbGuardTest is Test {
             pool: v.pool0,
             tokenIn: v.startingAsset,
             tokenOut: v.intermediateToken,
-            feeTier: uint32(vm.parseJsonUint(json, ".legs[0].fee_tier")),
+            feeTier: uint32(v.feeTier0),
             exactIn: v.exactIn0,
             minOut: v.minOut0
         });
@@ -638,7 +701,7 @@ contract ArbGuardTest is Test {
             pool: v.pool1,
             tokenIn: v.intermediateToken,
             tokenOut: v.startingAsset,
-            feeTier: uint32(vm.parseJsonUint(json, ".legs[1].fee_tier")),
+            feeTier: uint32(v.feeTier1),
             exactIn: v.exactIn1,
             minOut: v.minOut1
         });

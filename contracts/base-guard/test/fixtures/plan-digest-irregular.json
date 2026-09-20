@@ -1,5 +1,6 @@
 {
   "chain_id": 8453,
+  "note": "Encoding-only fixture: breaks the regular fixture's coincidences (principal == legs[0].exact_in, callback pools == leg pools in leg order) and its one allowance entry's token/spender pair is not the guard pair, so it never passes BasePlan::validate().",
   "executor": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "spending_account": {
     "address": "0x1111111111111111111111111111111111111111",

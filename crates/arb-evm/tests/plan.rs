@@ -225,6 +225,73 @@ fn a_second_allowance_entry_is_unexpected_allowance() {
 }
 
 #[test]
+fn wrong_token_on_guard_allowance_is_unexpected_allowance() {
+    // Correct spender, wrong token: kills the mutant that drops the
+    // `token == starting_asset` clause from `is_guard_allowance`.
+    let mut plan = valid_plan();
+    plan.allowances[0].token = addr(WETH);
+    assert_eq!(
+        plan.validate(&allowlist()),
+        Err(PlanRejection::UnexpectedAllowance {
+            token: addr(WETH),
+            spender: addr(EXECUTOR),
+        })
+    );
+}
+
+#[test]
+fn second_identical_guard_allowance_entry_is_unexpected_allowance() {
+    // A byte-for-byte copy of the one valid guard allowance must still be
+    // rejected: kills the mutant that drops the `|| found_guard_allowance`
+    // clause.
+    let mut plan = valid_plan();
+    let guard_allowance = plan.allowances[0];
+    plan.allowances.push(guard_allowance);
+    assert_eq!(
+        plan.validate(&allowlist()),
+        Err(PlanRejection::UnexpectedAllowance {
+            token: addr(USDC),
+            spender: addr(EXECUTOR),
+        })
+    );
+}
+
+#[test]
+fn first_leg_exact_in_above_principal_is_insufficient_principal() {
+    // The real balance and allowance both still cover legs[0].exact_in;
+    // only the declared principal is one below it. Kills the mutant that
+    // drops the `exact_in > principal` clause.
+    let mut plan = valid_plan();
+    plan.legs[0].exact_in = plan.spending_account.principal + U256::from(1);
+    assert_eq!(
+        plan.validate(&allowlist()),
+        Err(PlanRejection::InsufficientPrincipal)
+    );
+}
+
+#[test]
+fn one_leg_route_is_rejected() {
+    // A single leg whose token_in/token_out both equal starting_asset would
+    // need a pool that swaps a token for itself, which cannot exist. Rust's
+    // `validate` must reject routes shorter than two legs, in step with the
+    // guard's own `RouteTooShort` check.
+    let mut plan = valid_plan();
+    plan.legs = vec![SwapLeg {
+        pool: addr(POOL_A),
+        token_in: addr(USDC),
+        token_out: addr(USDC),
+        fee_tier: 500,
+        exact_in: U256::from(1000),
+        min_out: U256::from(1000),
+    }];
+    plan.callback_authorization.pools = vec![addr(POOL_A)];
+    assert_eq!(
+        plan.validate(&allowlist()),
+        Err(PlanRejection::RouteNotCyclic)
+    );
+}
+
+#[test]
 fn digest_changes_when_only_executor_changes() {
     let plan = valid_plan();
     let mut different_executor = valid_plan();
