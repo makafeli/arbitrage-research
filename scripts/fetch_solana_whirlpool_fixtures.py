@@ -21,6 +21,7 @@ import datetime as dt
 import hashlib
 import json
 import pathlib
+import struct
 import sys
 import urllib.parse
 import urllib.request
@@ -93,6 +94,25 @@ class Rpc:
         return reply["result"]
 
 
+def elf_len(data: bytes) -> int:
+    """Byte length of the ELF64 image declared by its own headers: the end of the
+    program-header table, the section-header table and every file-backed segment
+    and section. Trailing zero bytes inside that range belong to the file."""
+    assert data[:5] == b"\x7fELF\x02", "not an ELF64 image"
+    e_phoff, e_shoff = struct.unpack_from("<QQ", data, 32)
+    e_phentsize, e_phnum, e_shentsize, e_shnum = struct.unpack_from("<HHHH", data, 54)
+    end = max(e_phoff + e_phentsize * e_phnum, e_shoff + e_shentsize * e_shnum)
+    for i in range(e_phnum):
+        p_offset, _, _, p_filesz = struct.unpack_from("<QQQQ", data, e_phoff + i * e_phentsize + 8)
+        end = max(end, p_offset + p_filesz)
+    for i in range(e_shnum):
+        sh_type = struct.unpack_from("<I", data, e_shoff + i * e_shentsize + 4)[0]
+        sh_offset, sh_size = struct.unpack_from("<QQ", data, e_shoff + i * e_shentsize + 24)
+        if sh_type != 8:  # SHT_NOBITS occupies no file bytes
+            end = max(end, sh_offset + sh_size)
+    return end
+
+
 def account_record(pubkey: str, value: dict | None) -> dict:
     if value is None:
         return {"pubkey": pubkey, "exists": False}
@@ -134,10 +154,12 @@ def main(argv: list[str]) -> int:
     pd_bytes = base64.b64decode(pd["value"]["data"][0])
     assert pd_bytes[:4] == b"\x03\x00\x00\x00", "not a programdata account"
     # Repo convention (inspect_pool_candidates.py): elf_sha256 covers everything after
-    # the 45-byte header, padding included. The stored .so drops the zero padding.
+    # the 45-byte header, padding included. The stored .so drops the zero padding that
+    # follows the ELF image; the image length comes from the ELF headers, not from
+    # rstrip, because the section-header table can legitimately end in zero bytes.
     elf_padded = pd_bytes[PROGRAMDATA_HEADER:]
-    elf = elf_padded.rstrip(b"\0")
-    assert elf[:4] == b"\x7fELF"
+    elf = elf_padded[: elf_len(elf_padded)]
+    assert elf_padded[len(elf) :].count(0) == len(elf_padded) - len(elf), "non-zero bytes after the ELF image"
     (out / "whirlpool-program.so").write_bytes(elf)
 
     # Pool accounts (one pass to learn tick spacing / current tick / mints / vaults).

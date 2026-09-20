@@ -67,6 +67,15 @@ class FixtureTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(elf).hexdigest(), prov["so_file_sha256"])
         self.assertEqual(prov["genesis_hash"], fetch.MAINNET_GENESIS)
 
+    def test_so_file_is_the_complete_elf_image(self):
+        # A loader reads the section-header table by offset; a file cut short by even
+        # one trailing zero byte fails with "Offset or value is out of bounds".
+        elf = (FIXTURES / "whirlpool-program.so").read_bytes()
+        prov = self.fixture["provenance"]
+        self.assertEqual(fetch.elf_len(elf), len(elf))
+        padded = elf + b"\0" * prov["padding_stripped_bytes"]
+        self.assertEqual(hashlib.sha256(padded).hexdigest(), prov["elf_sha256"])
+
 
 if __name__ == "__main__":
     unittest.main()
