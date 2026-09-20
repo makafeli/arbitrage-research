@@ -61,11 +61,6 @@ interface IUniswapV3PoolView {
 contract ArbGuardMainnetTest is Test {
     string internal constant FIXTURE_PATH = "test/fixtures/mainnet/pools.json";
 
-    uint256 internal constant BASE_CHAIN_ID = 8453;
-    // Fixture's own `provenance.block_timestamp`; +2 so the pool's oracle
-    // write observes a later block than the one the fixture was pinned at.
-    uint256 internal constant FIXTURE_BLOCK_TIMESTAMP = 1789928997;
-
     address internal constant WETH = 0x4200000000000000000000000000000000000006;
     address internal constant USDC = 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913;
     address internal constant POOL_500 = 0xd0b53D9277642d899DF5C87A3966A349A798F224;
@@ -92,10 +87,15 @@ contract ArbGuardMainnetTest is Test {
     ArbGuard internal guard;
 
     function setUp() public {
-        vm.chainId(BASE_CHAIN_ID);
-        vm.warp(FIXTURE_BLOCK_TIMESTAMP + 2);
-
         string memory json = vm.readFile(FIXTURE_PATH);
+
+        // Chain id and pinned-block timestamp come straight from the
+        // fixture's own provenance, not a hardcoded duplicate of it; +2 so
+        // the pool's oracle write observes a later block than the one the
+        // fixture was pinned at.
+        vm.chainId(vm.parseJsonUint(json, ".provenance.chain_id"));
+        vm.warp(vm.parseJsonUint(json, ".provenance.block_timestamp") + 2);
+
         address pool0 = _etchPool(json, 0);
         address pool1 = _etchPool(json, 1);
         require(pool0 == POOL_500, "fixture pools[0] address moved");
@@ -211,18 +211,24 @@ contract ArbGuardMainnetTest is Test {
 
     // --- plan building ----------------------------------------------------
 
-    /// Two-leg cyclic route: `PRINCIPAL` WETH -> USDC on the 500 pool, then
+    /// Two-leg cyclic route: `principal` WETH -> USDC on the 500 pool, then
     /// that USDC -> WETH on the 3000 pool. `minOut` is 0 on both legs (the
     /// route's floor is enforced once, via `minFinalBalance`); the caller
-    /// supplies the observed `leg1Out` as the floor.
-    function _twoLegPlan(uint256 leg0Out, uint256 leg1Out) internal view returns (Plan memory) {
+    /// supplies the observed `leg1Out` as the floor. `principal` is a
+    /// parameter (not the `PRINCIPAL` constant) so the tick-crossing test can
+    /// size a larger synthetic trade without duplicating this helper.
+    function _twoLegPlan(uint256 principal, uint256 leg0Out, uint256 leg1Out)
+        internal
+        view
+        returns (Plan memory)
+    {
         Leg[] memory legs = new Leg[](2);
         legs[0] = Leg({
             pool: POOL_500,
             tokenIn: WETH,
             tokenOut: USDC,
             feeTier: 500,
-            exactIn: PRINCIPAL,
+            exactIn: principal,
             minOut: 0
         });
         legs[1] = Leg({
@@ -234,7 +240,7 @@ contract ArbGuardMainnetTest is Test {
             minOut: 0
         });
         Allowance[] memory allowances = new Allowance[](1);
-        allowances[0] = Allowance({token: WETH, spender: address(guard), amount: PRINCIPAL});
+        allowances[0] = Allowance({token: WETH, spender: address(guard), amount: principal});
         address[] memory callbackPools = new address[](2);
         callbackPools[0] = POOL_500;
         callbackPools[1] = POOL_3000;
@@ -242,7 +248,7 @@ contract ArbGuardMainnetTest is Test {
             chainId: block.chainid,
             executor: address(guard),
             spendingAccount: spender,
-            principal: PRINCIPAL,
+            principal: principal,
             startingAsset: WETH,
             legs: legs,
             allowances: allowances,
@@ -294,6 +300,31 @@ contract ArbGuardMainnetTest is Test {
         );
     }
 
+    /// Reads a tick's packed `Tick.Info` slot (base+0: `liquidityGross`
+    /// uint128 low, `liquidityNet` int128 high) directly out of the fixture
+    /// JSON's raw storage map, using the same `keccak256(abi.encode(tick,
+    /// SLOT_TICKS))` mapping-slot formula `scripts/fetch_base_pool_fixtures.py`
+    /// uses to fetch it, so the expected liquidity delta below is derived
+    /// from the same real, on-chain data the pool was etched from rather
+    /// than a hand-computed guess.
+    function _tickLiquidityNet(string memory json, int24 tick)
+        internal
+        pure
+        returns (int256 liquidityNet, bool found)
+    {
+        uint256 targetSlot = uint256(keccak256(abi.encode(int256(tick), uint256(5))));
+        string memory storagePath = ".pools[0].storage";
+        string[] memory slots = vm.parseJsonKeys(json, storagePath);
+        for (uint256 i = 0; i < slots.length; i++) {
+            if (vm.parseUint(slots[i]) == targetSlot) {
+                uint256 raw = vm.parseJsonUint(json, string.concat(storagePath, ".", slots[i]));
+                liquidityNet = int256(int128(uint128(raw >> 128)));
+                found = true;
+                return (liquidityNet, found);
+            }
+        }
+    }
+
     // --- tests --------------------------------------------------------
 
     /// Proves the two-leg route executes atomically through the real,
@@ -301,9 +332,15 @@ contract ArbGuardMainnetTest is Test {
     /// `PlanEncoding`/`BasePlan` digest proven elsewhere against mock pools.
     function test_realPoolRouteExecutesThroughTheGuard() public {
         uint256 leg0Out = _quoteExactIn(POOL_500, WETH, USDC, PRINCIPAL);
+        // Pinned so a bytecode or fixture change cannot silently shift the
+        // expectation: this is what 0.1 WETH -> USDC actually quoted against
+        // the real pool state at the pinned block, at the time this test was
+        // written. Must be re-derived after a fixture re-fetch.
+        assertEq(leg0Out, 263556851, "pinned quote: leg0Out (0.1 WETH -> USDC on 500 pool)");
         uint256 leg1Out = _quoteExactIn(POOL_3000, USDC, WETH, leg0Out);
+        assertEq(leg1Out, 99901623997384508, "pinned quote: leg1Out (USDC -> WETH on 3000 pool)");
 
-        Plan memory plan = _twoLegPlan(leg0Out, leg1Out);
+        Plan memory plan = _twoLegPlan(PRINCIPAL, leg0Out, leg1Out);
         bytes32 expectedDigest = PlanEncoding.digest(plan);
 
         vm.expectEmit(true, true, true, true, address(guard));
@@ -327,7 +364,7 @@ contract ArbGuardMainnetTest is Test {
         uint256 leg0Out = _quoteExactIn(POOL_500, WETH, USDC, PRINCIPAL);
         uint256 leg1Out = _quoteExactIn(POOL_3000, USDC, WETH, leg0Out);
 
-        Plan memory plan = _twoLegPlan(leg0Out, leg1Out);
+        Plan memory plan = _twoLegPlan(PRINCIPAL, leg0Out, leg1Out);
         plan.minFinalBalance = leg1Out + 1; // one wei above the achievable final balance
 
         vm.expectRevert(
@@ -351,7 +388,7 @@ contract ArbGuardMainnetTest is Test {
     /// A leg's declared `feeTier` (3000) does not match the REAL `fee()`
     /// (500) of the pool it targets: rejected before any swap is attempted.
     function test_realPoolFeeTierMismatchIsRejected() public {
-        Plan memory plan = _twoLegPlan(0, 0);
+        Plan memory plan = _twoLegPlan(PRINCIPAL, 0, 0);
         plan.legs[0].feeTier = 3000;
 
         vm.expectRevert(
@@ -383,7 +420,7 @@ contract ArbGuardMainnetTest is Test {
 
         uint256 leg0Out = _quoteExactIn(POOL_500, WETH, USDC, PRINCIPAL);
         uint256 leg1Out = _quoteExactIn(POOL_3000, USDC, WETH, leg0Out);
-        Plan memory plan = _twoLegPlan(leg0Out, leg1Out);
+        Plan memory plan = _twoLegPlan(PRINCIPAL, leg0Out, leg1Out);
 
         vm.prank(owner);
         guard.execute(plan);
@@ -398,5 +435,62 @@ contract ArbGuardMainnetTest is Test {
 
         assertLt(uint256(sqrtPrice0After), fixtureSqrtPrice0);
         assertGt(uint256(sqrtPrice1After), fixtureSqrtPrice1);
+    }
+
+    /// The other four tests only ever move `slot0().sqrtPriceX96` — at 0.1
+    /// WETH the trade is too small to touch a tick, the tick bitmap, or the
+    /// oracle. This test sizes leg 1 large enough (10 WETH, well under a 50
+    /// WETH sanity budget) to cross the nearest REAL initialized tick below
+    /// the pinned current tick (-197547, spacing 10) on the 500 pool,
+    /// -197550, making the replayed tick-bitmap and observation-slot state
+    /// load-bearing rather than merely present: the swap must correctly walk
+    /// the real bitmap to find that tick, apply its real `liquidityNet`, and
+    /// commit an oracle observation write.
+    function test_realPoolRouteCrossesAnInitializedTickAndWritesTheOracle() public {
+        uint256 principal = 10 ether;
+        int24 crossedTick = -197550;
+
+        // SYNTHETIC: top up the spender from the shared `PRINCIPAL` fixture
+        // balance to this test's larger principal, and re-approve the guard
+        // for the full amount (`approve` overwrites, it does not add).
+        MockERC20(WETH).mint(spender, principal - PRINCIPAL);
+        vm.prank(spender);
+        MockERC20(WETH).approve(address(guard), principal);
+
+        string memory json = vm.readFile(FIXTURE_PATH);
+        (int256 liquidityNet, bool found) = _tickLiquidityNet(json, crossedTick);
+        require(found, "fixture: tick -197550 not initialized");
+        // Uniswap V3 core negates a tick's stored `liquidityNet` when it is
+        // crossed by a `zeroForOne` (token0-selling) swap, which this leg 1
+        // is (WETH is token0 on both pools).
+        int256 expectedLiquidityDelta = -liquidityNet;
+
+        (, int24 tickBefore, uint16 observationIndexBefore,,,,) =
+            IUniswapV3PoolView(POOL_500).slot0();
+        uint256 liquidityBefore = uint256(IUniswapV3PoolView(POOL_500).liquidity());
+        assertEq(observationIndexBefore, 2032, "fixture precondition: observationIndex");
+
+        uint256 leg0Out = _quoteExactIn(POOL_500, WETH, USDC, principal);
+        uint256 leg1Out = _quoteExactIn(POOL_3000, USDC, WETH, leg0Out);
+
+        Plan memory plan = _twoLegPlan(principal, leg0Out, leg1Out);
+
+        vm.prank(owner);
+        guard.execute(plan);
+
+        (, int24 tickAfter, uint16 observationIndexAfter,,,,) = IUniswapV3PoolView(POOL_500).slot0();
+        uint256 liquidityAfter = uint256(IUniswapV3PoolView(POOL_500).liquidity());
+
+        assertLt(tickAfter, crossedTick, "tick did not cross -197550");
+        assertLt(tickAfter, tickBefore, "tick did not move down");
+        assertEq(observationIndexAfter, 2033, "oracle observation slot did not advance");
+        assertEq(
+            int256(liquidityAfter) - int256(liquidityBefore),
+            expectedLiquidityDelta,
+            "liquidity delta did not match the crossed tick's liquidityNet"
+        );
+
+        assertEq(MockERC20(WETH).balanceOf(spender), leg1Out);
+        assertGe(MockERC20(WETH).balanceOf(spender), plan.minFinalBalance);
     }
 }

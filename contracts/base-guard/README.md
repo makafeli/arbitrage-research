@@ -89,24 +89,58 @@ Research-only Base guard artifact and its offline test harness (ARB-028, issue #
   finalized block 51569825) and drives a two-leg `ArbGuard.execute` route
   through them. It proves: the route executes atomically through the real
   pool bytecode and emits the same `PlanEncoding`/`BasePlan` digest scheme as
-  the mock-pool harness; `InsufficientFinalBalance` reverts the whole route,
-  including the real pools' own storage, when the floor is set one wei above
-  what the route actually returns; a leg's declared `feeTier` is checked
-  against the pool's REAL `fee()`; and each leg's real swap moves
+  the mock-pool harness (with the two observed 0.1 WETH quote amounts pinned
+  as literal assertions, so a bytecode or fixture change cannot silently
+  shift the expectation); `InsufficientFinalBalance` reverts the whole
+  route, including the real pools' own storage, when the floor is set one
+  wei above what the route actually returns; a leg's declared `feeTier` is
+  checked against the pool's REAL `fee()`; a 0.1 WETH leg's real swap moves
   `slot0().sqrtPriceX96` in the direction selling that leg's input token
-  implies (the trade sizes used are too small, against this fixture's real
-  liquidity, to move the discretized `slot0().tick`). It does NOT prove: that
-  the guard's math matches an offline Rust reference for these two pools (no
-  such golden output is committed — only the synthetic mock-pool fixtures
-  have one), that mainnet WETH/USDC or any real ERC-20 behaves like
-  `MockERC20` (the tests etch `MockERC20` runtime code at the real WETH/USDC
-  addresses and mint SYNTHETIC balances to both pools and the spending
-  account; the real WETH/USDC contracts are never executed), that pool
-  behaviour holds at any block other than 51569825 (both pools' non-zero
-  `fee_protocol` is exercised as recorded, but nothing here validates the
-  oracle/observation array beyond what the pool's own swap path itself
-  reads or writes for this one trade), or anything about gas, MEV, slippage
-  under real order flow, or execution at a later or different block.
+  implies (too small, against this fixture's real liquidity, to move the
+  discretized `slot0().tick`); and, at a larger 10 WETH principal, a real
+  swap crosses the nearest initialized tick below the pinned current tick on
+  the 500 pool (-197550), moving `slot0().tick` past it, advancing
+  `slot0().observationIndex` (2032 -> 2033), and changing `liquidity()` by
+  exactly that tick's real `liquidityNet` (read from the fixture's raw
+  storage) with the sign Uniswap V3 core applies when a `zeroForOne` swap
+  crosses it — making the replayed tick-bitmap and oracle-observation state
+  load-bearing, not merely present, for that one test.
+
+  **The 0.1 WETH round-trip is loss-making at the pinned block**: 0.1 WETH
+  in returns a final balance of about 0.0999 WETH (-0.098%), so
+  `test_realPoolRouteExecutesThroughTheGuard` passing is evidence the guard
+  executes atomically, not evidence of arbitrage. The fixture only replays a
+  narrow tick-bitmap window around each pool's pinned tick — three 256-tick
+  bitmap words each: ticks -202240..-194570 on the 500 pool (spacing 10),
+  -214920..-169560 on the 3000 pool (spacing 60). A swap large enough to
+  need a tick outside that window would see a zero bitmap word on the real
+  pool code and silently mis-swap (no revert) rather than fail loudly, so
+  any new test must keep its trade size inside these bounds. Re-fetch the
+  fixture with:
+  ```
+  SSL_CERT_FILE=/etc/ssl/cert.pem python3 scripts/fetch_base_pool_fixtures.py \
+    https://mainnet.base.org \
+    0xd0b53d9277642d899df5c87a3966a349a798f224 \
+    0x6c561b446416e1a00e8e93e221854d6ea4171372
+  ```
+  A re-fetch pins a new block, price, and tick layout, so every literal in
+  this file derived from the old fixture — the pinned quote amounts, the
+  crossed tick, its `liquidityNet`, the observation-index step, and the
+  bitmap-window bounds above — must be re-derived from the new one, not
+  reused.
+
+  It does NOT prove: that the guard's math matches an offline Rust
+  reference for these two pools (no such golden output is committed — only
+  the synthetic mock-pool fixtures have one), that mainnet WETH/USDC or any
+  real ERC-20 behaves like `MockERC20` (the tests etch `MockERC20` runtime
+  code at the real WETH/USDC addresses and mint SYNTHETIC balances to both
+  pools and the spending account; the real WETH/USDC contracts are never
+  executed), that pool behaviour holds at any block other than 51569825
+  (both pools' non-zero `fee_protocol` is exercised as recorded, but nothing
+  here validates the oracle/observation array beyond what the pool's own
+  swap path itself reads or writes for these trades), or anything about
+  gas, MEV, slippage under real order flow, or execution at a later or
+  different block.
 
 Every test runs offline (no RPC, no fork URL, no deploy script, no signing
 key). Nothing here is deployed to a public network, and nothing in this
