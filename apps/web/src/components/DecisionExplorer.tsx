@@ -11,7 +11,8 @@ import { TabPanel } from './ui/Tabs';
 
 export type DecisionView = 'opp-decisions' | 'opp-costs' | 'opp-exports';
 // 'opp-captured' is the page's Captured tab: the explorer keeps its panels mounted but hidden while it is active.
-interface Props { active: boolean; api: ControlApi; capabilities: Capabilities; sessions: Session[]; filter: Network | 'all'; disabled: boolean; canRetry: boolean; onPendingChange: (value: boolean) => void; view: DecisionView | 'opp-captured'; onViewChange: (view: DecisionView) => void }
+export type OppTab = 'opp-captured' | DecisionView;
+interface Props { active: boolean; api: ControlApi; capabilities: Capabilities; sessions: Session[]; filter: Network | 'all'; disabled: boolean; canRetry: boolean; onPendingChange: (value: boolean) => void; view: OppTab; onViewChange: (view: DecisionView) => void }
 const origins: Origin[] = ['RECORDED_LIVE', 'SYNTHETIC', 'MANUALLY_CONSTRUCTED'];
 export function DecisionExplorer({ active, api, capabilities, sessions, filter, disabled, canRetry, onPendingChange, view, onViewChange }: Props) {
   const [sessionId, setSessionId] = useState(''), [origin, setOrigin] = useState<Origin | 'all'>('all');
@@ -34,7 +35,6 @@ export function DecisionExplorer({ active, api, capabilities, sessions, filter, 
   const options = sessions.filter(session => filter === 'all' || session.network_id === filter || session.session_id === sessionId);
   if (selected && !options.some(session => session.session_id === sessionId)) options.push(selected);
   function refresh() { observations.refresh(); coverage.refresh(); groups.refresh(); if (observationId) detail.refresh(); }
-  // Every tab panel stays mounted so each tab's aria-controls resolves; the gate text renders inside whichever panel is open.
   const explorer = available || costPending;
   const gate = !explorer ? <EmptyResearch>Decision history is unavailable in this API version. Missing observations and execution accounting are unknown, not zero.</EmptyResearch>
     : !selected ? <EmptyResearch>Select a session to inspect its stored evidence. No dataset has been substituted.</EmptyResearch> : null;

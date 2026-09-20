@@ -8,7 +8,7 @@ export interface PendingCommand { key: string; body: CommandRequest; receipt?: C
 
 export function Empty({ title, text }: { title: string; text: string }) { return <div className="panel space-top"><h3>{title}</h3><p className="muted space-top">{text}</p></div>; }
 
-export function SessionCard({ session, command, disabled, stale, send }: { session: Session; command?: PendingCommand; disabled: boolean; stale: boolean; send: (session: Session, action: CommandAction, retry?: boolean) => Promise<void> }) {
+function SessionCard({ session, command, disabled, stale, send }: { session: Session; command?: PendingCommand; disabled: boolean; stale: boolean; send: (session: Session, action: CommandAction, retry?: boolean) => Promise<void> }) {
   const receipt = command?.receipt;
   const pendingRevision = session.desired_revision !== session.applied_revision;
   const blocked = disabled || stale || command?.sending || command?.uncertain || receipt?.status === 'PENDING';

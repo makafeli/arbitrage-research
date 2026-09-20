@@ -22,6 +22,7 @@ export function Tabs<K extends string>({ label, tabs, value, onChange }: { label
 /** After a programmatic switch triggered from inside a panel that is about to hide, keep focus on the tab button instead of letting it fall to <body>. */
 export function focusTab(key: string) { document.getElementById(`tab-${key}`)?.focus(); }
 
+/** Every tab panel stays mounted so each tab's aria-controls resolves; the gate text renders inside whichever panel is open. */
 export function TabPanel<K extends string>({ tab, value, children }: { tab: K; value: K; children: ReactNode }) {
   return <div className="tabpanel" role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`} hidden={tab !== value}>{children}</div>;
 }

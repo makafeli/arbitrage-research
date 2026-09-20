@@ -36,6 +36,8 @@ Light (default, `:root`):
 - `--color-accent`     = `--color-ink`
 - `--color-accent-ink` = `--color-paper`
 - `--color-warn`       oklch(52% 0.13 70)
+- `--color-ok`         oklch(52% 0.13 145)
+- `--color-danger`     oklch(52% 0.13 25)
 - `--color-focus`      = `--color-ink`
 
 Dark (`body.dark`):
@@ -49,13 +51,16 @@ Dark (`body.dark`):
 - `--color-accent`     = `--color-ink`
 - `--color-accent-ink` = `--color-paper`
 - `--color-warn`       oklch(82% 0.13 80)
+- `--color-ok`         oklch(82% 0.13 145)
+- `--color-danger`     oklch(82% 0.13 25)
 
 Accent budget: monochrome by default — "accent" is ink-on-paper contrast, not
-a hue. Two exceptions only: `--color-warn` on the STALE badge, and the
-Owner-overview health pill (`.pill.red/.amber/.green`), which keeps its
-literal red/amber/green traffic-light colour because it is the one place the
-owner reads status by colour alone at a glance. Never a flood, never a
-gradient, never introduced anywhere else.
+a hue. Three exceptions only: `--color-warn` on the STALE badge,
+`--color-danger` on the error notice's left rule and title, and the
+Owner-overview health pill (`.pill.red/.amber/.green` on `--color-danger`,
+`--color-warn`, `--color-ok`), which keeps its traffic-light colour because it
+is the one place the owner reads status by colour alone at a glance. Never a
+flood, never a gradient, never introduced anywhere else.
 
 ## Typography
 - Display: Inter, weight 600, style normal

@@ -1,6 +1,6 @@
 # 04 · Experiments
 
-Bron: `apps/web/src/components/pages/ExperimentsPage.tsx` (8 regels, wrapt alleen `SessionCreation`) → `apps/web/src/components/SessionCreation.tsx`.
+Bron: `apps/web/src/components/SessionCreation.tsx`, gemount door `ConnectedApp.tsx` in een `div[hidden]` (geen eigen page-wrapper).
 
 Screenshots: `screenshots/03-experiments-desktop.png` · `screenshots/03-experiments-mobile.png` (formulier ingevuld: configuratie PAPER, netwerk Base, referentie `redesign-example`, checkbox nog uit).
 

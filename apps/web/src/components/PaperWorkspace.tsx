@@ -34,7 +34,6 @@ export function PaperWorkspace({ active, api, capabilities, sessions, filter, di
   const configuration = capabilities.registered_configurations.find(config => config.configuration_digest === selected?.configuration_digest);
   function refresh() { runs.refresh(); if (runId) { run.refresh(); journal.refresh(); reservations.refresh(); } }
   function onCreated(created: PaperRunRecord) { setRunId(created.run_id); runs.refresh(); run.refresh(); journal.refresh(); reservations.refresh(); }
-  // Every tab panel stays mounted so each tab's aria-controls resolves; the gate text renders inside whichever panel is open.
   const gate = !workspace ? <EmptyResearch>Paper accounting is unavailable in this API version. No balances or performance estimates have been invented.</EmptyResearch>
     : !selected ? <EmptyResearch>Select a PAPER session to inspect retained runs and hypothetical accounting.</EmptyResearch> : null;
   const runGate = gate ?? (runId ? null : <EmptyResearch>Inspect a retained paper run on the Sessions tab to load its ledger, journal and reservations.</EmptyResearch>);

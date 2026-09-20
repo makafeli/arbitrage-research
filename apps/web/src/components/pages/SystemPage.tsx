@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import type { Capabilities, ControlApi, Network, Session } from '../../api/client';
-import type { Page } from '../../ConnectedApp';
 import { AdapterSupport } from '../AdapterSupport';
 import { CollectionHealth } from '../CollectionHealth';
 import { CapabilitiesPanel } from '../CapabilitiesPanel';
@@ -13,11 +12,11 @@ const systemTabs = [
   { key: 'sys-capabilities', label: 'Capabilities' },
 ] as const;
 
-export function SystemPage({ page, active, available, api, filter, capabilities, sessions }: {
-  page: Page; active: boolean; available: boolean; api: ControlApi; filter: Network | 'all'; capabilities: Capabilities; sessions: Session[];
+export function SystemPage({ hidden, active, available, api, filter, capabilities, sessions }: {
+  hidden: boolean; active: boolean; available: boolean; api: ControlApi; filter: Network | 'all'; capabilities: Capabilities; sessions: Session[];
 }) {
   const [tab, setTab] = useState<SystemTab>('sys-adapters');
-  return <div hidden={page !== 'System'}>
+  return <div hidden={hidden}>
     <Tabs label="System sections" tabs={systemTabs} value={tab} onChange={setTab} />
     <TabPanel tab="sys-adapters" value={tab}><AdapterSupport active={active} available={available} api={api} filter={filter} /></TabPanel>
     <TabPanel tab="sys-collection" value={tab}><CollectionHealth active={active} api={api} capabilities={capabilities} sessions={sessions} filter={filter} /></TabPanel>
