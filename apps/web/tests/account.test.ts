@@ -33,5 +33,6 @@ test('production App imports no demo and the UI cannot start real trading', () =
   assert.doesNotMatch(app, /import.*DemoApp/);
   const workspace = readFileSync(new URL('../src/ConnectedApp.tsx', import.meta.url), 'utf8');
   assert.doesNotMatch(workspace, /onDemo|>Connect API<|>Open demo</);
-  assert.match(workspace, /disabled>Start real trading</);
+  const realTradingPanel = readFileSync(new URL('../src/components/RealTradingPanel.tsx', import.meta.url), 'utf8');
+  assert.match(realTradingPanel, /disabled>Start real trading</);
 });

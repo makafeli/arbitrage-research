@@ -1,0 +1,3 @@
+export function RealTradingPanel({ hidden }: { hidden: boolean }) {
+  return <section className="panel real-trading-panel" hidden={hidden} aria-labelledby="real-title"><p className="eyebrow">Real trading</p><h1 id="real-title">Real trading is not available</h1><p>Live execution has not been enabled. No real orders can be sent from this workspace.</p><p className="muted space-top">This release has no wallet connection, signing or live order submission. Switching workspaces never changes the mode of an existing session.</p><button className="primary space-top" disabled>Start real trading</button></section>;
+}

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { ControlApi, errorMessage } from '../api/client';
 
-export function AccountAccess({ api, checking, light, onToggleTheme }: { api: ControlApi; checking: boolean; light: boolean; onToggleTheme: () => void }) {
+export function AccountAccess({ api, checking, dark, onToggleTheme }: { api: ControlApi; checking: boolean; dark: boolean; onToggleTheme: () => void }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmation, setConfirmation] = useState('');
@@ -37,7 +37,7 @@ export function AccountAccess({ api, checking, light, onToggleTheme }: { api: Co
     finally { if (alive.current) setBusy(false); }
   }
   return <main className="account-screen">
-    <div className="account-top"><a className="brand" href="/" aria-label="Arbitrage home"><span className="brandmark" aria-hidden="true">↗</span>Arbitrage</a><button onClick={onToggleTheme} aria-label={`Switch to ${light ? 'dark' : 'light'} theme`}>{light ? 'Dark' : 'Light'} theme</button></div>
+    <div className="account-top"><a className="brand" href="/" aria-label="Arbitrage home"><span className="brandmark" aria-hidden="true">↗</span>Arbitrage</a><button onClick={onToggleTheme} aria-label={`Switch to ${dark ? 'light' : 'dark'} theme`}>{dark ? 'Light' : 'Dark'} theme</button></div>
     <section className="panel account-card" aria-labelledby="login-title">
       <p className="eyebrow">Your trading workspace</p>
       <h1 id="login-title">{token ? 'Set your password' : 'Sign in'}</h1>

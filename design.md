@@ -4,60 +4,70 @@ Locked design system for `apps/web`. Future Hallmark runs read this file first;
 pages defer to it. Amend intentionally — the file is the rule.
 
 ## Genre
-modern-minimal — the dev-tool / instrument-panel register. No decoration, one
-signal colour, function carries every page.
+modern-minimal — the dev-tool / instrument-panel register. No decoration, no
+colour signal beyond ink, function carries every page.
 
 ## Macrostructure family
 - App pages (every route in `apps/web`): **Workbench**. Small functional
   headings, data blocks separated by hairlines and gap, no hero, no enrichment.
   Variation knobs: section rhythm (panel grid vs. table vs. facts list) and the
   optional mono eyebrow above a heading.
+- Navigation primitives inside a page: **tabs** (`role=tablist`, arrow-key
+  roving focus) split a page's blocks when they don't all fit one scroll, and
+  **right-side drawers** (`dialog.drawer`) inspect one record without leaving
+  the page. No third pattern; do not invent accordions or nested modals.
 - Marketing pages: none exist. If one is added, use Marquee Hero with this
   theme and open a `## Variants` section here first.
 - Content pages: none.
 
 ## Theme
-Custom, Cobalt-family. Cool graphite ground by default, one electric cobalt
-signal, an engineered near-white light variant behind `body.light`.
-Axes · dark cool graphite paper / grotesk-sans display / electric cobalt accent.
+Monochrome. Ink on paper, no accent hue — the only non-neutral colour is the
+warn tone, kept for STALE badges and the Owner-overview health pill.
+Axes · flat white paper / grotesk-free sans display / ink-on-paper accent.
 
-Dark (default, `:root`):
-- `--color-paper`      oklch(20% 0.016 260)
-- `--color-paper-2`    oklch(23.5% 0.016 260)
-- `--color-paper-3`    oklch(27.5% 0.017 260)
-- `--color-ink`        oklch(95% 0.008 250)
-- `--color-ink-2`      oklch(76% 0.014 252)
-- `--color-rule`       oklch(31% 0.018 258)
-- `--color-rule-2`     oklch(38% 0.02 258)
-- `--color-accent`     oklch(74% 0.16 256)
-- `--color-accent-ink` oklch(16% 0.03 258)
-- `--color-warn`       oklch(82% 0.13 80)
-- `--color-focus`      = `--color-accent`
-
-Light (`body.light`):
-- `--color-paper`      oklch(98.5% 0.004 250)
-- `--color-paper-2`    oklch(96.5% 0.005 250)
-- `--color-paper-3`    oklch(94% 0.006 250)
-- `--color-ink`        oklch(24% 0.02 258)
-- `--color-ink-2`      oklch(42% 0.018 257)
-- `--color-rule`       oklch(89% 0.008 252)
-- `--color-rule-2`     oklch(82% 0.01 252)
-- `--color-accent`     oklch(50% 0.20 256)
-- `--color-accent-ink` oklch(99% 0.002 250)
+Light (default, `:root`):
+- `--color-paper`      #ffffff
+- `--color-paper-2`    #f3f3f3
+- `--color-paper-3`    #e9e9e9
+- `--color-ink`        #141414
+- `--color-ink-2`      #6b6b6b
+- `--color-rule`       #f0f0f0
+- `--color-rule-2`     #dcdcdc
+- `--color-accent`     = `--color-ink`
+- `--color-accent-ink` = `--color-paper`
 - `--color-warn`       oklch(52% 0.13 70)
+- `--color-focus`      = `--color-ink`
 
-Accent budget: ≤ 5 % of any viewport — active nav item, primary button, focus
-ring, links, the status dot, progress fill, accent-coloured badges. Never a
-flood, never a gradient.
+Dark (`body.dark`):
+- `--color-paper`      oklch(20% 0.005 260)
+- `--color-paper-2`    oklch(23.5% 0.005 260)
+- `--color-paper-3`    oklch(27.5% 0.005 260)
+- `--color-ink`        oklch(95% 0 0)
+- `--color-ink-2`      oklch(76% 0 0)
+- `--color-rule`       oklch(31% 0.005 260)
+- `--color-rule-2`     oklch(38% 0.005 260)
+- `--color-accent`     = `--color-ink`
+- `--color-accent-ink` = `--color-paper`
+- `--color-warn`       oklch(82% 0.13 80)
+
+Accent budget: monochrome by default — "accent" is ink-on-paper contrast, not
+a hue. Two exceptions only: `--color-warn` on the STALE badge, and the
+Owner-overview health pill (`.pill.red/.amber/.green`), which keeps its
+literal red/amber/green traffic-light colour because it is the one place the
+owner reads status by colour alone at a glance. Never a flood, never a
+gradient, never introduced anywhere else.
 
 ## Typography
-- Display: Space Grotesk, weight 600 (500 for metric values), style normal
+- Display: Inter, weight 600, style normal
 - Body:    Inter, weight 400 (500 for emphasis)
 - Mono:    JetBrains Mono, weight 400/500 — numbers, hashes, badges, eyebrows,
            table heads, kbd
-- Display tracking: -0.02em
-- Type scale anchor: `--text-display` = clamp(1.75rem, 1.3rem + 1.4vw, 2.25rem)
-- No italic headings. No uppercase outside mono labels and the honesty badges.
+- Display tracking: 0 (all tracking is 0 except mono labels, which keep a
+  small positive tracking for legibility at caps)
+- Type scale anchor: `--text-display` = clamp(2rem, 1.4rem + 1.8vw, 3rem)
+- No italic headings. No uppercase outside mono labels and the honesty
+  badges, which stay UPPERCASE mono — a project requirement, not a style
+  choice (`API CONNECTED`, `CAPTURED DATA ONLY`, `IMMUTABLE`, …).
 
 ## Spacing
 4-point named scale in `apps/web/src/tokens.css` (`--space-3xs` … `--space-4xl`).
@@ -70,6 +80,7 @@ Pages use named tokens, never raw pixel values, except hairline widths and the
 - Durations: `--dur-fast` 120ms · `--dur-base` 180ms · `--dur-slow` 240ms
 - Reveal pattern: none. The dashboard is composed; data appears instantly.
 - Hover: background / border-colour shift only. Focus rings appear instantly.
+- Drawers slide in 180ms via transform only.
 - Reduced-motion fallback: every transition and animation off.
 
 ## Microinteractions stance
@@ -77,28 +88,55 @@ Pages use named tokens, never raw pixel values, except hairline widths and the
 - Hover transition 120 ms · focus delay 0 ms.
 - Status is spoken by the mono badges (PAPER TRADING, HYPOTHETICAL, CAPTURED
   DATA ONLY, …). Those badges are a project requirement and stay uppercase.
+- No data enrichment: never show a metric, health card, or readiness signal
+  the API cannot back. A tile that would always read "Unknown" is decoration,
+  not a feature.
 
 ## CTA voice
-- Primary: solid `--color-accent` fill, `--color-accent-ink` text, 6 px radius,
-  `--space-xs` × `--space-md` padding, weight 500, names the action
-  ("Start session", "Sign in").
-- Secondary: 1 px `--color-rule-2` border on `--color-paper-2`, same radius and
-  padding. Hover moves to `--color-paper-3`.
-- Text buttons: accent colour, underline on hover, no border.
+- Primary: ink-filled pill (`button.primary`) — `--color-ink` fill,
+  `--color-paper` text, radius 9999px, `--space-xs` × `--space-md` padding,
+  weight 500, names the action ("Start session", "Sign in").
+- Secondary / default: ghost pill — transparent fill, 1 px `--color-rule-2`
+  border, radius 9999px. Hover moves to `--color-paper-3`.
+- Text buttons: ink colour, underline on hover, no border.
+
+## Radii
+Panels (`.panel`) 24px · cards and inset surfaces (`.panel.inset`, `.fact`,
+inputs) 16px / 12px · pills, buttons, and chips 9999px (full stadium). No
+other radius values.
+
+## Shell
+- Brand: a black tile holding "↗" (aria-hidden) plus the wordmark
+  "Arbitrage." (the trailing period is part of the wordmark, not sentence
+  punctuation).
+- ≥1120px: a floating `header.topbar` — sticky top, rounded pill, hairline
+  border, paper background — holds the brand, primary nav, the trading-mode
+  segment, and account actions in one row.
+- ≤1119px: the primary nav becomes a fixed bottom capsule (rounded pill,
+  paper background, hairline, shadow), horizontally scrollable, every item
+  reachable by scroll — no overflow "more" menu.
 
 ## Per-page allowances
 - App pages MUST NOT use enrichment — function carries the page.
-- Surfaces are hairline-bordered (`--color-rule`), 10 px radius, no shadow.
-  The only shadow in the app is the dialog's 1 px lift; the backdrop scrim does
+- Surfaces are hairline-bordered (`--color-rule`), 24px radius for panels /
+  16px for inset cards, no shadow. The only shadows in the app are the
+  drawer/dialog lift and the floating shell surfaces; the backdrop scrim does
   the rest.
+- A page with more content than one scroll comfortably holds splits into
+  tabs; a page needs one record inspected in isolation, it opens a drawer.
+  Do not add a third navigation primitive.
 
 ## What pages MUST share
-- The wordmark: `↗ Arbitrage` in Space Grotesk 600, glyph in accent.
-- The accent colour and its ≤ 5 % budget.
+- The wordmark: black tile "↗" + "Arbitrage." in Inter 600.
+- The monochrome palette and the single reserved warn tone.
 - The three fonts and the type scale.
 - The CTA voice above.
 - The heading rhythm: optional mono eyebrow → display heading → one-line
   subtitle in `--color-ink-2`.
+- Accessibility: focus rings on every interactive element
+  (`:focus-visible { outline: 2px solid var(--color-focus) }`), reduced
+  motion disables all transitions/animations, colour never carries meaning
+  alone (badges and pills always pair colour with text).
 
 ## Exports
 `apps/web/src/tokens.css` is the source of truth. Ask "extend design.md with
