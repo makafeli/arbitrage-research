@@ -80,7 +80,8 @@ Pages use named tokens, never raw pixel values, except hairline widths and the
 - Durations: `--dur-fast` 120ms · `--dur-base` 180ms · `--dur-slow` 240ms
 - Reveal pattern: none. The dashboard is composed; data appears instantly.
 - Hover: background / border-colour shift only. Focus rings appear instantly.
-- Drawers slide in 180ms via transform only.
+- Drawers slide in 180ms via `transform` only, from `translateX(100%)` using
+  `@starting-style`; no motion under reduced motion.
 - Reduced-motion fallback: every transition and animation off.
 
 ## Microinteractions stance
@@ -97,22 +98,23 @@ Pages use named tokens, never raw pixel values, except hairline widths and the
   `--color-paper` text, radius 9999px, `--space-xs` × `--space-md` padding,
   weight 500, names the action ("Start session", "Sign in").
 - Secondary / default: ghost pill — transparent fill, 1 px `--color-rule-2`
-  border, radius 9999px. Hover moves to `--color-paper-3`.
+  border, radius 9999px. Hover moves to `--color-paper-2`.
 - Text buttons: ink colour, underline on hover, no border.
 
 ## Radii
-Panels (`.panel`) 24px · cards and inset surfaces (`.panel.inset`, `.fact`,
-inputs) 16px / 12px · pills, buttons, and chips 9999px (full stadium). No
-other radius values.
+Chips, pills and nav buttons use `--radius-chip` (9999px, full stadium).
+Inputs use `--radius-input` (12px); inset surfaces (`.fact`, notices, table
+wrappers, cards inside a panel) use `--radius-card` (16px); panels (`.panel`) use `--radius-panel` (24px).
+No other radius values.
 
 ## Shell
 - Brand: a black tile holding "↗" (aria-hidden) plus the wordmark
   "Arbitrage." (the trailing period is part of the wordmark, not sentence
   punctuation).
-- ≥1120px: a floating `header.topbar` — sticky top, rounded pill, hairline
+- ≥1281px: a floating `header.topbar` — sticky top, rounded pill, hairline
   border, paper background — holds the brand, primary nav, the trading-mode
   segment, and account actions in one row.
-- ≤1119px: the primary nav becomes a fixed bottom capsule (rounded pill,
+- ≤1280px: the primary nav becomes a fixed bottom capsule (rounded pill,
   paper background, hairline, shadow), horizontally scrollable, every item
   reachable by scroll — no overflow "more" menu.
 

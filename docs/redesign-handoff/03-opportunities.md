@@ -24,25 +24,32 @@ kostenaannames op één quote toe te passen (`Costs`), en een bevroren database-
 ```
 (schil)
 div.tabs[role=tablist][aria-label="Opportunities sections"]   Captured · Decisions (standaard) · Costs · Exports
-div.tabpanel#panel-opp-captured                RecordedSection — identiek aan 02-overview.md §RecordedTable
-section.section-spacer.research-workspace      DecisionExplorer  (aria-labelledby decision-explorer-title, blijft altijd gemount)
+div.tabpanel[role=tabpanel]#panel-opp-captured[aria-labelledby=tab-opp-captured]   RecordedSection — identiek aan 02-overview.md §RecordedTable
+section.section-spacer.research-workspace      DecisionExplorer  (aria-labelledby decision-explorer-title, blijft altijd gemount zolang de Opportunities-pagina actief is)
 ├─ .sectionhead                      h2 "Decision evidence explorer" + p  |  span.pill.blue "PERSISTED EVIDENCE"
-├─ [capability decision_history uit]  p.notice  (en verder niets)
-├─ .panel.research-toolbar           select "Decision session" · select "Origin on this page" · button "Refresh evidence"
-├─ [geen sessie]  p.notice "Select a session to inspect its stored evidence. No dataset has been substituted."
-└─ [sessie gekozen]
-   ├─ p.tiny                          "Session scope: {id}. The chain selector filters session choices only; …"
-   ├─ div[hidden={tab≠Decisions}]     (§D coverage-paneel, §E observaties-tabel, §G groepen-tabel)
-   ├─ div[hidden={tab≠Costs}]         CostAssessmentWorkspace  (§F) — alleen na "Assess hypothetical costs"
-   └─ div[hidden={tab≠Exports}]       FrozenSessionExport (§B) → CaptureAuditPanel (§C)
+├─ .panel.research-toolbar           select "Decision session" · select "Origin on this page" · button "Refresh evidence"  (verborgen zodra de gate-tekst hieronder geldt)
+├─ div.tabpanel[role=tabpanel]#panel-opp-decisions[aria-labelledby=tab-opp-decisions]
+│     [capability decision_history uit]  p.notice "Decision history is unavailable in this API version. Missing observations and execution accounting are unknown, not zero."
+│     [geen sessie]  p.notice "Select a session to inspect its stored evidence. No dataset has been substituted."
+│     [sessie gekozen]  §D coverage-paneel, §E observaties-tabel, §G groepen-tabel
+├─ div.tabpanel[role=tabpanel]#panel-opp-costs[aria-labelledby=tab-opp-costs]
+│     dezelfde gate-tekst als hierboven, óf (als capability aan staat en er een sessie is) "Assess hypothetical
+│     costs from a quoted observation on the Decisions tab to load a cost workspace." totdat een quote is
+│     gekozen — dan CostAssessmentWorkspace (§F)
+└─ div.tabpanel[role=tabpanel]#panel-opp-exports[aria-labelledby=tab-opp-exports]
+      dezelfde gate-tekst, óf FrozenSessionExport (§B) → CaptureAuditPanel (§C)
 dialog.research-dialog "Decision evidence detail"   (§H)
 ```
 
-`Captured` is een echt `TabPanel` (`role=tabpanel`, `hidden` op het element). `Decisions`/`Costs`/`Exports` zijn
-géén `TabPanel`s: `DecisionExplorer` blijft één keer gemount (state — gekozen sessie, geopende cost-workspace —
-blijft dus bewaard bij tabwissel) en toont/verbergt zijn drie secties zelf met `hidden={view !== '…'}`, gestuurd
-door dezelfde tab-state die `OpportunitiesPage` bijhoudt. Visueel is er geen verschil met een echte `TabPanel`.
-Klikken op "Assess hypothetical costs for …" in de Decisions-tabel schakelt automatisch naar de Costs-tab.
+Alle vier de tabs — `Captured`, `Decisions`, `Costs`, `Exports` — zijn echte `TabPanel`s (`div.tabpanel[role=tabpanel]`,
+`hidden` op het element, `id=panel-opp-…`, `aria-labelledby=tab-opp-…`) en blijven allemaal gemount zolang de
+Opportunities-pagina actief is. `DecisionExplorer` rendert de laatste drie panels zelf (`opp-decisions`, `opp-costs`,
+`opp-exports`) binnen één component, zodat state (gekozen sessie, geopende cost-workspace) bewaard blijft bij
+tabwissel — maar elk panel is een eigen `TabPanel`-element met eigen `id`/`aria-labelledby`, niet een gedeelde
+`hidden`-div. De gate-tekst ("Decision history is unavailable…" / "Select a session to inspect its stored
+evidence…") rendert daardoor *binnen elk van de drie panels* zolang die van toepassing is — niet één keer boven
+de tabs. Klikken op "Assess hypothetical costs for …" in de Decisions-tabel schakelt de Costs-tab actief **en**
+zet toetsenbordfocus op de Costs-tabknop (`focusTab`).
 
 ## A. Sectiekop en toolbar (Decisions-tab)
 
@@ -52,7 +59,7 @@ Klikken op "Assess hypothetical costs for …" in de Decisions-tabel schakelt au
 - Capability uit: `Decision history is unavailable in this API version. Missing observations and execution accounting are unknown, not zero.`
 
 Toolbar `.panel.research-toolbar` (zichtbaar ongeacht welke tab actief is, want hij staat boven de drie
-`hidden`-divs):
+tabpanels, niet er binnenin):
 | Veld | id | Opties |
 |---|---|---|
 | `Decision session` | `decision-session` | `Choose a session` + per sessie `{session_id} · {network_id} · {mode}`. Gefilterd op chain-filter. Disabled zolang een kostenverzoek loopt. |

@@ -27,6 +27,9 @@ async function setup(page: Page, override?: (route: Route, url: URL) => Promise<
   await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Opportunities', exact: true }).click();
   await page.getByLabel('Decision session', { exact: true }).selectOption('session-paper');
   await page.getByRole('button', { name: 'Assess hypothetical costs for observation-fixture', exact: true }).click();
+  await expect(page.locator('#panel-opp-costs')).toBeVisible();
+  expect(await page.evaluate(() => document.activeElement?.id)).toBe('tab-opp-costs');
+  await expect(page.getByRole('tab', { name: 'Costs', exact: true })).toHaveAttribute('aria-selected', 'true');
 }
 async function basic(page: Page) {
   await page.getByLabel('Scenario identifier', { exact: true }).fill('manual-browser-scenario');

@@ -114,6 +114,9 @@ test('paper balances preserve huge units and distinguish original budgets from r
   });
   await openPaper(page);
   await page.getByRole('button', { name: 'Inspect paper run run-original', exact: true }).click();
+  await expect(page.locator('#panel-runs-ledger')).toBeVisible();
+  expect(await page.evaluate(() => document.activeElement?.id)).toBe('tab-runs-ledger');
+  await expect(page.getByRole('tab', { name: 'Ledger', exact: true })).toHaveAttribute('aria-selected', 'true');
   const balances = page.getByRole('table', { name: 'Current free, reserved and total hypothetical inventory' });
   await expect(balances.getByText(huge, { exact: true })).toBeVisible();
   await expect(balances.getByText('9', { exact: true })).toBeVisible();
@@ -202,13 +205,10 @@ for (const width of [320, 390, 1440]) {
     await openPaper(page); await page.getByRole('button', { name: 'Inspect paper run run-original', exact: true }).click();
     await expect(page.getByRole('table', { name: 'Current free, reserved and total hypothetical inventory' })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
-    for (const name of ['Refresh paper records', 'Export selected run JSON']) {
+    // The toolbar (Refresh) lives on the Sessions tab only; the export button belongs to the inspected run on Ledger.
+    for (const [tab, name] of [['Ledger', 'Export selected run JSON'], ['Sessions', 'Refresh paper records'], ['Sessions', 'Create hypothetical paper run']]) {
+      await page.getByRole('tab', { name: tab, exact: true }).click();
       const bounds = await page.getByRole('button', { name, exact: true }).boundingBox();
-      expect(bounds!.width).toBeGreaterThanOrEqual(44); expect(bounds!.height).toBeGreaterThanOrEqual(44);
-    }
-    await page.getByRole('tab', { name: 'Sessions', exact: true }).click();
-    {
-      const bounds = await page.getByRole('button', { name: 'Create hypothetical paper run', exact: true }).boundingBox();
       expect(bounds!.width).toBeGreaterThanOrEqual(44); expect(bounds!.height).toBeGreaterThanOrEqual(44);
     }
     await testInfo.attach('paper-evidence-' + width, { body: await page.screenshot({ path: testInfo.outputPath('research-dashboard-' + width + '.png'), fullPage: true, scale: 'css' }), contentType: 'image/png' });

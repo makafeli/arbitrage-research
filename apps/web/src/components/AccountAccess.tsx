@@ -37,7 +37,7 @@ export function AccountAccess({ api, checking, dark, onToggleTheme }: { api: Con
     finally { if (alive.current) setBusy(false); }
   }
   return <main className="account-screen">
-    <div className="account-top"><a className="brand" href="/" aria-label="Arbitrage home"><span className="brandmark" aria-hidden="true">↗</span>Arbitrage</a><button onClick={onToggleTheme} aria-label={`Switch to ${dark ? 'light' : 'dark'} theme`}>{dark ? 'Light' : 'Dark'} theme</button></div>
+    <div className="account-top"><a className="brand" href="/" aria-label="Arbitrage home"><span className="brandmark" aria-hidden="true">↗</span></a><button onClick={onToggleTheme} aria-label={`Switch to ${dark ? 'light' : 'dark'} theme`}>{dark ? 'Light' : 'Dark'} theme</button></div>
     <aside className="account-aside">
       <div className="brand"><span className="brandmark" aria-hidden="true">↗</span>Arbitrage.</div>
       <ul className="account-facts">

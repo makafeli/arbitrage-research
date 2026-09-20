@@ -5,7 +5,7 @@ import { PaperWorkspace } from '../PaperWorkspace';
 import type { RunsTab } from '../PaperWorkspace';
 import { SessionsSection } from '../SessionCard';
 import type { PendingCommand } from '../SessionCard';
-import { Tabs } from '../ui/Tabs';
+import { Tabs, focusTab } from '../ui/Tabs';
 import type { Tab } from '../ui/Tabs';
 
 const RUNS_TABS: readonly Tab<RunsTab>[] = [
@@ -24,6 +24,6 @@ export function RunsPage({ page, visibleSessions, commands, sessionsDisabled, st
   const [tab, setTab] = useState<RunsTab>('runs-sessions');
   return <>
     {page === 'Runs' && <Tabs label="Runs sections" tabs={RUNS_TABS} value={tab} onChange={setTab} />}
-    <div hidden={page !== 'Runs'}><PaperWorkspace active={active} api={api} capabilities={capabilities} sessions={sessions} filter={filter} disabled={workspaceDisabled} canRetry={canRetry} onPendingChange={onPendingChange} view={tab} onViewChange={setTab} sessionsSection={page === 'Runs' ? <SessionsSection visibleSessions={visibleSessions} commands={commands} disabled={sessionsDisabled} stale={stale} send={send} /> : null} /></div>
+    <div hidden={page !== 'Runs'}><PaperWorkspace active={active} api={api} capabilities={capabilities} sessions={sessions} filter={filter} disabled={workspaceDisabled} canRetry={canRetry} onPendingChange={onPendingChange} view={tab} onViewChange={view => { setTab(view); focusTab(view); }} sessionsSection={page === 'Runs' ? <SessionsSection visibleSessions={visibleSessions} commands={commands} disabled={sessionsDisabled} stale={stale} send={send} /> : null} /></div>
   </>;
 }

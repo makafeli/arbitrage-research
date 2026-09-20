@@ -13,7 +13,7 @@ export function OverviewPage({ visibleSessions, commands, disabled, stale, send,
   rows: Opportunity[]; opportunityCapture: boolean; nextCursor: string | null; inspect: (opportunity: Opportunity) => void;
 }) {
   const running = visibleSessions.filter(session => session.observed_state === 'RUNNING').length;
-  const unresolvedCommands = Object.values(commands).filter(command => command.sending || command.uncertain).length;
+  const unresolvedCommands = visibleSessions.filter(session => commands[session.session_id]?.sending || commands[session.session_id]?.uncertain).length;
   return <>
     <div className="stats">
       <div className="fact"><span className="metriclabel">Sessions in view</span><strong>{visibleSessions.length}</strong></div>

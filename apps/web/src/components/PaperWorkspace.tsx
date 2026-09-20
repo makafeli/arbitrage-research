@@ -34,12 +34,17 @@ export function PaperWorkspace({ active, api, capabilities, sessions, filter, di
   const configuration = capabilities.registered_configurations.find(config => config.configuration_digest === selected?.configuration_digest);
   function refresh() { runs.refresh(); if (runId) { run.refresh(); journal.refresh(); reservations.refresh(); } }
   function onCreated(created: PaperRunRecord) { setRunId(created.run_id); runs.refresh(); run.refresh(); journal.refresh(); reservations.refresh(); }
-  return <section className="section-spacer research-workspace" aria-labelledby="paper-workspace-title">
-    <div className="sectionhead"><div><h2 id="paper-workspace-title">Paper accounting workspace</h2><p>Durable hypothetical inventory, reservations and journal evidence. Balances are not returns.</p></div><span className="pill paper">HYPOTHETICAL</span></div>
-    {workspace && <div className="panel research-toolbar"><div className="research-field"><label htmlFor="paper-session">Paper session</label><select id="paper-session" value={sessionId} disabled={creationLocked} onChange={event => { setChosen(sessions.find(session => session.session_id === event.target.value) ?? null); setRunId(''); }}><option value="">Choose a PAPER session</option>{options.map(session => <option key={session.session_id} value={session.session_id}>{session.session_id} · {session.network_id} · {session.observed_state}</option>)}</select></div><button disabled={!enabled || runs.loading || run.loading || journal.loading || reservations.loading} onClick={refresh}>Refresh paper records</button></div>}
+  // Every tab panel stays mounted so each tab's aria-controls resolves; the gate text renders inside whichever panel is open.
+  const gate = !workspace ? <EmptyResearch>Paper accounting is unavailable in this API version. No balances or performance estimates have been invented.</EmptyResearch>
+    : !selected ? <EmptyResearch>Select a PAPER session to inspect retained runs and hypothetical accounting.</EmptyResearch> : null;
+  const runGate = gate ?? (runId ? null : <EmptyResearch>Inspect a retained paper run on the Sessions tab to load its ledger, journal and reservations.</EmptyResearch>);
+  return <>
         <TabPanel tab="runs-sessions" value={view}>
           {sessionsSection}
-          {!workspace ? <EmptyResearch>Paper accounting is unavailable in this API version. No balances or performance estimates have been invented.</EmptyResearch> : !selected ? <EmptyResearch>Select a PAPER session to inspect retained runs and hypothetical accounting.</EmptyResearch> : <>
+  <section className="section-spacer research-workspace" aria-labelledby="paper-workspace-title">
+    <div className="sectionhead"><div><h2 id="paper-workspace-title">Paper accounting workspace</h2><p>Durable hypothetical inventory, reservations and journal evidence. Balances are not returns.</p></div><span className="pill paper">HYPOTHETICAL</span></div>
+    {workspace && <div className="panel research-toolbar"><div className="research-field"><label htmlFor="paper-session">Paper session</label><select id="paper-session" value={sessionId} disabled={creationLocked} onChange={event => { setChosen(sessions.find(session => session.session_id === event.target.value) ?? null); setRunId(''); }}><option value="">Choose a PAPER session</option>{options.map(session => <option key={session.session_id} value={session.session_id}>{session.session_id} · {session.network_id} · {session.observed_state}</option>)}</select></div><button disabled={!enabled || runs.loading || run.loading || journal.loading || reservations.loading} onClick={refresh}>Refresh paper records</button></div>}
+          {gate ?? (selected && <>
           <p className="tiny space-top">Session scope: {sessionId}. The chain selector filters choices only. Existing runs and their original balances remain retained when a new run is created.</p>
           <FrozenSessionExport key={sessionId} api={api} sessionId={sessionId} active={enabled} available={capabilities.session_export === true} />
           {creationLocked && <p className="notice" role="status">Paper creation scope is locked while delivery is unresolved. Retries use the original session, amounts and idempotency key.</p>}
@@ -48,16 +53,16 @@ export function PaperWorkspace({ active, api, capabilities, sessions, filter, di
           {runs.data && !runs.data.items.length && <EmptyResearch>No paper runs were returned for this page. No virtual funds have been initialized for this selection.</EmptyResearch>}
           {runs.data && runs.data.items.length > 0 && <div className="research-scroll"><table className="research-table"><caption>Persisted hypothetical paper runs</caption><thead><tr><th>Run / frozen configuration</th><th>Revision</th><th>Outstanding reservations</th><th>Inspect</th></tr></thead><tbody>{runs.data.items.map(item => <tr key={item.run_id}><td><strong>{item.run_id}</strong><span className="route-sub mono">{item.configuration_digest}</span><span className="route-sub">{item.created_at}</span><span className="pill paper">HYPOTHETICAL</span></td><td><Exact value={item.revision} /></td><td>{item.outstanding_reservations}</td><td><button aria-label={'Inspect paper run ' + item.run_id} aria-pressed={runId === item.run_id} onClick={() => { setRunId(item.run_id); onViewChange('runs-ledger'); }}>Inspect run</button></td></tr>)}</tbody></table></div>}
           <Pagination label="paper runs" page={pages.page} canPrevious={pages.canPrevious} canNext={pages.canNext(runs.data?.next_cursor)} loading={runs.loading} previous={pages.previous} next={() => { if (runs.data?.next_cursor) pages.next(runs.data.next_cursor); }} />
-          </>}
+          </>)}
+  </section>
         </TabPanel>
-        {workspace && selected && <>
         <TabPanel tab="runs-ledger" value={view}>
-          {runId && <section className="space-top" aria-labelledby="paper-run-detail-title"><h3 id="paper-run-detail-title">Selected paper run: {runId}</h3><ResourceStatus resource={run} />
+          {runGate ?? <section className="space-top" aria-labelledby="paper-run-detail-title"><h3 id="paper-run-detail-title">Selected paper run: {runId}</h3><ResourceStatus resource={run} />
             {run.data && <><div className="panel space-top"><div className="sectionhead"><div><h3>Hypothetical balances · exact asset minor units</h3><p>Revision {run.data.revision}. Each asset is separate; no conversion, decimals or portfolio value are inferred.</p></div><ExportButton label="Export selected run JSON" scope={'paper-run-' + runId} data={run.data} receivedAt={run.at} /></div><p className="tiny mono">Frozen configuration: {run.data.configuration_digest}</p><div className="research-scroll"><table className="research-table"><caption>Current free, reserved and total hypothetical inventory</caption><thead><tr><th>Asset / kind</th><th>Free</th><th>Reserved</th><th>Total</th></tr></thead><tbody>{run.data.balances.map(balance => <tr key={balance.asset.kind + balance.asset.identity}><td>{balance.asset.identity}<span className="route-sub">{balance.asset.kind === 'NATIVE' ? 'NATIVE FEE ASSET' : 'TOKEN PRINCIPAL ASSET'}</span></td><td><Exact value={balance.free} /></td><td><Exact value={balance.reserved} /></td><td><Exact value={balance.total} /></td></tr>)}</tbody></table></div><details className="space-top"><summary>Immutable initial balances</summary>{run.data.initial_balances.map(balance => <p className="tiny space-top" key={balance.asset.kind + balance.asset.identity}>{balance.asset.kind} · {balance.asset.identity}: <Exact value={balance.amount} /></p>)}</details><p className="notice">HYPOTHETICAL accounting only. These balances do not establish full transaction simulation, actual fills or realized performance. Run comparisons are unavailable without comparable coverage, explicit valuation and simulation evidence.</p></div></>}
           </section>}
         </TabPanel>
         <TabPanel tab="runs-journal" value={view}>
-          {runId && <>
+          {runGate ?? <>
             <div className="sectionhead space-top"><div><h3>Paper journal</h3><p>Stored commands and double-entry postings, in their original asset units.</p></div><ExportButton label="Export journal page JSON" scope={'paper-journal-page-' + runId} data={journal.data} receivedAt={journal.at} /></div><ResourceStatus resource={journal} />
             {journal.data && !journal.data.items.length && <EmptyResearch>No journal entries were returned for this page.</EmptyResearch>}
             {journal.data?.items.map(item => <section className="panel space-top" key={item.event_id} aria-label={'Journal event ' + item.event.sequence}><div className="sectionhead"><div><h3>#{item.event.sequence} · {item.event.command.kind}</h3><p>{item.recorded_at} · {item.event_id}</p><p className="mono">Command: {item.event.command_id}</p></div><span className="pill paper">HYPOTHETICAL</span></div><div className="research-scroll"><table className="research-table"><caption>Postings for journal event {item.event.sequence}</caption><thead><tr><th>Asset</th><th>Account</th><th>Side</th><th>Minor units</th></tr></thead><tbody>{item.event.postings.map((posting, index) => <tr key={index}><td>{posting.asset.identity}<span className="route-sub">{posting.asset.kind}</span></td><td>{posting.account}</td><td>{posting.side}</td><td><Exact value={posting.amount} /></td></tr>)}</tbody></table></div></section>)}
@@ -65,7 +70,7 @@ export function PaperWorkspace({ active, api, capabilities, sessions, filter, di
           </>}
         </TabPanel>
         <TabPanel tab="runs-reservations" value={view}>
-          {runId && <>
+          {runGate ?? <>
             <h3 className="space-top">Reservation history</h3><p className="tiny">Amounts below are original reservation requests. The current balances above are authoritative for inventory still reserved.</p><ResourceStatus resource={reservations} />
             {reservations.data && !reservations.data.items.length && <EmptyResearch>No reservation records were returned for this page.</EmptyResearch>}
             {reservations.data && reservations.data.items.length > 0 && <div className="research-scroll"><table className="research-table"><caption>Original reservation requests and reconciliation states</caption><thead><tr><th>Attempt / asset</th><th>Principal requested</th><th>Original native fee budget</th><th>State</th></tr></thead><tbody>{reservations.data.items.map(item => <tr key={item.attempt_id}><td>{item.attempt_id}<span className="route-sub">{item.principal_asset}</span></td><td><Exact value={item.principal} /></td><td><Exact value={item.native_fee_budget} /></td><td><span className={'pill ' + (item.state === 'UNKNOWN' ? 'amber' : '')}>{item.state}</span></td></tr>)}</tbody></table></div>}
@@ -73,8 +78,7 @@ export function PaperWorkspace({ active, api, capabilities, sessions, filter, di
             <p className="tiny space-top">Balances, journal and reservations are separate received snapshots. Page exports contain only the selected bounded data, not a complete ledger audit. Journal export includes command kind and postings; original command inputs are omitted.</p>
           </>}
         </TabPanel>
-        </>}
-  </section>;
+  </>;
 }
 interface PendingCreation { sessionId: string; key: string; body: { initial_balances: InitialBalance[] } }
 function PaperCreation({ api, session, configuration, allowed, disabled, canRetry, onCreated, onLock }: { api: ControlApi; session: Session; configuration?: Configuration; allowed: boolean; disabled: boolean; canRetry: boolean; onCreated: (run: PaperRunRecord) => void; onLock: (value: boolean) => void }) {

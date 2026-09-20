@@ -47,7 +47,7 @@ Navigatie en modus-schakelaar staan nu in de topbar, niet meer in een aside.
 | Wordmark | `div.brand` + `span.brandmark` | `↗ Arbitrage.` — de tekst is nu **"Arbitrage."** (met punt, byte-exact uit de bron). De `↗` staat in een zwarte tegel (`.brandmark`), `aria-hidden="true"`. |
 | Paginanav | `nav.nav[aria-label="Primary navigation"]` | Zeven knoppen: `Overview`, `Owner overview`, `Opportunities`, `Experiments`, `Runs`, `Strategies`, `System` (volgorde = `pages`-array in `ConnectedApp.tsx`). Actieve knop heeft `aria-current="page"`. Dit is dezelfde `<nav>` als de mobiele bottom-capsule (§5) — CSS herpositioneert hem, het is geen tweede element. Verborgen (`hidden`) zodra `tradingMode === 'real'`. |
 | Modus-knoppen | `nav.trading-modes[aria-label="Trading mode"] button` | `Paper trading`, `Real trading`. `aria-pressed` op de actieve. `disabled` zolang er een onopgelost verzoek is (`unresolvedRequest`). |
-| Modus-pill | `span.pill` | `PAPER TRADING` / `REAL TRADING`. Vanaf ≥1600px verborgen (de connected-banner in de workspace draagt de badge al op die breedtes); onder 1600px blijft hij zichtbaar in de topbar. |
+| Modus-pill | `span.pill` | `PAPER TRADING` / `REAL TRADING`. Verborgen tot en met 1599px; pas vanaf ≥1600px zichtbaar in de topbar (de controlbar-veiligheidsstrip draagt dezelfde badge al op elke breedte). |
 | Change password | `button` | `Change password`. Toggle `PasswordSettings`; `disabled` bij `unresolvedRequest`. |
 | Thema | `button[aria-label]` | Zichtbare tekst `Dark theme` (light-modus) of `Light theme` (dark-modus). `aria-label` = `Switch to dark theme` / `Switch to light theme`. |
 | Sign out | `button` | `Sign out`. `disabled` bij `unresolvedRequest`; aankondiging `Signed out. Existing commands continue independently.` |
@@ -101,10 +101,10 @@ Breakpoints: **1600 / 1480 / 1280 / 940 / 760 / 359**.
 | Breedte | Wat verandert |
 |---|---|
 | ≥1281px | Header houdt brand + nav + segment + acties op één rij (nav en actieknoppen compact, `white-space: nowrap`). |
-| <1600px | De `PAPER TRADING`/`REAL TRADING`-pill in `.topactions` wordt zichtbaar (erboven verbergt hij zich; de connected-banner draagt de badge al). |
+| ≤1599px | De `PAPER TRADING`/`REAL TRADING`-pill in `.topactions` blijft verborgen (de controlbar-veiligheidsstrip draagt dezelfde badge al op elke breedte); pas vanaf ≥1600px wordt hij zichtbaar. |
 | ≤1280px | `nav.nav` wordt een **vaste bottom capsule**: `position: fixed`, onderaan het scherm, rounded 9999, paper-achtergrond, hairline, shadow, horizontaal scrollbaar (`overflow-x: auto`, `scrollbar-width: none`). **Alle 7 items** blijven erin — geen "More"-dialoog, de capsule scrollt. `main` krijgt onderpadding ≥ 88px zodat inhoud niet achter de capsule verdwijnt. Header houdt brand + segment + acties op één rij tot 761px. |
 | ≤760px | Header wraps naar **twee rijen**: rij 1 = brand + segment (space-between), rij 2 = de drie actieknoppen (elk `nowrap`, rij mag zelf wrappen). Geen icon-only knoppen. Pagehead stapelt; `.filter` volle breedte; controlbar wraps. |
-| ≤359px | Merktekst blijft (geen afkorting — copy is bevroren); alleen wrap toegestaan. |
+| ≤359px | De merktegel `↗` en de tekst `Arbitrage.` blijven allebei op elke breedte zichtbaar (geen afkorting, geen verborgen helft — copy is bevroren); wrap is toegestaan. |
 | — | Geen horizontale overflow op 320 / 375 / 390 / 414 / 768 / 1440. |
 
 De mobiele bottom-capsule is **hetzelfde** `nav[aria-label="Primary navigation"]`-element als de desktop-nav, alleen herpositioneerd via CSS — er is geen los duplicaat in de DOM.

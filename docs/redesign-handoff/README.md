@@ -11,11 +11,21 @@ structurele wijzigingen t.o.v. de vorige (Cobalt, ARB-069) versie:
 
 - **Sidebar weg, floating topbar erbij.** Navigatie zit nu in `header.topbar` (wordmark, primaire nav, trading-mode-knoppen, acties), niet meer in een linker sidebar. ≤1280px wordt de primaire nav een vaste onderste capsule (alle 7 items, scrollbaar).
 - **Licht is nu de standaardstand**, donker de toggle — vóór v3 was het omgekeerd (`body.light` als override op een donkere standaard; nu `body.dark` als override op een lichte standaard).
-- **Tabs op drie pagina's.** Opportunities (Captured/Decisions/Costs/Exports), Runs (Sessions/Ledger/Journal/Reservations) en System (Adapters/Collection/Capabilities) zijn niet meer één lange scroll maar een `Tabs`/`TabPanel`-primitief (WAI-ARIA tabs pattern, roving tabindex). Zie elk bestand de sectie "Regels bij redesign" voor welk patroon (echte `TabPanel`'s vs. handmatige `hidden`-divs) elke pagina gebruikt en waarom dat verschil ertoe doet.
+- **Tabs op drie pagina's.** Opportunities (Captured/Decisions/Costs/Exports), Runs (Sessions/Ledger/Journal/Reservations) en System (Adapters/Collection/Capabilities) zijn niet meer één lange scroll maar een `Tabs`/`TabPanel`-primitief (WAI-ARIA tabs pattern, roving tabindex). Op alle drie de pagina's zijn de tabs echte `TabPanel`s (`role=tabpanel`, eigen `id`/`aria-labelledby`, elk apart `hidden`) — er zijn nergens handmatige `hidden`-divs. Zie elk bestand voor waar precies elk panel zijn "leeg tot iets gekozen is"-tekst toont (die tekst rendert altijd binnen het panel zelf).
 - **Dialogen zijn nu drawers.** `RecordedDialog` (Overview/Opportunities-Captured) en `ResearchDialog` (Opportunities-Decisions) zijn niet meer gecentreerde modals maar rechter zijpanelen (`dialog.drawer` 660px / `dialog.research-dialog` 850px, beide 100% ≤760px).
 - **Nieuw op Overview:** de `.stats`-strip (4 mini-statistieken).
 - **Nieuw op System:** de "Capability gates"-tabel (letterlijke spiegel van de 10 vlaggen uit `/v1/capabilities`), naast het bestaande `.facts`-blok.
-- Alle onderliggende teksten, componenten en API-contracten zijn ongewijzigd, tenzij een bestand hieronder expliciet een tekstwijziging noemt (alleen de nieuwe tab-labels en de `.stats`/`.steps`-labels zijn nieuwe strings).
+- Alle onderliggende teksten, componenten en API-contracten zijn ongewijzigd, tenzij een bestand hieronder expliciet een tekstwijziging noemt. Nieuwe strings in v3, compleet:
+  - Tab-labels: Opportunities `Captured`/`Decisions`/`Costs`/`Exports`, Runs `Sessions`/`Ledger`/`Journal`/`Reservations`, System `Adapters`/`Collection`/`Capabilities`.
+  - `.stats`-labels (Overview): `Sessions in view`, `Running`, `Unresolved commands`, `Records on this page`.
+  - `.steps`-koppen (Experiments): `Choose a validated configuration`, `Name the session`, `Review and create`.
+  - `Counts describe this loaded page and view filter only.` (Overview).
+  - `Modes: …` (System/Strategies-context).
+  - Onderschrift `Feature flags reported by /v1/capabilities` en de kolomkoppen van de capability-gates-tabel (System → Capabilities).
+  - Kolomkoppen van de Strategies-tabel en de badge `IMMUTABLE`.
+  - De zinnen in de sign-in aside (`aside.account-aside`, drie vertrouwensregels).
+  - De wordmark `Arbitrage.` (met punt).
+  - De twee nieuwe lege-staat-teksten: `Assess hypothetical costs from a quoted observation on the Decisions tab to load a cost workspace.` (Opportunities → Costs) en `Inspect a retained paper run on the Sessions tab to load its ledger, journal and reservations.` (Runs → Ledger/Journal/Reservations).
 
 Volledige punt-voor-punt vergelijking: [VERSCHIL-RAPPORT-v3.md](VERSCHIL-RAPPORT-v3.md) (prototype v3 vs. huidige app vs. `design.md`) en [VERLIES-CHECK-v3.md](VERLIES-CHECK-v3.md) (wat de app had en waar het in de v3-indeling terugkomt). De schil-contractdocumenten die deze redesign hebben gestuurd staan in [BUILD-SPEC-ARB-070.md](BUILD-SPEC-ARB-070.md).
 
@@ -102,7 +112,7 @@ Niet in productie: `DemoApp.tsx`, `ResearchViews.tsx`, `OpportunityTable.tsx`, `
 
 ## Techniek in het kort
 
-- React 19 + Vite. Geen router. Pagina = state `page` in `ConnectedApp.tsx`. Sub-werkruimtes blijven gemount met `hidden`. Binnen een pagina met tabs: zie de betreffende `0X-*.md` voor het gebruikte tabpatroon (echte `TabPanel` vs. handmatige `hidden`-div — het verschil bepaalt of state bij tabwissel bewaard blijft).
+- React 19 + Vite. Geen router. Pagina = state `page` in `ConnectedApp.tsx`. Sub-werkruimtes blijven gemount met `hidden`. Binnen een pagina met tabs zijn alle panelen echte `TabPanel`s; state (gekozen sessie, geopende run) blijft bij tabwissel bewaard omdat de component die de panelen rendert (`DecisionExplorer`, `PaperWorkspace`) zelf één keer gemount blijft — zie de betreffende `0X-*.md` voor de exacte DOM-nesting per pagina.
 - Polling elke 5 s. Na 15 s zonder antwoord: pill wordt `STALE / LAST KNOWN` (amber).
 - Capability-flags van `/v1/capabilities` bepalen welke secties tonen: `decision_history`, `paper_ledger`, `paper_run_creation`, `collection_telemetry`, `session_export`, `cost_assessments`, `adapter_support` — dezelfde tien vlaggen (plus `live_execution`, `market_data`, `opportunity_capture`) staan nu ook letterlijk in de nieuwe "Capability gates"-tabel op System → Capabilities.
 - Fonts: Inter (display en body), JetBrains Mono (mono).

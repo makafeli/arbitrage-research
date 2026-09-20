@@ -3,7 +3,7 @@ import type { Capabilities, ControlApi, Network, Opportunity, Session } from '..
 import type { Page } from '../../ConnectedApp';
 import { DecisionExplorer } from '../DecisionExplorer';
 import type { DecisionView } from '../DecisionExplorer';
-import { Tabs, TabPanel } from '../ui/Tabs';
+import { Tabs, TabPanel, focusTab } from '../ui/Tabs';
 import type { Tab } from '../ui/Tabs';
 import { RecordedSection } from './OverviewPage';
 
@@ -26,6 +26,6 @@ export function OpportunitiesPage({ page, rows, opportunityCapture, nextCursor, 
       <Tabs label="Opportunities sections" tabs={tabs} value={tab} onChange={setTab} />
       <TabPanel tab="opp-captured" value={tab}><RecordedSection rows={rows} opportunityCapture={opportunityCapture} nextCursor={nextCursor} inspect={inspect} /></TabPanel>
     </>}
-    <div hidden={page !== 'Opportunities'}><DecisionExplorer active={active} api={api} capabilities={capabilities} sessions={sessions} filter={filter} disabled={disabled} canRetry={canRetry} onPendingChange={onPendingChange} view={tab} onViewChange={setTab} /></div>
+    <div hidden={page !== 'Opportunities'}><DecisionExplorer active={active} api={api} capabilities={capabilities} sessions={sessions} filter={filter} disabled={disabled} canRetry={canRetry} onPendingChange={onPendingChange} view={tab} onViewChange={view => { setTab(view); focusTab(view); }} /></div>
   </>;
 }

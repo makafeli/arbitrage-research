@@ -19,6 +19,9 @@ export function Tabs<K extends string>({ label, tabs, value, onChange }: { label
   return <div className="tabs" role="tablist" aria-label={label}>{tabs.map((tab, index) => <button key={tab.key} ref={el => { refs.current[index] = el; }} role="tab" id={`tab-${tab.key}`} aria-selected={tab.key === value} aria-controls={`panel-${tab.key}`} tabIndex={tab.key === value ? 0 : -1} onClick={() => onChange(tab.key)} onKeyDown={event => onKeyDown(event, index)}>{tab.label}</button>)}</div>;
 }
 
+/** After a programmatic switch triggered from inside a panel that is about to hide, keep focus on the tab button instead of letting it fall to <body>. */
+export function focusTab(key: string) { document.getElementById(`tab-${key}`)?.focus(); }
+
 export function TabPanel<K extends string>({ tab, value, children }: { tab: K; value: K; children: ReactNode }) {
   return <div className="tabpanel" role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`} hidden={tab !== value}>{children}</div>;
 }

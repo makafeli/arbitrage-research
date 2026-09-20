@@ -25,7 +25,7 @@ de kaart.
 ```
 main.account-screen              flex kolom, gap 48px, padding 24px
 ├─ div.account-top                flex, ruimte tussen
-│  ├─ a.brand[href="/"][aria-label="Arbitrage home"]   span.brandmark(aria-hidden,"↗") + "Arbitrage"  (géén punt — anders dan de topbar-wordmark)
+│  ├─ a.brand[href="/"][aria-label="Arbitrage home"]   alleen span.brandmark(aria-hidden,"↗") in de zwarte tegel — geen zichtbare tekst
 │  └─ button[aria-label="Switch to dark theme"|"Switch to light theme"]   tekst "Light theme" | "Dark theme"
 ├─ aside.account-aside            ≥1120px: naast de kaart · <1120px: erboven, volle breedte
 │  ├─ div.brand                   span.brandmark(aria-hidden,"↗") + "Arbitrage."  (mét punt)
@@ -102,5 +102,5 @@ kernzin vlak bij de knop.
 
 - Geen registratie-link, geen "wachtwoord vergeten"-mailflow tonen. De help-tekst is de enige route.
 - Het activatie-token blijft alleen in geheugen. Nooit in URL-query of storage.
-- Wordmark `↗ Arbitrage` (account-top, geen punt) en `↗ Arbitrage.` (account-aside, mét punt) blijven exact zo — het zijn twee losse teksten uit de bron, geen inconsistentie om recht te trekken.
+- De home-link linksboven (`a.brand[aria-label="Arbitrage home"]`) is icoon-only: alleen de `↗`-tegel, geen zichtbare tekst. De enige zichtbare wordmark `↗ Arbitrage.` (mét punt) staat in `aside.account-aside`.
 - Tests die dit scherm vastleggen: `apps/web/tests/browser/dashboard.spec.ts` (regels 5, 19, 37) en `shell-acceptance.spec.ts` (320/375/414/768 px breedtes, light + dark).

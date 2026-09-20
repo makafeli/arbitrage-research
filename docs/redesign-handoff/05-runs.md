@@ -15,41 +15,50 @@ Sessies besturen (zelfde kaarten als Overview) én de **paper accounting** bekij
 ```
 (schil)
 div.tabs[role=tablist][aria-label="Runs sections"]   Sessions (standaard) · Ledger · Journal · Reservations
-section.section-spacer.research-workspace   PaperWorkspace  (aria-labelledby paper-workspace-title, blijft altijd gemount)
-├─ .sectionhead      h2 "Paper accounting workspace" + p "Durable hypothetical inventory, reservations and journal evidence. Balances are not returns."  |  span.pill.paper "HYPOTHETICAL"
-├─ [capability paper_ledger uit]  p.notice "Paper accounting is unavailable in this API version. No balances or performance estimates have been invented."
-├─ .panel.research-toolbar   select#paper-session "Paper session" · button "Refresh paper records"
-├─ [geen sessie]  p.notice "Select a PAPER session to inspect retained runs and hypothetical accounting."
-└─ [sessie gekozen]
-   ├─ TabPanel#panel-runs-sessions       (§A — sessiekaarten, export, aanmaken, runs-tabel)
-   ├─ TabPanel#panel-runs-ledger         (§C — geselecteerde run: saldi)
-   ├─ TabPanel#panel-runs-journal        (§D — journaal)
-   └─ TabPanel#panel-runs-reservations   (§E — reserveringen)
+div.tabpanel[role=tabpanel]#panel-runs-sessions[aria-labelledby=tab-runs-sessions]
+├─ SessionsSection                                  sessiekaarten — bovenaan, vóór en buiten de accounting-sectie (§A)
+└─ section.section-spacer.research-workspace[aria-labelledby=paper-workspace-title]
+      .sectionhead   h2 "Paper accounting workspace" + p "Durable hypothetical inventory, reservations and journal evidence. Balances are not returns."  |  span.pill.paper "HYPOTHETICAL"
+      [capability paper_ledger uit]  p.notice "Paper accounting is unavailable in this API version. No balances or performance estimates have been invented."
+      .panel.research-toolbar   select#paper-session "Paper session" · button "Refresh paper records"
+      [geen sessie]  p.notice "Select a PAPER session to inspect retained runs and hypothetical accounting."
+      [sessie gekozen]  scope-regel, FrozenSessionExport, PaperCreation (§B), tabel "Retained paper runs" (§B2)
+div.tabpanel[role=tabpanel]#panel-runs-ledger[aria-labelledby=tab-runs-ledger]              (§C)
+div.tabpanel[role=tabpanel]#panel-runs-journal[aria-labelledby=tab-runs-journal]            (§D)
+div.tabpanel[role=tabpanel]#panel-runs-reservations[aria-labelledby=tab-runs-reservations]  (§E)
 ```
 
-Anders dan op Opportunities zijn dit hier **echte** `TabPanel`s (`role=tabpanel`, elk met eigen `hidden`) — geen
-handmatige `hidden`-divs. `PaperWorkspace` blijft wel één keer gemount zodat de gekozen sessie en het gekozen
-`runId` bewaard blijven bij tabwissel. De toolbar (sessie-select + "Refresh paper records") staat boven alle vier
-de panelen en is dus altijd zichtbaar, ongeacht welke tab actief is.
+Dit zijn hier, net als bij Opportunities, **echte** `TabPanel`s (`role=tabpanel`, elk met eigen `hidden`, eigen
+`id`/`aria-labelledby`). `PaperWorkspace` blijft wel één keer gemount zodat de gekozen sessie en het gekozen
+`runId` bewaard blijven bij tabwissel. Anders dan bij Opportunities staat de toolbar (en de hele "Paper accounting
+workspace"-sectie eromheen) **niet** boven alle vier de tabs: die sectie zit alleen binnen de Sessions-tab, ná de
+sessiekaarten. De andere drie tabs (Ledger/Journal/Reservations) tonen in plaats daarvan, totdat een run is
+geïnspecteerd, de gate-tekst `Inspect a retained paper run on the Sessions tab to load its ledger, journal and
+reservations.`
 
 Select `Paper session`: `Choose a PAPER session` + alleen sessies met `mode === 'PAPER'`: `{session_id} · {network_id} · {observed_state}`. Disabled zolang een aanmaak loopt.
 
 ## A. Sessions-tab (`TabPanel tab="runs-sessions"`)
 
 ```
-SessionsSection            "Research sessions" — identiek aan 02-overview.md §SessionCard, dezelfde component
-p.tiny                     "Session scope: {id}. The chain selector filters choices only. Existing runs and their original balances remain retained when a new run is created."
-FrozenSessionExport        (zie 03-opportunities.md §B — identieke component en teksten)
-p.notice[role=status]      [locked] "Paper creation scope is locked while delivery is unresolved. Retries use the original session, amounts and idempotency key."
-PaperCreation               section.panel  (§B)
-.sectionhead                h3 "Retained paper runs" + p "Up to 25 runs per page. A new run does not reset a previous ledger."
-ResourceStatus (runs)
-.research-scroll > table.research-table   (§B2)
-Pagination "paper runs"
+SessionsSection                     "Research sessions" — identiek aan 02-overview.md §SessionCard, dezelfde component
+section.research-workspace[aria-labelledby=paper-workspace-title]
+├─ .sectionhead                     h2 "Paper accounting workspace" + p  |  span.pill.paper "HYPOTHETICAL"
+├─ .panel.research-toolbar          select#paper-session "Paper session" · button "Refresh paper records"
+├─ p.tiny                           "Session scope: {id}. The chain selector filters choices only. Existing runs and their original balances remain retained when a new run is created."
+├─ FrozenSessionExport              (zie 03-opportunities.md §B — identieke component en teksten)
+├─ p.notice[role=status]            [locked] "Paper creation scope is locked while delivery is unresolved. Retries use the original session, amounts and idempotency key."
+├─ PaperCreation                    section.panel  (§B)
+├─ .sectionhead                     h3 "Retained paper runs" + p "Up to 25 runs per page. A new run does not reset a previous ledger."
+├─ ResourceStatus (runs)
+├─ .research-scroll > table.research-table   (§B2)
+└─ Pagination "paper runs"
 ```
 
-De sessiekaarten staan dus **binnen** de Sessions-tab van deze pagina, niet erboven — ze zijn dezelfde
-`SessionsSection`-component als op Overview, doorgegeven via de `sessionsSection`-prop van `RunsPage`.
+De sessiekaarten staan **bovenaan de Sessions-tab, buiten en vóór** `section[aria-labelledby="paper-workspace-title"]`
+— ze zijn dezelfde `SessionsSection`-component als op Overview, doorgegeven via de `sessionsSection`-prop van
+`RunsPage`. De hele accounting-sectie eronder (kop, toolbar, scope-regel, frozen export, run aanmaken, runs-tabel)
+zit dus óók binnen de Sessions-tab, niet gedeeld met de andere drie tabs.
 
 ## B. PaperCreation (`section.panel.space-top`, aria-labelledby `paper-create-title`)
 
@@ -95,7 +104,7 @@ Leeg: `No paper runs were returned for this page. No virtual funds have been ini
 
 ## C. Ledger-tab (`TabPanel tab="runs-ledger"`) — Run-detail (`section.space-top`, aria-labelledby `paper-run-detail-title`)
 
-Leeg zolang geen run gekozen is (geen placeholdertekst — de sectie rendert simpelweg niet totdat "Inspect run" is aangeklikt op de Sessions-tab).
+Zolang geen run gekozen is: `EmptyResearch` gate-tekst `Inspect a retained paper run on the Sessions tab to load its ledger, journal and reservations.` (zelfde tekst op de Ledger-, Journal- en Reservations-tab). Na "Inspect run" op de Sessions-tab wordt deze tab geselecteerd én krijgt de Ledger-tabknop toetsenbordfocus (`focusTab`).
 
 ```
 h3#paper-run-detail-title   "Selected paper run: {run_id}"
@@ -111,7 +120,7 @@ ResourceStatus (run)
 
 ## D. Journal-tab (`TabPanel tab="runs-journal"`)
 
-Leeg zolang geen run gekozen is.
+Zolang geen run gekozen is: dezelfde gate-tekst `Inspect a retained paper run on the Sessions tab to load its ledger, journal and reservations.` als op de Ledger-tab (§C).
 
 ```
 .sectionhead   h3 "Paper journal" + p "Stored commands and double-entry postings, in their original asset units."  |  ExportButton "Export journal page JSON"
@@ -125,7 +134,7 @@ Pagination "journal entries"
 
 ## E. Reservations-tab (`TabPanel tab="runs-reservations"`)
 
-Leeg zolang geen run gekozen is.
+Zolang geen run gekozen is: dezelfde gate-tekst `Inspect a retained paper run on the Sessions tab to load its ledger, journal and reservations.` als op de Ledger-tab (§C).
 
 ```
 h3 "Reservation history"

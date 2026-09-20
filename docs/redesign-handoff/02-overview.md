@@ -42,7 +42,7 @@ Vier `.fact`-tegels, alle vier afgeleid uit props die de schil al doorgeeft (gee
 |---|---|
 | `Sessions in view` | `visibleSessions.length` (na chain-filter) |
 | `Running` | aantal zichtbare sessies met `observed_state === 'RUNNING'` |
-| `Unresolved commands` | aantal commando's met `sending` of `uncertain` waar |
+| `Unresolved commands` | aantal commando's met `sending` of `uncertain` waar, alleen voor sessies in dit gefilterde overzicht (zelfde chain-filter als de andere drie tegels) |
 | `Records on this page` | `rows.length` (opportunity-rijen op de laatste API-pagina, na chain-filter) |
 
 Direct eronder: `p.tiny` `Counts describe this loaded page and view filter only.` — deze regel is bewust, ze
