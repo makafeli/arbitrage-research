@@ -8,6 +8,11 @@
 //! no filesystem or network access: `crates/arb-evm/tests/simulation.rs`
 //! builds every manifest either from a committed JSON fixture or in-process,
 //! never from a live run.
+//!
+//! `bind` takes the manifest at its word for `Executed`, `block_hash` and
+//! `chain_id`; the only recomputed binding is the plan digest. `guard_code_hash`
+//! is shape-checked but compared to nothing until a reviewed artifact hash
+//! exists (half 2).
 use crate::plan::{BasePlan, PlanDigest};
 use primitive_types::U256;
 use serde::{Deserialize, Serialize};
@@ -111,6 +116,10 @@ pub struct ExactPlanEvidence {
     pub simulation_status: arb_domain::SimulationStatus,
     pub simulation_matches_exact_plan: bool,
     pub synthetic_funding: bool,
+    /// `true` only for a passed run against an identified pinned-fork state
+    /// with no synthetic funding: a run whose state could not be identified,
+    /// or that reverted or missed the floor, never supports a realized-market
+    /// claim.
     pub realized_market_claim_allowed: bool,
     pub state: StateIdentity,
     pub reason_codes: Vec<&'static str>,
@@ -165,6 +174,18 @@ fn malformed(field: &'static str) -> EvidenceGap {
     EvidenceGap::MalformedField { field }
 }
 
+/// Shared decimal-amount parser for `override.amount` and
+/// `outcome.final_balance`: only ASCII digits, no sign, no whitespace and no
+/// `0x` prefix, and it must fit in a `U256`. `U256::from_dec_str("")` returns
+/// `Ok(0)`; this rejects the empty string explicitly instead of accepting it
+/// as zero.
+fn parse_amount(value: &str) -> Option<U256> {
+    if value.is_empty() || !value.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    U256::from_dec_str(value).ok()
+}
+
 fn check_override_shape(o: &StateOverride) -> Result<(), EvidenceGap> {
     if !is_hex(&o.account, "0x", 40) {
         return Err(malformed("override.account"));
@@ -180,29 +201,27 @@ fn check_override_shape(o: &StateOverride) -> Result<(), EvidenceGap> {
         return Err(malformed("override.spender"));
     }
     if let Some(amount) = &o.amount
-        && U256::from_dec_str(amount).is_err()
+        && parse_amount(amount).is_none()
     {
         return Err(malformed("override.amount"));
     }
-    // ponytail: one match per kind, not a generic "required fields" table —
-    // there are four kinds and the table would be harder to read than this.
-    match o.kind {
-        OverrideKind::NativeBalance => {
-            if o.amount.is_none() {
-                return Err(malformed("override.amount"));
-            }
-        }
-        OverrideKind::TokenBalance => {
-            if o.token.is_none() || o.amount.is_none() {
-                return Err(malformed("override.token"));
-            }
-        }
-        OverrideKind::Allowance => {
-            if o.token.is_none() || o.spender.is_none() || o.amount.is_none() {
-                return Err(malformed("override.spender"));
-            }
-        }
-        OverrideKind::Code => {}
+
+    // Each kind has an exact field set: anything required-but-missing or
+    // present-but-not-allowed is `MalformedField`, named for the real field.
+    let (token_required, spender_required, amount_required) = match o.kind {
+        OverrideKind::NativeBalance => (false, false, true),
+        OverrideKind::TokenBalance => (true, false, true),
+        OverrideKind::Allowance => (true, true, true),
+        OverrideKind::Code => (false, false, false),
+    };
+    if o.token.is_some() != token_required {
+        return Err(malformed("override.token"));
+    }
+    if o.spender.is_some() != spender_required {
+        return Err(malformed("override.spender"));
+    }
+    if o.amount.is_some() != amount_required {
+        return Err(malformed("override.amount"));
     }
     Ok(())
 }
@@ -221,6 +240,11 @@ fn check_manifest_shape(manifest: &SimulationManifest) -> Result<(), EvidenceGap
     }
     for o in &manifest.overrides {
         check_override_shape(o)?;
+    }
+    if let SimulationOutcome::Executed { final_balance, .. } = &manifest.outcome
+        && parse_amount(final_balance).is_none()
+    {
+        return Err(malformed("outcome.final_balance"));
     }
     Ok(())
 }
@@ -288,29 +312,32 @@ pub fn bind(
     };
 
     let synthetic_funding = is_synthetic_funding(&manifest.overrides);
-    let realized_market_claim_allowed =
-        !synthetic_funding && manifest.state.kind == StateKind::PinnedFork;
     if synthetic_funding {
         reason_codes.push(REASON_SYNTHETIC_FUNDING_OVERRIDE);
     }
 
     // A manifest claiming `Passed` still owes a final balance at or above the
-    // plan's floor; an unparseable amount cannot establish that and fails
-    // safe rather than passing.
+    // plan's floor. `check_manifest_shape` already rejected an unparseable
+    // `final_balance` (rule 2), so this only ever compares parsed values.
     if status == arb_domain::SimulationStatus::Passed
         && let SimulationOutcome::Executed { final_balance, .. } = &manifest.outcome
     {
-        let meets_floor = U256::from_dec_str(final_balance)
-            .is_ok_and(|balance| balance >= plan.min_final_balance);
-        if !meets_floor {
+        let balance = parse_amount(final_balance).expect("shape-checked in check_manifest_shape");
+        if balance < plan.min_final_balance {
             status = arb_domain::SimulationStatus::Failed;
             reason_codes.push(REASON_FINAL_BALANCE_BELOW_FLOOR);
         }
     }
 
+    // Only a run against an identified pinned-fork state, with only real
+    // funding, that actually passed can support a realized-market claim.
+    let realized_market_claim_allowed = !synthetic_funding
+        && manifest.state.kind == StateKind::PinnedFork
+        && status == arb_domain::SimulationStatus::Passed;
+
     let simulation_matches_exact_plan = status == arb_domain::SimulationStatus::Passed;
     Ok(ExactPlanEvidence {
-        plan_digest: plan.digest(),
+        plan_digest,
         simulation_status: status,
         simulation_matches_exact_plan,
         synthetic_funding,
