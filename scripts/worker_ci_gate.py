@@ -62,15 +62,21 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 def fetch(sha: str) -> dict:
-    # No credentials, environment proxies, supplied URLs or remote code execution.
+    # No credentials but the optional read-only ARB_CI_GATE_GITHUB_TOKEN header,
+    # no environment proxies, supplied URLs or remote code execution.
     require(re.fullmatch(r'[0-9a-f]{40}', sha) is not None, 'CI_SOURCE_REJECTED')
     url = API + '/actions/runs?event=push&branch=main&per_page=100&head_sha=' + sha
-    request = urllib.request.Request(url, headers={
+    headers = {
         'Accept': 'application/vnd.github+json',
         'X-GitHub-Api-Version': '2022-11-28',
         'User-Agent': 'arbitrage-research-worker-ci-gate',
         'Cache-Control': 'no-cache',
-    })
+    }
+    token = os.environ.get('ARB_CI_GATE_GITHUB_TOKEN', '')
+    if token:
+        require(re.fullmatch(r'[A-Za-z0-9_]{20,255}', token) is not None, 'CI_TOKEN_REJECTED')
+        headers['Authorization'] = 'Bearer ' + token
+    request = urllib.request.Request(url, headers=headers)
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
     try:
         with opener.open(request, timeout=10) as response:

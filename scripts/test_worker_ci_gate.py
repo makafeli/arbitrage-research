@@ -5,7 +5,8 @@ import io
 import json
 import os
 import unittest
-from contextlib import redirect_stderr
+import urllib.error
+from contextlib import redirect_stderr, redirect_stdout
 from unittest.mock import patch
 
 import worker_ci_gate as gate
@@ -157,13 +158,66 @@ class GateTests(unittest.TestCase):
                 self_test.assertFalse(req.has_header('Authorization'))
                 return Response(json.dumps(fixture()).encode())
         self_test = self
-        with patch('urllib.request.build_opener', return_value=Opener()) as build:
+        with patch.dict(os.environ, {'ARB_CI_GATE_GITHUB_TOKEN': ''}), \
+                patch('urllib.request.build_opener', return_value=Opener()) as build:
             self.assertEqual(gate.fetch(SHA), fixture())
             handlers = build.call_args.args
             self.assertEqual(handlers[0].proxies, {})
             self.assertIsInstance(handlers[1], gate.NoRedirect)
         with self.assertRaisesRegex(gate.GateError, 'CI_REDIRECT_REJECTED'):
             gate.NoRedirect().redirect_request(None, None, 302, '', {}, 'https://other.invalid')
+
+    def test_token_header_present_only_when_env_set(self):
+        token = 'ghp_' + 'a' * 36
+        class Response(io.BytesIO):
+            status = 200
+        class Opener:
+            def open(self, req, timeout):
+                self_test.assertEqual(req.get_header('Authorization'), 'Bearer ' + token)
+                return Response(json.dumps(fixture()).encode())
+        self_test = self
+        with patch.dict(os.environ, {'ARB_CI_GATE_GITHUB_TOKEN': token}), \
+                patch('urllib.request.build_opener', return_value=Opener()):
+            self.assertEqual(gate.fetch(SHA), fixture())
+
+    def test_malformed_token_rejected_before_any_request(self):
+        never_called = Exception('opener must not be built for a rejected token')
+        for token in ['bad token', 'x', '!' * 25, 'a' * 19, 'a' * 256]:
+            with self.subTest(token=token), \
+                    patch.dict(os.environ, {'ARB_CI_GATE_GITHUB_TOKEN': token}), \
+                    patch('urllib.request.build_opener', side_effect=never_called), \
+                    self.assertRaisesRegex(gate.GateError, 'CI_TOKEN_REJECTED'):
+                gate.fetch(SHA)
+
+    def test_token_never_appears_in_success_or_block_output(self):
+        token = 'github_pat_' + 'z' * 40
+        env = dict(RAILWAY_GIT_REPO_OWNER='makafeli', RAILWAY_GIT_REPO_NAME='arbitrage-research',
+                   RAILWAY_GIT_BRANCH='main', RAILWAY_GIT_COMMIT_SHA=SHA,
+                   ARB_CI_GATE_GITHUB_TOKEN=token)
+
+        class PassResponse(io.BytesIO):
+            status = 200
+        class PassOpener:
+            def open(self, req, timeout):
+                return PassResponse(json.dumps(fixture()).encode())
+        stdout = io.StringIO()
+        with patch.dict(os.environ, env, clear=True), \
+                patch('urllib.request.build_opener', return_value=PassOpener()), \
+                redirect_stdout(stdout):
+            self.assertEqual(gate.main([]), 0)
+        self.assertNotIn(token, stdout.getvalue())
+        self.assertEqual(json.loads(stdout.getvalue())['status'], 'CI_GATE_PASSED')
+
+        class FailOpener:
+            def open(self, req, timeout):
+                raise urllib.error.URLError('boom')
+        stderr = io.StringIO()
+        with patch.dict(os.environ, env, clear=True), \
+                patch('urllib.request.build_opener', return_value=FailOpener()), \
+                redirect_stderr(stderr):
+            self.assertEqual(gate.main([]), 2)
+        self.assertNotIn(token, stderr.getvalue())
+        self.assertEqual(json.loads(stderr.getvalue())['reason'], 'CI_API_UNAVAILABLE')
 
     def test_response_size_json_and_duplicate_keys_fail_closed(self):
         for raw in [b'x' * (gate.MAX_RESPONSE + 1), b'not-json', b'{"total_count":0,"total_count":3}']:
