@@ -165,7 +165,7 @@ thead+tbody tr:first-child td{border-top:0}
 /* Dialogs and right-side drawers */
 dialog{width:min(590px,calc(100% - 32px));max-height:90vh;overflow:auto;background:var(--color-paper);color:var(--color-ink);border:1px solid var(--color-rule-2);border-radius:var(--radius-panel);padding:var(--space-lg);box-shadow:var(--shadow-lift)}
 dialog::backdrop{background:var(--color-scrim)}
-dialog.drawer{position:fixed;inset:0 0 0 auto;margin:0;width:660px;max-width:100%;height:100%;max-height:100%;border-radius:var(--radius-panel) 0 0 var(--radius-panel);border-width:0 0 0 1px;transform:translateX(0);transition:transform var(--dur-base) var(--ease-out)}
+dialog.drawer,dialog.research-dialog{position:fixed;inset:0 0 0 auto;margin:0;width:660px;max-width:100%;height:100%;max-height:100%;border-radius:var(--radius-panel) 0 0 var(--radius-panel);border-width:0 0 0 1px;transform:translateX(0);transition:transform var(--dur-base) var(--ease-out)}
 .dialoghead{display:flex;justify-content:space-between;align-items:flex-start;gap:var(--space-lg);margin-bottom:var(--space-lg)}
 .detailroute{font-family:var(--font-display);font-size:var(--text-xl);font-weight:600;letter-spacing:var(--tracking-display);margin:var(--space-sm) 0 var(--space-lg)}
 .detailcosts{width:100%;border-collapse:collapse}
@@ -195,7 +195,8 @@ dialog.drawer{position:fixed;inset:0 0 0 auto;margin:0;width:660px;max-width:100
 .research-toolbar select{width:100%;min-width:0;max-width:100%}
 .research-actions{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-sm)}
 .research-metrics{grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--space-sm);margin-top:var(--space-md)}
-.research-scroll{overflow-x:auto;max-width:100%;width:100%;margin-top:var(--space-md);border:1px solid var(--color-rule);border-radius:var(--radius-card)}
+/* contain:layout stops the 620px table's intrinsic width from leaking into the document scroll width on narrow viewports. */
+.research-scroll{overflow-x:auto;max-width:100%;width:100%;margin-top:var(--space-md);border:1px solid var(--color-rule);border-radius:var(--radius-card);contain:layout}
 .research-table{min-width:620px;table-layout:fixed}
 .research-table caption{caption-side:top;text-align:left;padding:var(--space-sm) var(--space-md);color:var(--color-ink-2);font-size:var(--text-sm);border-bottom:1px solid var(--color-rule)}
 .research-table th,.research-table td{vertical-align:top;overflow-wrap:anywhere}
@@ -204,7 +205,7 @@ dialog.drawer{position:fixed;inset:0 0 0 auto;margin:0;width:660px;max-width:100
 .research-facts{grid-template-columns:minmax(130px,1fr) minmax(0,2fr);gap:var(--space-xs) var(--space-lg);font-size:var(--text-md);margin:var(--space-lg) 0}
 .research-facts dd{margin:0}
 .export-count{display:contents}
-.research-dialog{width:min(850px,calc(100% - 32px))}
+dialog.research-dialog{width:850px}
 .research-dialog .dialoghead{flex-wrap:wrap}
 .research-workspace summary,.support-scope summary{cursor:pointer;min-height:var(--touch);padding:var(--space-xs) 0;font-weight:500}
 
@@ -236,17 +237,24 @@ dialog.drawer{position:fixed;inset:0 0 0 auto;margin:0;width:660px;max-width:100
 .support-scope li,.support-config>p{overflow-wrap:anywhere}
 
 /* Account access and trading modes */
-.account-screen{min-height:100vh;padding:var(--space-lg);display:flex;flex-direction:column;gap:var(--space-2xl)}
+.account-screen{min-height:100vh;padding:var(--space-lg);display:grid;grid-template-columns:minmax(0,1fr);align-content:start;gap:var(--space-2xl)}
 .account-top{display:flex;justify-content:space-between;align-items:center;gap:var(--space-md)}
 .account-top a{color:inherit;text-decoration:none}
-.account-card{width:min(100%,460px);padding:var(--space-xl)}
+.account-aside,.account-card{justify-self:center;width:100%}
+.account-aside{max-width:360px}
+.account-facts{list-style:none;margin:var(--space-lg) 0 0;padding:0;display:grid;gap:var(--space-sm)}
+.account-facts li{color:var(--color-ink-2);font-size:var(--text-sm)}
+.account-card{max-width:460px;padding:var(--space-xl)}
 .account-card h1{margin:var(--space-sm) 0 var(--space-md)}
 .account-card form{margin-top:var(--space-lg)}
 .account-card input,.account-settings input{width:100%;min-width:0}
 .account-settings{max-width:640px;margin-bottom:var(--space-lg)}
-.account-screen>*:not(.account-top){display:flex;flex:1;align-items:center;justify-content:center;gap:var(--space-2xl);flex-wrap:wrap}
-.account-aside{max-width:360px}
-.account-aside .facts{margin-top:var(--space-lg)}
+@media(min-width:1120px){
+  .account-screen{grid-template-columns:1fr minmax(0,360px) minmax(0,460px) 1fr;align-items:start}
+  .account-top{grid-column:1/-1}
+  .account-aside{grid-column:2;margin-top:var(--space-xl)}
+  .account-card{grid-column:3}
+}
 .trading-modes button{text-align:left;padding:var(--space-sm) var(--space-md)}
 .trading-modes button[aria-pressed="true"]{background:var(--color-ink);color:var(--color-paper);border-color:var(--color-ink)}
 .real-trading-panel{max-width:800px;padding:var(--space-xl)}
@@ -267,7 +275,6 @@ dialog.drawer{position:fixed;inset:0 0 0 auto;margin:0;width:660px;max-width:100
   .research-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
   .research-workspace .sectionhead{flex-wrap:wrap}
   .freshness-sources,.support-networks{grid-template-columns:minmax(0,1fr)}
-  .account-screen>*:not(.account-top){flex-direction:column}
 }
 @media(max-width:760px){
   main.workspace{padding:var(--space-md);padding-bottom:calc(88px + var(--space-md))}
@@ -304,7 +311,7 @@ dialog.drawer{position:fixed;inset:0 0 0 auto;margin:0;width:660px;max-width:100
   .account-card{padding:var(--space-lg) var(--space-md)}
   .account-aside{max-width:none;text-align:left}
   .trading-modes{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
-  dialog.drawer{width:100%;border-radius:0}
+  dialog.drawer,dialog.research-dialog{width:100%;border-radius:0}
   .detailcosts{display:table;width:100%}
   .detailcosts tr{display:table-row}
   .detailcosts td{display:table-cell}

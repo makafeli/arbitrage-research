@@ -38,6 +38,14 @@ export function AccountAccess({ api, checking, dark, onToggleTheme }: { api: Con
   }
   return <main className="account-screen">
     <div className="account-top"><a className="brand" href="/" aria-label="Arbitrage home"><span className="brandmark" aria-hidden="true">↗</span>Arbitrage</a><button onClick={onToggleTheme} aria-label={`Switch to ${dark ? 'light' : 'dark'} theme`}>{dark ? 'Light' : 'Dark'} theme</button></div>
+    <aside className="account-aside">
+      <div className="brand"><span className="brandmark" aria-hidden="true">↗</span>Arbitrage.</div>
+      <ul className="account-facts">
+        <li>Private account access.</li>
+        <li>No wallet or exchange credentials are requested here.</li>
+        <li>There is no public registration.</li>
+      </ul>
+    </aside>
     <section className="panel account-card" aria-labelledby="login-title">
       <p className="eyebrow">Your trading workspace</p>
       <h1 id="login-title">{token ? 'Set your password' : 'Sign in'}</h1>

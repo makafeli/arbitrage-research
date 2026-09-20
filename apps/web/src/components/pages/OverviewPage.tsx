@@ -12,7 +12,16 @@ export function OverviewPage({ visibleSessions, commands, disabled, stale, send,
   send: (session: Session, action: CommandAction, retry?: boolean) => Promise<void>;
   rows: Opportunity[]; opportunityCapture: boolean; nextCursor: string | null; inspect: (opportunity: Opportunity) => void;
 }) {
+  const running = visibleSessions.filter(session => session.observed_state === 'RUNNING').length;
+  const unresolvedCommands = Object.values(commands).filter(command => command.sending || command.uncertain).length;
   return <>
+    <div className="stats">
+      <div className="fact"><span className="metriclabel">Sessions in view</span><strong>{visibleSessions.length}</strong></div>
+      <div className="fact"><span className="metriclabel">Running</span><strong>{running}</strong></div>
+      <div className="fact"><span className="metriclabel">Unresolved commands</span><strong>{unresolvedCommands}</strong></div>
+      <div className="fact"><span className="metriclabel">Records on this page</span><strong>{rows.length}</strong></div>
+    </div>
+    <p className="tiny">Counts describe this loaded page and view filter only.</p>
     <SessionsSection visibleSessions={visibleSessions} commands={commands} disabled={disabled} stale={stale} send={send} />
     <RecordedSection rows={rows} opportunityCapture={opportunityCapture} nextCursor={nextCursor} inspect={inspect} />
   </>;
