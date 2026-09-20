@@ -36,6 +36,7 @@ async function stub(page: Page, override?: (route: Route, url: URL) => Promise<b
 async function navigate(page: Page, name: string) { await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name, exact: true }).click(); }
 const panel = (page: Page) => page.getByRole('region', { name: 'Frozen session export', exact: true, includeHidden: true });
 async function prepare(page: Page) {
+  await page.getByRole('tab', { name: 'Exports', exact: true }).click();
   await panel(page).getByRole('button', { name: 'Prepare frozen session export', exact: true }).click();
   await expect(panel(page).getByText('Frozen database snapshot verified', { exact: true })).toBeVisible();
 }

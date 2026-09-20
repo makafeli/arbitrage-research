@@ -15,7 +15,7 @@ for (const width of [320, 390, 768, 1440]) {
       await route.fulfill({ json: p === '/v1/auth/session' ? auth : p === '/v1/capabilities' ? { modes: ['PAPER'], live_execution: false, market_data: false, opportunity_capture: false, registered_configurations: [] } : p === '/v1/sessions' ? { items: [session, { ...session, session_id: 'shell-solana', network_id: 'solana-mainnet' }], next_cursor: null } : { items: [], next_cursor: null } });
     });
     await page.goto('/'); await expect(page.getByRole('heading', { name: 'Sign in', exact: true })).toBeVisible();
-    if (light) await page.getByRole('button', { name: 'Switch to light theme' }).click();
+    if (light) await page.getByRole('button', { name: 'Switch to dark theme' }).click();
     await testInfo.attach(`login-${width}-${light}`, { body: await page.screenshot({ fullPage: true }), contentType: 'image/png' });
     await page.getByLabel('Email address', { exact: true }).fill('owner@example.test'); await page.getByLabel('Password', { exact: true }).fill('fixture-password'); await page.getByRole('button', { name: 'Sign in', exact: true }).click();
     await expect(page.getByText('API CONNECTED', { exact: true })).toBeVisible();
@@ -34,7 +34,7 @@ for (const width of [320, 390, 768, 1440]) {
     await expect(page.getByRole('button', { name: 'Start real trading', exact: true })).toBeDisabled();
     await testInfo.attach(`real-${width}-${light}`, { body: await page.screenshot({ fullPage: true }), contentType: 'image/png' });
     await page.getByRole('button', { name: 'Paper trading', exact: true }).click();
-    expect(await page.locator('body').evaluate(el => el.classList.contains('light'))).toBe(light);
+    expect(await page.locator('body').evaluate(el => el.classList.contains('dark'))).toBe(light);
     expect(writes).toEqual(['/v1/auth/sign-in']);
   });
  }

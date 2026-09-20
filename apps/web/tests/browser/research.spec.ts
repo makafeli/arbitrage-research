@@ -56,7 +56,9 @@ test('decision origins, raw counts, grouped candidates and unknown execution acc
   await expect(page.getByText('STALE_INPUT', { exact: true })).toBeVisible();
   await expect(page.getByText('NO_CAPTURE_INPUTS', { exact: true })).toBeVisible();
   await expect(page.getByText('-10', { exact: true })).toBeVisible();
+  await page.getByRole('tab', { name: 'Captured', exact: true }).click();
   await expect(page.getByText('No captured quote records on this page', { exact: true })).toBeVisible();
+  await page.getByRole('tab', { name: 'Decisions', exact: true }).click();
   await page.getByLabel('Origin on this page', { exact: true }).selectOption('RECORDED_LIVE');
   await expect(page.getByRole('button', { name: 'Inspect decision observation-fixture', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Inspect decision observation-rejected', exact: true })).toBeVisible();
@@ -115,9 +117,12 @@ test('paper balances preserve huge units and distinguish original budgets from r
   const balances = page.getByRole('table', { name: 'Current free, reserved and total hypothetical inventory' });
   await expect(balances.getByText(huge, { exact: true })).toBeVisible();
   await expect(balances.getByText('9', { exact: true })).toBeVisible();
+  await page.getByRole('tab', { name: 'Reservations', exact: true }).click();
   await expect(page.getByText('Original native fee budget', { exact: true })).toBeVisible();
   await expect(page.getByRole('table', { name: 'Original reservation requests and reconciliation states' }).getByText('UNKNOWN', { exact: true })).toBeVisible();
+  await page.getByRole('tab', { name: 'Ledger', exact: true }).click();
   await expect(page.getByText(/Run comparisons are unavailable/)).toBeVisible();
+  await page.getByRole('tab', { name: 'Journal', exact: true }).click();
   await page.getByRole('button', { name: 'Next journal entries', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Journal event 9007199254740994' })).toBeVisible();
   const downloadEvent = page.waitForEvent('download');
@@ -197,8 +202,13 @@ for (const width of [320, 390, 1440]) {
     await openPaper(page); await page.getByRole('button', { name: 'Inspect paper run run-original', exact: true }).click();
     await expect(page.getByRole('table', { name: 'Current free, reserved and total hypothetical inventory' })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
-    for (const name of ['Refresh paper records', 'Create hypothetical paper run', 'Export selected run JSON']) {
+    for (const name of ['Refresh paper records', 'Export selected run JSON']) {
       const bounds = await page.getByRole('button', { name, exact: true }).boundingBox();
+      expect(bounds!.width).toBeGreaterThanOrEqual(44); expect(bounds!.height).toBeGreaterThanOrEqual(44);
+    }
+    await page.getByRole('tab', { name: 'Sessions', exact: true }).click();
+    {
+      const bounds = await page.getByRole('button', { name: 'Create hypothetical paper run', exact: true }).boundingBox();
       expect(bounds!.width).toBeGreaterThanOrEqual(44); expect(bounds!.height).toBeGreaterThanOrEqual(44);
     }
     await testInfo.attach('paper-evidence-' + width, { body: await page.screenshot({ path: testInfo.outputPath('research-dashboard-' + width + '.png'), fullPage: true, scale: 'css' }), contentType: 'image/png' });
@@ -250,6 +260,7 @@ test('JSON and CSV downloads reuse one verified frozen snapshot while live pages
     exports++; await route.fulfill({ json: frozenExportFixture() }); return true;
   });
   await openDecisions(page);
+  await page.getByRole('tab', { name: 'Exports', exact: true }).click();
   const panel = page.getByRole('region', { name: 'Frozen session export', exact: true });
   await expect(panel.getByRole('button', { name: 'Download frozen JSON', exact: true })).toBeDisabled();
   await panel.getByRole('button', { name: 'Prepare frozen session export', exact: true }).click();
@@ -280,6 +291,7 @@ test('over-limit or tampered refresh keeps the earlier frozen bundle explicitly 
     return true;
   });
   await openDecisions(page);
+  await page.getByRole('tab', { name: 'Exports', exact: true }).click();
   const panel = page.getByRole('region', { name: 'Frozen session export', exact: true });
   await panel.getByRole('button', { name: 'Prepare frozen session export', exact: true }).click();
   await expect(panel.getByText('Frozen database snapshot verified', { exact: true })).toBeVisible();
@@ -298,6 +310,7 @@ test('System distinguishes provider failures, control suppression and interrupte
     await route.fulfill({ status: 503, json: { code: 'UNAVAILABLE', message: 'Fixture outage' } }); return true;
   });
   await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'System', exact: true }).click();
+  await page.getByRole('tab', { name: 'Collection', exact: true }).click();
   await page.getByLabel('Collection health session', { exact: true }).selectOption('session-paper');
   const counts = page.getByRole('region', { name: 'Recorded collection attempt counts', exact: true });
   await expect(counts.getByText('3', { exact: true }).first()).toBeVisible();
@@ -316,6 +329,7 @@ test('System distinguishes provider failures, control suppression and interrupte
 for (const width of [320, 390, 1440]) {
   test('frozen exports and collection diagnostics remain contained at ' + width + 'px', async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 900 }); await stub(page); await openDecisions(page);
+    await page.getByRole('tab', { name: 'Exports', exact: true }).click();
     const panel = page.getByRole('region', { name: 'Frozen session export', exact: true });
     await panel.getByRole('button', { name: 'Prepare frozen session export', exact: true }).click();
     await expect(panel.getByText('Frozen database snapshot verified', { exact: true })).toBeVisible();
@@ -327,6 +341,7 @@ for (const width of [320, 390, 1440]) {
     }
     await testInfo.attach('frozen-export-' + width, { body: await page.screenshot({ path: testInfo.outputPath('frozen-export-' + width + '.png'), fullPage: true, scale: 'css' }), contentType: 'image/png' });
     await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'System', exact: true }).click();
+    await page.getByRole('tab', { name: 'Collection', exact: true }).click();
     await page.getByLabel('Collection health session', { exact: true }).selectOption('session-paper');
     await expect(page.getByText('NO TERMINAL OUTCOME', { exact: true })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);

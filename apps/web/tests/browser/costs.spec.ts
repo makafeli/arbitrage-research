@@ -61,7 +61,9 @@ test('missing manual costs remain unknown and saving retains the original gross 
   const result = workspace(page).getByRole('region', { name: /^Cost result/ }).first();
   await expect(result.getByText('Net remains unknown', { exact: true })).toBeVisible();
   await expect(result.getByText('Unknown', { exact: true })).toHaveCount(8);
+  await page.getByRole('tab', { name: 'Decisions', exact: true }).click();
   await expect(page.getByRole('table', { name: 'Stored decision observations · exact start asset minor units' }).getByText('-10', { exact: true })).toBeVisible();
+  await page.getByRole('tab', { name: 'Costs', exact: true }).click();
   await expect(workspace(page).getByText('manual-browser-scenario · v1 · 2026-09-12T12:03:00Z', { exact: true })).toBeVisible();
   expect(saved!.assessment.report.transaction_net).toBeNull();
 });
@@ -82,6 +84,7 @@ test('explicit zero, huge negative results and allocation survive immutable hist
   await page.getByRole('button', { name: 'Save hypothetical cost assessment', exact: true }).click();
   await expect(workspace(page).getByRole('region', { name: /^Cost result/ }).first().getByText((-12n - BigInt(huge)).toString(), { exact: true })).toBeVisible();
   await expect(page.getByLabel('Other transaction costs base units', { exact: true })).toBeDisabled();
+  await page.getByRole('tab', { name: 'Exports', exact: true }).click();
   const exporter = page.getByRole('region', { name: 'Frozen session export', exact: true });
   await exporter.getByRole('button', { name: 'Prepare frozen session export', exact: true }).click();
   await expect(exporter.getByText('Frozen database snapshot verified', { exact: true })).toBeVisible();

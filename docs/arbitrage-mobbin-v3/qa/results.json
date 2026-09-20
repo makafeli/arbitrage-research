@@ -1,0 +1,2090 @@
+{
+  "checks": [
+    {
+      "name": "Light is the first-load default",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Primary action follows the ink palette",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Primary navigation changes page",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Record search empty state",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Record detail leads with rejection and unknown net",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Escape returns focus to the record control",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Global search works",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Tabs support arrow keys",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Card layout uses the same filtered record",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Card layout retains an unknown net and rejection",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Card opens the same evidence inspector",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "List switch preserves the query",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Request stays pending without changing observed state",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Only explicit simulated acknowledgement applies start",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Draining retains unresolved outcomes",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Separate reconciliation produces stopped",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Bulk stop enumerates all loaded scope despite chain filter",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Create requires an acknowledgement and reference",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "New session never auto-starts",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Incomplete costs produce Unknown",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Explicit zero costs are different from missing",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Arbitrary-size integer arithmetic preserves precision",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Fractional minor units remain invalid",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Saving assumption does not change source quote",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Frozen export isolated from later model changes",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Download is a labelled synthetic frozen JSON object",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "CSV contains exact integers and unknown net",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Recovery does not claim an email was sent",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Real execution remains disabled",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Inspector fits the dark 320px viewport",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Inspector fits the dark 390px viewport",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Inspector fits the dark 768px viewport",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Inspector fits the dark 1024px viewport",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Inspector fits the dark 1280px viewport",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Inspector fits the dark 1440px viewport",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Inspector fits the light 320px viewport",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Inspector fits the light 390px viewport",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Inspector fits the light 768px viewport",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Inspector fits the light 1024px viewport",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Inspector fits the light 1280px viewport",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Inspector fits the light 1440px viewport",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Overview preview state: stale",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Overview preview state: error",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Overview preview state: empty",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Overview preview state: loading",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "No JavaScript runtime errors",
+      "pass": true,
+      "detail": "[]"
+    },
+    {
+      "name": "No external requests",
+      "pass": true,
+      "detail": "[]"
+    },
+    {
+      "name": "No page-level horizontal overflow across tested layouts",
+      "pass": true,
+      "detail": "204 layout combinations"
+    }
+  ],
+  "layout": [
+    {
+      "theme": "dark",
+      "width": 320,
+      "page": "overview",
+      "tab": "",
+      "scroll": 320,
+      "height": 2856,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 320,
+      "page": "opportunities",
+      "tab": "captured",
+      "scroll": 320,
+      "height": 1718,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 320,
+      "page": "opportunities",
+      "tab": "decisions",
+      "scroll": 320,
+      "height": 2055,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 320,
+      "page": "opportunities",
+      "tab": "costs",
+      "scroll": 320,
+      "height": 3102,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 320,
+      "page": "opportunities",
+      "tab": "exports",
+      "scroll": 320,
+      "height": 2197,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 320,
+      "page": "experiments",
+      "tab": "",
+      "scroll": 320,
+      "height": 2651,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 320,
+      "page": "runs",
+      "tab": "sessions",
+      "scroll": 320,
+      "height": 1745,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 320,
+      "page": "runs",
+      "tab": "ledger",
+      "scroll": 320,
+      "height": 2301,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 320,
+      "page": "runs",
+      "tab": "journal",
+      "scroll": 320,
+      "height": 1793,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 320,
+      "page": "runs",
+      "tab": "reservations",
+      "scroll": 320,
+      "height": 1393,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 320,
+      "page": "strategies",
+      "tab": "",
+      "scroll": 320,
+      "height": 1602,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 320,
+      "page": "system",
+      "tab": "health",
+      "scroll": 320,
+      "height": 2109,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 320,
+      "page": "system",
+      "tab": "collection",
+      "scroll": 320,
+      "height": 1481,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 320,
+      "page": "system",
+      "tab": "capabilities",
+      "scroll": 320,
+      "height": 1852,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 320,
+      "page": "real",
+      "tab": "",
+      "scroll": 320,
+      "height": 1467,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 320,
+      "page": "signin",
+      "tab": "",
+      "scroll": 320,
+      "height": 942,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 390,
+      "page": "overview",
+      "tab": "",
+      "scroll": 390,
+      "height": 2804,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 390,
+      "page": "opportunities",
+      "tab": "captured",
+      "scroll": 390,
+      "height": 1642,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 390,
+      "page": "opportunities",
+      "tab": "decisions",
+      "scroll": 390,
+      "height": 1980,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 390,
+      "page": "opportunities",
+      "tab": "costs",
+      "scroll": 390,
+      "height": 2902,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 390,
+      "page": "opportunities",
+      "tab": "exports",
+      "scroll": 390,
+      "height": 2126,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 390,
+      "page": "experiments",
+      "tab": "",
+      "scroll": 390,
+      "height": 2428,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 390,
+      "page": "runs",
+      "tab": "sessions",
+      "scroll": 390,
+      "height": 1668,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 390,
+      "page": "runs",
+      "tab": "ledger",
+      "scroll": 390,
+      "height": 2191,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 390,
+      "page": "runs",
+      "tab": "journal",
+      "scroll": 390,
+      "height": 1636,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 390,
+      "page": "runs",
+      "tab": "reservations",
+      "scroll": 390,
+      "height": 1356,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 390,
+      "page": "strategies",
+      "tab": "",
+      "scroll": 390,
+      "height": 1523,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 390,
+      "page": "system",
+      "tab": "health",
+      "scroll": 390,
+      "height": 2054,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 390,
+      "page": "system",
+      "tab": "collection",
+      "scroll": 390,
+      "height": 1401,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 390,
+      "page": "system",
+      "tab": "capabilities",
+      "scroll": 390,
+      "height": 1797,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 390,
+      "page": "real",
+      "tab": "",
+      "scroll": 390,
+      "height": 1392,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 390,
+      "page": "signin",
+      "tab": "",
+      "scroll": 390,
+      "height": 865,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 768,
+      "page": "overview",
+      "tab": "",
+      "scroll": 768,
+      "height": 2190,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 768,
+      "page": "opportunities",
+      "tab": "captured",
+      "scroll": 768,
+      "height": 1276,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 768,
+      "page": "opportunities",
+      "tab": "decisions",
+      "scroll": 768,
+      "height": 1807,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 768,
+      "page": "opportunities",
+      "tab": "costs",
+      "scroll": 768,
+      "height": 2386,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 768,
+      "page": "opportunities",
+      "tab": "exports",
+      "scroll": 768,
+      "height": 1859,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 768,
+      "page": "experiments",
+      "tab": "",
+      "scroll": 768,
+      "height": 2239,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 768,
+      "page": "runs",
+      "tab": "sessions",
+      "scroll": 768,
+      "height": 1470,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 768,
+      "page": "runs",
+      "tab": "ledger",
+      "scroll": 768,
+      "height": 1647,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 768,
+      "page": "runs",
+      "tab": "journal",
+      "scroll": 768,
+      "height": 1504,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 768,
+      "page": "runs",
+      "tab": "reservations",
+      "scroll": 768,
+      "height": 1227,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 768,
+      "page": "strategies",
+      "tab": "",
+      "scroll": 768,
+      "height": 1283,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 768,
+      "page": "system",
+      "tab": "health",
+      "scroll": 768,
+      "height": 1951,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 768,
+      "page": "system",
+      "tab": "collection",
+      "scroll": 768,
+      "height": 1297,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 768,
+      "page": "system",
+      "tab": "capabilities",
+      "scroll": 768,
+      "height": 1538,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 768,
+      "page": "real",
+      "tab": "",
+      "scroll": 768,
+      "height": 1239,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 768,
+      "page": "signin",
+      "tab": "",
+      "scroll": 768,
+      "height": 1001,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 1024,
+      "page": "overview",
+      "tab": "",
+      "scroll": 1024,
+      "height": 1654,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 1024,
+      "page": "opportunities",
+      "tab": "captured",
+      "scroll": 1024,
+      "height": 1131,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 1024,
+      "page": "opportunities",
+      "tab": "decisions",
+      "scroll": 1024,
+      "height": 1621,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 1024,
+      "page": "opportunities",
+      "tab": "costs",
+      "scroll": 1024,
+      "height": 2212,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 1024,
+      "page": "opportunities",
+      "tab": "exports",
+      "scroll": 1024,
+      "height": 1706,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 1024,
+      "page": "experiments",
+      "tab": "",
+      "scroll": 1024,
+      "height": 2049,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 1024,
+      "page": "runs",
+      "tab": "sessions",
+      "scroll": 1024,
+      "height": 1304,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 1024,
+      "page": "runs",
+      "tab": "ledger",
+      "scroll": 1024,
+      "height": 1472,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 1024,
+      "page": "runs",
+      "tab": "journal",
+      "scroll": 1024,
+      "height": 1351,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 1024,
+      "page": "runs",
+      "tab": "reservations",
+      "scroll": 1024,
+      "height": 1073,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 1024,
+      "page": "strategies",
+      "tab": "",
+      "scroll": 1024,
+      "height": 1120,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 1024,
+      "page": "system",
+      "tab": "health",
+      "scroll": 1024,
+      "height": 1328,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 1024,
+      "page": "system",
+      "tab": "collection",
+      "scroll": 1024,
+      "height": 1147,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 1024,
+      "page": "system",
+      "tab": "capabilities",
+      "scroll": 1024,
+      "height": 1402,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 1024,
+      "page": "real",
+      "tab": "",
+      "scroll": 1024,
+      "height": 1119,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 1024,
+      "page": "signin",
+      "tab": "",
+      "scroll": 1024,
+      "height": 1001,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 1280,
+      "page": "overview",
+      "tab": "",
+      "scroll": 1280,
+      "height": 1550,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 1280,
+      "page": "opportunities",
+      "tab": "captured",
+      "scroll": 1280,
+      "height": 1009,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 1280,
+      "page": "opportunities",
+      "tab": "decisions",
+      "scroll": 1280,
+      "height": 1524,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 1280,
+      "page": "opportunities",
+      "tab": "costs",
+      "scroll": 1280,
+      "height": 1514,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 1280,
+      "page": "opportunities",
+      "tab": "exports",
+      "scroll": 1280,
+      "height": 1237,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 1280,
+      "page": "experiments",
+      "tab": "",
+      "scroll": 1280,
+      "height": 1409,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 1280,
+      "page": "runs",
+      "tab": "sessions",
+      "scroll": 1280,
+      "height": 1210,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 1280,
+      "page": "runs",
+      "tab": "ledger",
+      "scroll": 1280,
+      "height": 1378,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 1280,
+      "page": "runs",
+      "tab": "journal",
+      "scroll": 1280,
+      "height": 1277,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 1280,
+      "page": "runs",
+      "tab": "reservations",
+      "scroll": 1280,
+      "height": 1000,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 1280,
+      "page": "strategies",
+      "tab": "",
+      "scroll": 1280,
+      "height": 1046,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 1280,
+      "page": "system",
+      "tab": "health",
+      "scroll": 1280,
+      "height": 1248,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 1280,
+      "page": "system",
+      "tab": "collection",
+      "scroll": 1280,
+      "height": 1043,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 1280,
+      "page": "system",
+      "tab": "capabilities",
+      "scroll": 1280,
+      "height": 1305,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 1280,
+      "page": "real",
+      "tab": "",
+      "scroll": 1280,
+      "height": 1039,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 1280,
+      "page": "signin",
+      "tab": "",
+      "scroll": 1280,
+      "height": 1001,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 1440,
+      "page": "overview",
+      "tab": "",
+      "scroll": 1440,
+      "height": 1572,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 1440,
+      "page": "opportunities",
+      "tab": "captured",
+      "scroll": 1440,
+      "height": 1017,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 1440,
+      "page": "opportunities",
+      "tab": "decisions",
+      "scroll": 1440,
+      "height": 1516,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 1440,
+      "page": "opportunities",
+      "tab": "costs",
+      "scroll": 1440,
+      "height": 1549,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 1440,
+      "page": "opportunities",
+      "tab": "exports",
+      "scroll": 1440,
+      "height": 1249,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 1440,
+      "page": "experiments",
+      "tab": "",
+      "scroll": 1440,
+      "height": 1378,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 1440,
+      "page": "runs",
+      "tab": "sessions",
+      "scroll": 1440,
+      "height": 1222,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 1440,
+      "page": "runs",
+      "tab": "ledger",
+      "scroll": 1440,
+      "height": 1389,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 1440,
+      "page": "runs",
+      "tab": "journal",
+      "scroll": 1440,
+      "height": 1288,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 1440,
+      "page": "runs",
+      "tab": "reservations",
+      "scroll": 1440,
+      "height": 1011,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 1440,
+      "page": "strategies",
+      "tab": "",
+      "scroll": 1440,
+      "height": 1058,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 1440,
+      "page": "system",
+      "tab": "health",
+      "scroll": 1440,
+      "height": 1240,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 1440,
+      "page": "system",
+      "tab": "collection",
+      "scroll": 1440,
+      "height": 1051,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 1440,
+      "page": "system",
+      "tab": "capabilities",
+      "scroll": 1440,
+      "height": 1316,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 1440,
+      "page": "real",
+      "tab": "",
+      "scroll": 1440,
+      "height": 1047,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 1440,
+      "page": "signin",
+      "tab": "",
+      "scroll": 1440,
+      "height": 1001,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 320,
+      "page": "overview",
+      "tab": "",
+      "scroll": 320,
+      "height": 2856,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 320,
+      "page": "opportunities",
+      "tab": "captured",
+      "scroll": 320,
+      "height": 1718,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 320,
+      "page": "opportunities",
+      "tab": "decisions",
+      "scroll": 320,
+      "height": 2055,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 320,
+      "page": "opportunities",
+      "tab": "costs",
+      "scroll": 320,
+      "height": 3102,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 320,
+      "page": "opportunities",
+      "tab": "exports",
+      "scroll": 320,
+      "height": 2197,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 320,
+      "page": "experiments",
+      "tab": "",
+      "scroll": 320,
+      "height": 2651,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 320,
+      "page": "runs",
+      "tab": "sessions",
+      "scroll": 320,
+      "height": 1745,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 320,
+      "page": "runs",
+      "tab": "ledger",
+      "scroll": 320,
+      "height": 2301,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 320,
+      "page": "runs",
+      "tab": "journal",
+      "scroll": 320,
+      "height": 1793,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 320,
+      "page": "runs",
+      "tab": "reservations",
+      "scroll": 320,
+      "height": 1393,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 320,
+      "page": "strategies",
+      "tab": "",
+      "scroll": 320,
+      "height": 1602,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 320,
+      "page": "system",
+      "tab": "health",
+      "scroll": 320,
+      "height": 2109,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 320,
+      "page": "system",
+      "tab": "collection",
+      "scroll": 320,
+      "height": 1481,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 320,
+      "page": "system",
+      "tab": "capabilities",
+      "scroll": 320,
+      "height": 1852,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 320,
+      "page": "real",
+      "tab": "",
+      "scroll": 320,
+      "height": 1467,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 320,
+      "page": "signin",
+      "tab": "",
+      "scroll": 320,
+      "height": 942,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 390,
+      "page": "overview",
+      "tab": "",
+      "scroll": 390,
+      "height": 2804,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 390,
+      "page": "opportunities",
+      "tab": "captured",
+      "scroll": 390,
+      "height": 1642,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 390,
+      "page": "opportunities",
+      "tab": "decisions",
+      "scroll": 390,
+      "height": 1980,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 390,
+      "page": "opportunities",
+      "tab": "costs",
+      "scroll": 390,
+      "height": 2902,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 390,
+      "page": "opportunities",
+      "tab": "exports",
+      "scroll": 390,
+      "height": 2126,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 390,
+      "page": "experiments",
+      "tab": "",
+      "scroll": 390,
+      "height": 2428,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 390,
+      "page": "runs",
+      "tab": "sessions",
+      "scroll": 390,
+      "height": 1668,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 390,
+      "page": "runs",
+      "tab": "ledger",
+      "scroll": 390,
+      "height": 2191,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 390,
+      "page": "runs",
+      "tab": "journal",
+      "scroll": 390,
+      "height": 1636,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 390,
+      "page": "runs",
+      "tab": "reservations",
+      "scroll": 390,
+      "height": 1356,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 390,
+      "page": "strategies",
+      "tab": "",
+      "scroll": 390,
+      "height": 1523,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 390,
+      "page": "system",
+      "tab": "health",
+      "scroll": 390,
+      "height": 2054,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 390,
+      "page": "system",
+      "tab": "collection",
+      "scroll": 390,
+      "height": 1401,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 390,
+      "page": "system",
+      "tab": "capabilities",
+      "scroll": 390,
+      "height": 1797,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 390,
+      "page": "real",
+      "tab": "",
+      "scroll": 390,
+      "height": 1392,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 390,
+      "page": "signin",
+      "tab": "",
+      "scroll": 390,
+      "height": 865,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 768,
+      "page": "overview",
+      "tab": "",
+      "scroll": 768,
+      "height": 2190,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 768,
+      "page": "opportunities",
+      "tab": "captured",
+      "scroll": 768,
+      "height": 1276,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 768,
+      "page": "opportunities",
+      "tab": "decisions",
+      "scroll": 768,
+      "height": 1807,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 768,
+      "page": "opportunities",
+      "tab": "costs",
+      "scroll": 768,
+      "height": 2386,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 768,
+      "page": "opportunities",
+      "tab": "exports",
+      "scroll": 768,
+      "height": 1859,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 768,
+      "page": "experiments",
+      "tab": "",
+      "scroll": 768,
+      "height": 2239,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 768,
+      "page": "runs",
+      "tab": "sessions",
+      "scroll": 768,
+      "height": 1470,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 768,
+      "page": "runs",
+      "tab": "ledger",
+      "scroll": 768,
+      "height": 1647,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 768,
+      "page": "runs",
+      "tab": "journal",
+      "scroll": 768,
+      "height": 1504,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 768,
+      "page": "runs",
+      "tab": "reservations",
+      "scroll": 768,
+      "height": 1227,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 768,
+      "page": "strategies",
+      "tab": "",
+      "scroll": 768,
+      "height": 1283,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 768,
+      "page": "system",
+      "tab": "health",
+      "scroll": 768,
+      "height": 1951,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 768,
+      "page": "system",
+      "tab": "collection",
+      "scroll": 768,
+      "height": 1297,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 768,
+      "page": "system",
+      "tab": "capabilities",
+      "scroll": 768,
+      "height": 1538,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 768,
+      "page": "real",
+      "tab": "",
+      "scroll": 768,
+      "height": 1239,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 768,
+      "page": "signin",
+      "tab": "",
+      "scroll": 768,
+      "height": 1001,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 1024,
+      "page": "overview",
+      "tab": "",
+      "scroll": 1024,
+      "height": 1654,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 1024,
+      "page": "opportunities",
+      "tab": "captured",
+      "scroll": 1024,
+      "height": 1131,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 1024,
+      "page": "opportunities",
+      "tab": "decisions",
+      "scroll": 1024,
+      "height": 1621,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 1024,
+      "page": "opportunities",
+      "tab": "costs",
+      "scroll": 1024,
+      "height": 2212,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 1024,
+      "page": "opportunities",
+      "tab": "exports",
+      "scroll": 1024,
+      "height": 1706,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 1024,
+      "page": "experiments",
+      "tab": "",
+      "scroll": 1024,
+      "height": 2049,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 1024,
+      "page": "runs",
+      "tab": "sessions",
+      "scroll": 1024,
+      "height": 1304,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 1024,
+      "page": "runs",
+      "tab": "ledger",
+      "scroll": 1024,
+      "height": 1472,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 1024,
+      "page": "runs",
+      "tab": "journal",
+      "scroll": 1024,
+      "height": 1351,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 1024,
+      "page": "runs",
+      "tab": "reservations",
+      "scroll": 1024,
+      "height": 1073,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 1024,
+      "page": "strategies",
+      "tab": "",
+      "scroll": 1024,
+      "height": 1120,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 1024,
+      "page": "system",
+      "tab": "health",
+      "scroll": 1024,
+      "height": 1328,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 1024,
+      "page": "system",
+      "tab": "collection",
+      "scroll": 1024,
+      "height": 1147,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 1024,
+      "page": "system",
+      "tab": "capabilities",
+      "scroll": 1024,
+      "height": 1402,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 1024,
+      "page": "real",
+      "tab": "",
+      "scroll": 1024,
+      "height": 1119,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 1024,
+      "page": "signin",
+      "tab": "",
+      "scroll": 1024,
+      "height": 1001,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 1280,
+      "page": "overview",
+      "tab": "",
+      "scroll": 1280,
+      "height": 1550,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 1280,
+      "page": "opportunities",
+      "tab": "captured",
+      "scroll": 1280,
+      "height": 1009,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 1280,
+      "page": "opportunities",
+      "tab": "decisions",
+      "scroll": 1280,
+      "height": 1524,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 1280,
+      "page": "opportunities",
+      "tab": "costs",
+      "scroll": 1280,
+      "height": 1514,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 1280,
+      "page": "opportunities",
+      "tab": "exports",
+      "scroll": 1280,
+      "height": 1237,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 1280,
+      "page": "experiments",
+      "tab": "",
+      "scroll": 1280,
+      "height": 1409,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 1280,
+      "page": "runs",
+      "tab": "sessions",
+      "scroll": 1280,
+      "height": 1210,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 1280,
+      "page": "runs",
+      "tab": "ledger",
+      "scroll": 1280,
+      "height": 1378,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 1280,
+      "page": "runs",
+      "tab": "journal",
+      "scroll": 1280,
+      "height": 1277,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 1280,
+      "page": "runs",
+      "tab": "reservations",
+      "scroll": 1280,
+      "height": 1000,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 1280,
+      "page": "strategies",
+      "tab": "",
+      "scroll": 1280,
+      "height": 1046,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 1280,
+      "page": "system",
+      "tab": "health",
+      "scroll": 1280,
+      "height": 1248,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 1280,
+      "page": "system",
+      "tab": "collection",
+      "scroll": 1280,
+      "height": 1043,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 1280,
+      "page": "system",
+      "tab": "capabilities",
+      "scroll": 1280,
+      "height": 1305,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 1280,
+      "page": "real",
+      "tab": "",
+      "scroll": 1280,
+      "height": 1039,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 1280,
+      "page": "signin",
+      "tab": "",
+      "scroll": 1280,
+      "height": 1001,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 1440,
+      "page": "overview",
+      "tab": "",
+      "scroll": 1440,
+      "height": 1572,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 1440,
+      "page": "opportunities",
+      "tab": "captured",
+      "scroll": 1440,
+      "height": 1017,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 1440,
+      "page": "opportunities",
+      "tab": "decisions",
+      "scroll": 1440,
+      "height": 1516,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 1440,
+      "page": "opportunities",
+      "tab": "costs",
+      "scroll": 1440,
+      "height": 1549,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 1440,
+      "page": "opportunities",
+      "tab": "exports",
+      "scroll": 1440,
+      "height": 1249,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 1440,
+      "page": "experiments",
+      "tab": "",
+      "scroll": 1440,
+      "height": 1378,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 1440,
+      "page": "runs",
+      "tab": "sessions",
+      "scroll": 1440,
+      "height": 1222,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 1440,
+      "page": "runs",
+      "tab": "ledger",
+      "scroll": 1440,
+      "height": 1389,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 1440,
+      "page": "runs",
+      "tab": "journal",
+      "scroll": 1440,
+      "height": 1288,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 1440,
+      "page": "runs",
+      "tab": "reservations",
+      "scroll": 1440,
+      "height": 1011,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 1440,
+      "page": "strategies",
+      "tab": "",
+      "scroll": 1440,
+      "height": 1058,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 1440,
+      "page": "system",
+      "tab": "health",
+      "scroll": 1440,
+      "height": 1240,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 1440,
+      "page": "system",
+      "tab": "collection",
+      "scroll": 1440,
+      "height": 1051,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 1440,
+      "page": "system",
+      "tab": "capabilities",
+      "scroll": 1440,
+      "height": 1316,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 1440,
+      "page": "real",
+      "tab": "",
+      "scroll": 1440,
+      "height": 1047,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 1440,
+      "page": "signin",
+      "tab": "",
+      "scroll": 1440,
+      "height": 1001,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 320,
+      "page": "opportunities",
+      "tab": "cards",
+      "scroll": 320,
+      "height": 1927,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 390,
+      "page": "opportunities",
+      "tab": "cards",
+      "scroll": 390,
+      "height": 1844,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 768,
+      "page": "opportunities",
+      "tab": "cards",
+      "scroll": 768,
+      "height": 1693,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 1024,
+      "page": "opportunities",
+      "tab": "cards",
+      "scroll": 1024,
+      "height": 1562,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 1280,
+      "page": "opportunities",
+      "tab": "cards",
+      "scroll": 1280,
+      "height": 1441,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "width": 1440,
+      "page": "opportunities",
+      "tab": "cards",
+      "scroll": 1440,
+      "height": 1449,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 320,
+      "page": "opportunities",
+      "tab": "cards",
+      "scroll": 320,
+      "height": 1927,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 390,
+      "page": "opportunities",
+      "tab": "cards",
+      "scroll": 390,
+      "height": 1844,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 768,
+      "page": "opportunities",
+      "tab": "cards",
+      "scroll": 768,
+      "height": 1693,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 1024,
+      "page": "opportunities",
+      "tab": "cards",
+      "scroll": 1024,
+      "height": 1562,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 1280,
+      "page": "opportunities",
+      "tab": "cards",
+      "scroll": 1280,
+      "height": 1441,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "width": 1440,
+      "page": "opportunities",
+      "tab": "cards",
+      "scroll": 1440,
+      "height": 1449,
+      "pass": true
+    }
+  ],
+  "page_errors": [],
+  "external_requests": [],
+  "summary": {
+    "checks": 48,
+    "passed": 48,
+    "layout_combinations": 204,
+    "layout_passed": 204
+  }
+}
