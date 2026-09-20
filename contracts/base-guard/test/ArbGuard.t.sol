@@ -2,7 +2,7 @@
 pragma solidity 0.8.28;
 
 import {Test} from "forge-std/Test.sol";
-import {ArbGuard, Plan, Leg} from "../src/ArbGuard.sol";
+import {ArbGuard, Plan, Leg, Allowance} from "../src/ArbGuard.sol";
 import {PlanEncoding} from "../src/PlanEncoding.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV3Pool} from "./mocks/MockV3Pool.sol";
@@ -24,6 +24,8 @@ contract ArbGuardTest is Test {
     uint256 internal constant PRINCIPAL = 1000;
     uint256 internal constant LEG0_OUT = 2000; // 1000 A * 2/1 through poolAB
     uint256 internal constant LEG1_OUT = 1050; // 2000 B * 21/40 through poolBA: +5% profit
+    uint24 internal constant POOL_AB_FEE = 500;
+    uint24 internal constant POOL_BA_FEE = 3000;
 
     function setUp() public {
         owner = makeAddr("owner");
@@ -34,8 +36,8 @@ contract ArbGuardTest is Test {
         (tokenA, tokenB) = address(first) < address(second) ? (first, second) : (second, first);
 
         (address token0, address token1) = _sorted(address(tokenA), address(tokenB));
-        poolAB = new MockV3Pool(token0, token1, 2, 1);
-        poolBA = new MockV3Pool(token0, token1, 21, 40);
+        poolAB = new MockV3Pool(token0, token1, 2, 1, POOL_AB_FEE);
+        poolBA = new MockV3Pool(token0, token1, 21, 40, POOL_BA_FEE);
 
         address[] memory allowedPools = new address[](2);
         allowedPools[0] = address(poolAB);
@@ -61,6 +63,7 @@ contract ArbGuardTest is Test {
             pool: address(poolAB),
             tokenIn: address(tokenA),
             tokenOut: address(tokenB),
+            feeTier: POOL_AB_FEE,
             exactIn: PRINCIPAL,
             minOut: 1900
         });
@@ -68,33 +71,33 @@ contract ArbGuardTest is Test {
             pool: address(poolBA),
             tokenIn: address(tokenB),
             tokenOut: address(tokenA),
+            feeTier: POOL_BA_FEE,
             exactIn: LEG0_OUT,
             minOut: 1000
         });
+        Allowance[] memory allowances = new Allowance[](1);
+        allowances[0] =
+            Allowance({token: address(tokenA), spender: address(guard), amount: PRINCIPAL});
+        address[] memory callbackPools = new address[](2);
+        callbackPools[0] = address(poolAB);
+        callbackPools[1] = address(poolBA);
         return Plan({
+            chainId: block.chainid,
+            executor: address(guard),
             spendingAccount: spender,
+            principal: PRINCIPAL,
             startingAsset: address(tokenA),
             legs: legs,
+            allowances: allowances,
             deadline: block.timestamp + 1 days,
-            minFinalBalance: PRINCIPAL + 50 - 1 // 1049: principal + profit - 1
+            minFinalBalance: PRINCIPAL + 50 - 1, // 1049: principal + profit - 1
+            callbackPools: callbackPools
         });
-    }
-
-    function _expectedDigest(Plan memory plan) internal view returns (bytes32) {
-        uint64[] memory feeTiers = new uint64[](plan.legs.length);
-        PlanEncoding.Allowance[] memory allowances = new PlanEncoding.Allowance[](0);
-        address[] memory callbackPools = new address[](plan.legs.length);
-        for (uint256 i = 0; i < plan.legs.length; i++) {
-            callbackPools[i] = plan.legs[i].pool;
-        }
-        return PlanEncoding.digest(
-            plan, block.chainid, plan.legs[0].exactIn, feeTiers, allowances, callbackPools
-        );
     }
 
     function test_routeExecutesAtomicallyAndReturnsProfit() public {
         Plan memory plan = _validPlan();
-        bytes32 expectedDigest = _expectedDigest(plan);
+        bytes32 expectedDigest = PlanEncoding.digest(plan);
 
         vm.expectEmit(true, true, true, true, address(guard));
         emit ArbGuard.RouteExecuted(expectedDigest, PRINCIPAL + 50);
@@ -148,6 +151,7 @@ contract ArbGuardTest is Test {
         ArbGuard restricted = new ArbGuard(owner, onlyPoolAB);
 
         Plan memory plan = _validPlan();
+        plan.executor = address(restricted);
         vm.expectRevert(
             abi.encodeWithSelector(ArbGuard.UnsupportedTarget.selector, address(poolBA))
         );
@@ -183,15 +187,21 @@ contract ArbGuardTest is Test {
             pool: address(poolAB),
             tokenIn: address(tokenA),
             tokenOut: address(tokenB),
+            feeTier: POOL_AB_FEE,
             exactIn: PRINCIPAL,
             minOut: 1900
         });
         Plan memory plan = Plan({
+            chainId: block.chainid,
+            executor: address(guard),
             spendingAccount: spender,
+            principal: PRINCIPAL,
             startingAsset: address(tokenA),
             legs: legs,
+            allowances: new Allowance[](0),
             deadline: block.timestamp + 1 days,
-            minFinalBalance: 0
+            minFinalBalance: 0,
+            callbackPools: new address[](0)
         });
 
         vm.expectRevert(abi.encodeWithSelector(ArbGuard.RouteTooShort.selector));
@@ -228,7 +238,7 @@ contract ArbGuardTest is Test {
 
     function test_revertsWhenPoolInvokesCallbackTwiceInOneSwap() public {
         (address token0, address token1) = _sorted(address(tokenA), address(tokenB));
-        GreedyV3Pool greedyPool = new GreedyV3Pool(token0, token1, 2, 1);
+        GreedyV3Pool greedyPool = new GreedyV3Pool(token0, token1, 2, 1, POOL_AB_FEE);
         greedyPool.setRepeatCallback(true);
         tokenB.mint(address(greedyPool), LEG0_OUT);
 
@@ -241,7 +251,10 @@ contract ArbGuardTest is Test {
         tokenA.approve(address(greedyGuard), PRINCIPAL);
 
         Plan memory plan = _validPlan();
+        plan.executor = address(greedyGuard);
+        plan.allowances[0].spender = address(greedyGuard);
         plan.legs[0].pool = address(greedyPool);
+        plan.callbackPools[0] = address(greedyPool);
 
         // The pool's first callback is legitimate and gets paid; its second
         // callback in the same swap finds `activePool` already cleared and
@@ -257,7 +270,7 @@ contract ArbGuardTest is Test {
 
     function test_revertsCallbackAmountMismatchWhenPoolLiesAboutAmountIn() public {
         (address token0, address token1) = _sorted(address(tokenA), address(tokenB));
-        GreedyV3Pool lyingPool = new GreedyV3Pool(token0, token1, 2, 1);
+        GreedyV3Pool lyingPool = new GreedyV3Pool(token0, token1, 2, 1, POOL_AB_FEE);
         lyingPool.setLiedAmountIn(PRINCIPAL + 1); // real committed exactIn is PRINCIPAL
         tokenB.mint(address(lyingPool), LEG0_OUT);
 
@@ -270,7 +283,10 @@ contract ArbGuardTest is Test {
         tokenA.approve(address(lyingGuard), PRINCIPAL);
 
         Plan memory plan = _validPlan();
+        plan.executor = address(lyingGuard);
+        plan.allowances[0].spender = address(lyingGuard);
         plan.legs[0].pool = address(lyingPool);
+        plan.callbackPools[0] = address(lyingPool);
 
         // The check compares the pool's reported delta against the amount
         // `_swapLeg` itself committed to (`activeExactIn`), never against
@@ -302,6 +318,8 @@ contract ArbGuardTest is Test {
 
         Plan memory plan = _validPlan();
         plan.legs[0].exactIn = hugeAmount;
+        plan.principal = hugeAmount;
+        plan.allowances[0].amount = hugeAmount;
 
         vm.expectRevert(abi.encodeWithSelector(ArbGuard.ExactInTooLarge.selector));
         vm.prank(owner);
@@ -368,5 +386,308 @@ contract ArbGuardTest is Test {
         vm.expectRevert(abi.encodeWithSelector(ArbGuard.NotOwner.selector));
         vm.prank(spender);
         guard.execute(plan);
+    }
+
+    function test_revertsWrongChain() public {
+        Plan memory plan = _validPlan();
+        plan.chainId = 999;
+
+        vm.expectRevert(
+            abi.encodeWithSelector(ArbGuard.WrongChain.selector, block.chainid, uint256(999))
+        );
+        vm.prank(owner);
+        guard.execute(plan);
+    }
+
+    function test_revertsWrongExecutor() public {
+        Plan memory plan = _validPlan();
+        plan.executor = address(0xBEEF);
+
+        vm.expectRevert(abi.encodeWithSelector(ArbGuard.WrongExecutor.selector, address(0xBEEF)));
+        vm.prank(owner);
+        guard.execute(plan);
+    }
+
+    function test_revertsFeeTierMismatch() public {
+        Plan memory plan = _validPlan();
+        plan.legs[0].feeTier = 999;
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ArbGuard.FeeTierMismatch.selector, uint256(0), POOL_AB_FEE, uint32(999)
+            )
+        );
+        vm.prank(owner);
+        guard.execute(plan);
+    }
+
+    function test_revertsFeeAccountOnly() public {
+        Plan memory plan = _validPlan();
+        plan.principal = 0;
+
+        vm.expectRevert(abi.encodeWithSelector(ArbGuard.FeeAccountOnly.selector));
+        vm.prank(owner);
+        guard.execute(plan);
+    }
+
+    function test_revertsDeclaredPrincipalAboveBalance() public {
+        // legs[0].exactIn(PRINCIPAL) <= principal, but the spending account
+        // never held more than PRINCIPAL: the declared principal is a
+        // fiction the guard must reject before pulling anything.
+        Plan memory plan = _validPlan();
+        plan.principal = PRINCIPAL + 1000;
+
+        vm.expectRevert(abi.encodeWithSelector(ArbGuard.InsufficientPrincipal.selector));
+        vm.prank(owner);
+        guard.execute(plan);
+    }
+
+    function test_revertsMissingDeclaredAllowance() public {
+        Plan memory plan = _validPlan();
+        plan.allowances = new Allowance[](0);
+
+        vm.expectRevert(abi.encodeWithSelector(ArbGuard.MissingAllowance.selector));
+        vm.prank(owner);
+        guard.execute(plan);
+    }
+
+    function test_revertsUnexpectedAllowance() public {
+        Plan memory plan = _validPlan();
+        plan.allowances[0].spender = address(poolAB); // the old per-leg model
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ArbGuard.UnexpectedAllowance.selector, address(tokenA), address(poolAB)
+            )
+        );
+        vm.prank(owner);
+        guard.execute(plan);
+    }
+
+    function test_revertsCallbackPoolNotALeg() public {
+        Plan memory plan = _validPlan();
+        address[] memory callbackPools = new address[](3);
+        callbackPools[0] = address(poolAB);
+        callbackPools[1] = address(poolBA);
+        callbackPools[2] = address(0xBEEF);
+        plan.callbackPools = callbackPools;
+
+        vm.expectRevert(
+            abi.encodeWithSelector(ArbGuard.UnauthorizedCallback.selector, address(0xBEEF))
+        );
+        vm.prank(owner);
+        guard.execute(plan);
+    }
+
+    function test_revertsLegPoolMissingFromCallbacks() public {
+        Plan memory plan = _validPlan();
+        address[] memory callbackPools = new address[](1);
+        callbackPools[0] = address(poolAB);
+        plan.callbackPools = callbackPools;
+
+        vm.expectRevert(
+            abi.encodeWithSelector(ArbGuard.UnauthorizedCallback.selector, address(poolBA))
+        );
+        vm.prank(owner);
+        guard.execute(plan);
+    }
+
+    function test_minFinalBalanceEncodesProfit() public {
+        // The floor is an absolute check, not a profit target: it passes
+        // exactly at the route's actual profit and reverts one wei above it.
+        Plan memory planAtFloor = _validPlan();
+        planAtFloor.minFinalBalance = PRINCIPAL + 50;
+
+        vm.prank(owner);
+        guard.execute(planAtFloor);
+        assertEq(tokenA.balanceOf(spender), PRINCIPAL + 50);
+
+        // Fresh spender/pools so the second execution starts from the same
+        // principal instead of the first execution's profit.
+        address secondSpender = makeAddr("secondSpender");
+        tokenA.mint(secondSpender, PRINCIPAL);
+        vm.prank(secondSpender);
+        tokenA.approve(address(guard), PRINCIPAL);
+        tokenB.mint(address(poolAB), LEG0_OUT);
+        tokenA.mint(address(poolBA), LEG1_OUT);
+
+        Plan memory planOverFloor = _validPlan();
+        planOverFloor.spendingAccount = secondSpender;
+        planOverFloor.minFinalBalance = PRINCIPAL + 51;
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ArbGuard.InsufficientFinalBalance.selector, PRINCIPAL + 51, PRINCIPAL + 50
+            )
+        );
+        vm.prank(owner);
+        guard.execute(planOverFloor);
+    }
+
+    // Reads the fixture at `path`, strips its `expected_digest`'s `sha256:`
+    // prefix and returns the raw digest as `bytes32`. Duplicated (not
+    // shared) with `PlanEncodingTest._stripSha256Prefix`: each test file
+    // parses and asserts the fixture independently, on purpose (see
+    // `PlanEncoding.t.sol`'s file doc comment).
+    function _stripSha256Prefix(string memory value) internal pure returns (string memory) {
+        bytes memory raw = bytes(value);
+        bytes memory prefix = bytes("sha256:");
+        require(raw.length > prefix.length, "ArbGuardTest: digest too short");
+        bytes memory stripped = new bytes(raw.length - prefix.length);
+        for (uint256 i = prefix.length; i < raw.length; i++) {
+            stripped[i - prefix.length] = raw[i];
+        }
+        return string(stripped);
+    }
+
+    /// Every literal address/amount pulled from `plan-digest.json`, grouped
+    /// into a struct (a single stack slot wherever it is passed) so that
+    /// deploying the fixture and building its `Plan` can be split into
+    /// separate helper functions — reading all eleven fields as loose locals
+    /// in one function hits solc's "stack too deep" limit.
+    struct FixtureValues {
+        address startingAsset;
+        address intermediateToken;
+        address spendingAccount;
+        address executor;
+        address pool0;
+        address pool1;
+        uint256 principal;
+        uint256 exactIn0;
+        uint256 minOut0;
+        uint256 exactIn1;
+        uint256 minOut1;
+    }
+
+    function _readFixtureValues(string memory json) internal pure returns (FixtureValues memory v) {
+        v.startingAsset = vm.parseJsonAddress(json, ".starting_asset");
+        v.intermediateToken = vm.parseJsonAddress(json, ".legs[0].token_out");
+        v.spendingAccount = vm.parseJsonAddress(json, ".spending_account.address");
+        v.executor = vm.parseJsonAddress(json, ".executor");
+        v.pool0 = vm.parseJsonAddress(json, ".legs[0].pool");
+        v.pool1 = vm.parseJsonAddress(json, ".legs[1].pool");
+        v.principal = vm.parseJsonUint(json, ".spending_account.principal");
+        v.exactIn0 = vm.parseJsonUint(json, ".legs[0].exact_in");
+        v.minOut0 = vm.parseJsonUint(json, ".legs[0].min_out");
+        v.exactIn1 = vm.parseJsonUint(json, ".legs[1].exact_in");
+        v.minOut1 = vm.parseJsonUint(json, ".legs[1].min_out");
+    }
+
+    /// Deploys the fixture's tokens, pools and guard at their own literal
+    /// addresses and funds them, then returns the guard's owner (needed to
+    /// call `execute`). `deployCodeTo` runs each contract's real constructor
+    /// at the target address (via `vm.etch` + a self-call), so `ArbGuard`'s
+    /// immutable `owner` and its `isAllowedPool` mapping storage are set
+    /// correctly — a plain `vm.etch` of runtime bytecode alone would not do
+    /// this for either.
+    function _deployFixtureContracts(FixtureValues memory v)
+        internal
+        returns (address fixtureOwner)
+    {
+        deployCodeTo(
+            "MockERC20.sol:MockERC20", abi.encode("Starting Asset", "START"), v.startingAsset
+        );
+        deployCodeTo(
+            "MockERC20.sol:MockERC20", abi.encode("Intermediate", "MID"), v.intermediateToken
+        );
+
+        (address token0, address token1) = _sorted(v.startingAsset, v.intermediateToken);
+        // Rates chosen so each leg produces exactly its declared `exact_in`/
+        // `min_out`: leg0 turns `exactIn0` into `exactIn1` (matching the next
+        // leg's declared input, so `ExactInMismatch` never fires), and leg1
+        // turns that into exactly `minOut1`, the fixture's own final floor.
+        deployCodeTo(
+            "MockV3Pool.sol:MockV3Pool",
+            abi.encode(token0, token1, v.exactIn1, v.exactIn0, uint24(500)),
+            v.pool0
+        );
+        deployCodeTo(
+            "MockV3Pool.sol:MockV3Pool",
+            abi.encode(token0, token1, v.minOut1, v.exactIn1, uint24(3000)),
+            v.pool1
+        );
+
+        address[] memory allowedPools = new address[](2);
+        allowedPools[0] = v.pool0;
+        allowedPools[1] = v.pool1;
+        fixtureOwner = makeAddr("fixtureOwner");
+        deployCodeTo("ArbGuard.sol:ArbGuard", abi.encode(fixtureOwner, allowedPools), v.executor);
+
+        MockERC20(v.startingAsset).mint(v.spendingAccount, v.principal);
+        vm.prank(v.spendingAccount);
+        MockERC20(v.startingAsset).approve(v.executor, v.principal);
+        MockERC20(v.intermediateToken).mint(v.pool0, v.minOut0);
+        MockERC20(v.startingAsset).mint(v.pool1, v.minOut1);
+    }
+
+    function _buildFixturePlan(string memory json, FixtureValues memory v)
+        internal
+        pure
+        returns (Plan memory plan)
+    {
+        Leg[] memory legs = new Leg[](2);
+        legs[0] = Leg({
+            pool: v.pool0,
+            tokenIn: v.startingAsset,
+            tokenOut: v.intermediateToken,
+            feeTier: uint32(vm.parseJsonUint(json, ".legs[0].fee_tier")),
+            exactIn: v.exactIn0,
+            minOut: v.minOut0
+        });
+        legs[1] = Leg({
+            pool: v.pool1,
+            tokenIn: v.intermediateToken,
+            tokenOut: v.startingAsset,
+            feeTier: uint32(vm.parseJsonUint(json, ".legs[1].fee_tier")),
+            exactIn: v.exactIn1,
+            minOut: v.minOut1
+        });
+        Allowance[] memory allowances = new Allowance[](1);
+        allowances[0] = Allowance({
+            token: vm.parseJsonAddress(json, ".allowances[0].token"),
+            spender: vm.parseJsonAddress(json, ".allowances[0].spender"),
+            amount: vm.parseJsonUint(json, ".allowances[0].amount")
+        });
+        address[] memory callbackPools =
+            vm.parseJsonAddressArray(json, ".callback_authorization.pools");
+        plan = Plan({
+            chainId: vm.parseJsonUint(json, ".chain_id"),
+            executor: v.executor,
+            spendingAccount: v.spendingAccount,
+            principal: v.principal,
+            startingAsset: v.startingAsset,
+            legs: legs,
+            allowances: allowances,
+            deadline: vm.parseJsonUint(json, ".deadline_unix"),
+            minFinalBalance: vm.parseJsonUint(json, ".min_final_balance"),
+            callbackPools: callbackPools
+        });
+    }
+
+    /// The linkage proof: the committed fixture plan executes through mock
+    /// pools deployed/etched at its own literal addresses, and the guard's
+    /// `RouteExecuted.digest` equals the fixture's own `expected_digest` —
+    /// the same digest `crates/arb-evm/tests/plan_parity.rs` and
+    /// `PlanEncoding.t.sol` check against `BasePlan::digest()`.
+    function test_fixturePlanExecutesWithBasePlanDigest() public {
+        string memory json = vm.readFile("test/fixtures/plan-digest.json");
+        vm.chainId(vm.parseJsonUint(json, ".chain_id"));
+
+        FixtureValues memory v = _readFixtureValues(json);
+        address fixtureOwner = _deployFixtureContracts(v);
+        Plan memory plan = _buildFixturePlan(json, v);
+
+        string memory expectedDigestField = vm.parseJsonString(json, ".expected_digest");
+        bytes32 expectedDigest =
+            vm.parseBytes32(string.concat("0x", _stripSha256Prefix(expectedDigestField)));
+        uint256 expectedFinalBalance = v.principal - v.exactIn0 + v.minOut1;
+
+        vm.expectEmit(true, true, true, true, v.executor);
+        emit ArbGuard.RouteExecuted(expectedDigest, expectedFinalBalance);
+
+        vm.prank(fixtureOwner);
+        ArbGuard(v.executor).execute(plan);
+
+        assertEq(MockERC20(v.startingAsset).balanceOf(v.spendingAccount), expectedFinalBalance);
     }
 }

@@ -2,7 +2,7 @@
 pragma solidity 0.8.28;
 
 import {Test} from "forge-std/Test.sol";
-import {Plan, Leg} from "../src/ArbGuard.sol";
+import {Plan, Leg, Allowance} from "../src/ArbGuard.sol";
 import {PlanEncoding} from "../src/PlanEncoding.sol";
 
 /// Proves `PlanEncoding.digest` produces the exact same bytes as the Rust
@@ -55,43 +55,39 @@ contract PlanEncodingTest is Test {
         _assertFixtureDigestMatches(FIXTURE_IRREGULAR_PATH);
     }
 
-    /// Reads `.legs` into `Leg[]`/`feeTiers[]` together, and `.allowances`
-    /// into `Allowance[]`, in their own functions (rather than inline in
+    /// Reads `.legs` (each leg carries its own `feeTier` directly, now that
+    /// `Leg` mirrors Rust's `Leg` field for field) and `.allowances` into
+    /// `Allowance[]`, in their own functions (rather than inline in
     /// `_assertFixtureDigestMatches`) purely to keep that function's local
     /// variable count low enough for solc's legacy codegen — with every
     /// field read inline in one function, compilation fails with "stack too
     /// deep" even though the logic itself is simple.
-    function _parseLegs(string memory json)
-        internal
-        view
-        returns (Leg[] memory legs, uint64[] memory feeTiers)
-    {
+    function _parseLegs(string memory json) internal view returns (Leg[] memory legs) {
         uint256 length = _arrayLength(json, "legs");
         legs = new Leg[](length);
-        feeTiers = new uint64[](length);
         for (uint256 i = 0; i < length; i++) {
             string memory base = string.concat(".legs[", vm.toString(i), "]");
             legs[i] = Leg({
                 pool: vm.parseJsonAddress(json, string.concat(base, ".pool")),
                 tokenIn: vm.parseJsonAddress(json, string.concat(base, ".token_in")),
                 tokenOut: vm.parseJsonAddress(json, string.concat(base, ".token_out")),
+                feeTier: uint32(vm.parseJsonUint(json, string.concat(base, ".fee_tier"))),
                 exactIn: vm.parseJsonUint(json, string.concat(base, ".exact_in")),
                 minOut: vm.parseJsonUint(json, string.concat(base, ".min_out"))
             });
-            feeTiers[i] = uint64(vm.parseJsonUint(json, string.concat(base, ".fee_tier")));
         }
     }
 
     function _parseAllowances(string memory json)
         internal
         view
-        returns (PlanEncoding.Allowance[] memory allowances)
+        returns (Allowance[] memory allowances)
     {
         uint256 length = _arrayLength(json, "allowances");
-        allowances = new PlanEncoding.Allowance[](length);
+        allowances = new Allowance[](length);
         for (uint256 i = 0; i < length; i++) {
             string memory base = string.concat(".allowances[", vm.toString(i), "]");
-            allowances[i] = PlanEncoding.Allowance({
+            allowances[i] = Allowance({
                 token: vm.parseJsonAddress(json, string.concat(base, ".token")),
                 spender: vm.parseJsonAddress(json, string.concat(base, ".spender")),
                 amount: vm.parseJsonUint(json, string.concat(base, ".amount"))
@@ -102,27 +98,25 @@ contract PlanEncodingTest is Test {
     function _assertFixtureDigestMatches(string memory fixturePath) internal {
         string memory json = vm.readFile(fixturePath);
 
-        (Leg[] memory legs, uint64[] memory feeTiers) = _parseLegs(json);
-        PlanEncoding.Allowance[] memory allowances = _parseAllowances(json);
+        Leg[] memory legs = _parseLegs(json);
+        Allowance[] memory allowances = _parseAllowances(json);
         address[] memory callbackPools =
             vm.parseJsonAddressArray(json, ".callback_authorization.pools");
 
         Plan memory plan = Plan({
+            chainId: vm.parseJsonUint(json, ".chain_id"),
+            executor: vm.parseJsonAddress(json, ".executor"),
             spendingAccount: vm.parseJsonAddress(json, ".spending_account.address"),
+            principal: vm.parseJsonUint(json, ".spending_account.principal"),
             startingAsset: vm.parseJsonAddress(json, ".starting_asset"),
             legs: legs,
+            allowances: allowances,
             deadline: vm.parseJsonUint(json, ".deadline_unix"),
-            minFinalBalance: vm.parseJsonUint(json, ".min_final_balance")
+            minFinalBalance: vm.parseJsonUint(json, ".min_final_balance"),
+            callbackPools: callbackPools
         });
 
-        bytes32 actual = PlanEncoding.digest(
-            plan,
-            vm.parseJsonUint(json, ".chain_id"),
-            vm.parseJsonUint(json, ".spending_account.principal"),
-            feeTiers,
-            allowances,
-            callbackPools
-        );
+        bytes32 actual = PlanEncoding.digest(plan);
 
         string memory expectedDigestField = vm.parseJsonString(json, ".expected_digest");
         bytes32 expected =

@@ -23,6 +23,9 @@ import {IERC20, IUniswapV3SwapCallback} from "../../src/ArbGuard.sol";
 contract GreedyV3Pool {
     address public immutable token0;
     address public immutable token1;
+    /// See `MockV3Pool.fee`: the fee tier `ArbGuard.execute` compares against
+    /// each leg's declared `feeTier`.
+    uint24 public immutable fee;
     uint256 public rateNumerator;
     uint256 public rateDenominator;
     bool public repeatCallback;
@@ -32,13 +35,15 @@ contract GreedyV3Pool {
         address token0_,
         address token1_,
         uint256 rateNumerator_,
-        uint256 rateDenominator_
+        uint256 rateDenominator_,
+        uint24 fee_
     ) {
         require(token0_ < token1_, "GreedyV3Pool: token order");
         token0 = token0_;
         token1 = token1_;
         rateNumerator = rateNumerator_;
         rateDenominator = rateDenominator_;
+        fee = fee_;
     }
 
     /// When set, `swap` invokes the callback a second time with the same
