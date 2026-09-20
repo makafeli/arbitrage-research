@@ -16,8 +16,9 @@
 
 use arb_solana::math::quote_two_leg_cycle_math;
 use arb_solana::plan::{
-    AccountMeta as PlanAccountMeta, ComputeBudget, FinalBalanceGuard,
-    Instruction as PlanInstruction, Pubkey32, SolanaPlan, WhirlpoolSwapLeg,
+    AccountMeta as PlanAccountMeta, COMPUTE_BUDGET_PROGRAM, ComputeBudget, FinalBalanceGuard,
+    Instruction as PlanInstruction, PlanRejection, ProgramAllowlist, Pubkey32, SolanaPlan,
+    WhirlpoolSwapLeg,
 };
 use arb_solana::{
     FixedTickArray, PoolSnapshot, WhirlpoolState, decode_fixed_tick_array, decode_whirlpool,
@@ -50,16 +51,20 @@ const POOL_HIGH_SPACING: &str = "FpCMFDFGYotvufJ7HrFHsWEiiQCGbkLCtwHiDnh7o28Q"; 
 const MIN_SQRT_PRICE: u128 = 4_295_048_016;
 const MAX_SQRT_PRICE: u128 = 79_226_673_515_401_279_992_447_579_055;
 
-/// Synthetic starting balance for the authority's WSOL account: 1 SOL. This
-/// harness has no real funded wallet; every other account in this test
-/// (pools, vaults, mints, tick arrays, the program itself) is the real
-/// mainnet state from the fixture.
-const STARTING_WSOL: u64 = 1_000_000_000;
-/// The authority starts with no USDC; the cycle should return to (near) zero.
-const STARTING_USDC: u64 = 0;
 /// Swap size: 0.1 WSOL. Small relative to both pools' liquidity so the trade
 /// stays inside the three loaded tick arrays per leg.
 const AMOUNT_IN: u64 = 100_000_000;
+/// Synthetic starting balance for the authority's WSOL account: EXACTLY the
+/// swap principal, not a padded amount. This harness has no real funded
+/// wallet; every other account in this test (pools, vaults, mints, tick
+/// arrays, the program itself) is the real mainnet state from the fixture.
+/// Funding exactly `AMOUNT_IN` makes the final-balance guard meaningful: the
+/// authority's WSOL balance after the round trip equals leg 2's output
+/// alone, so `guard.min_balance` can be set to the real quoted floor
+/// (`leg2_out`) instead of an unreachable placeholder.
+const STARTING_WSOL: u64 = AMOUNT_IN;
+/// The authority starts with no USDC; the cycle should return to (near) zero.
+const STARTING_USDC: u64 = 0;
 
 /// Parse `tests/fixtures/mainnet/accounts.json` into a generic
 /// `serde_json::Value`. Deliberately untyped: this dev-only crate depends on
@@ -161,13 +166,34 @@ fn set_clock_unix_timestamp_at_least(svm: &mut LiteSVM, at_least: i64) {
     .expect("bump Clock sysvar unix_timestamp");
 }
 
+/// `tests/fixtures/mainnet/accounts.json`'s `provenance.fetched_at_utc`
+/// (2026-09-20T19:02:24Z) as a Unix timestamp. Used only to sanity-check the
+/// hand-decoded offset below, never by the swap logic itself.
+const FETCHED_AT: i64 = 1_789_930_944;
+
 /// Read a pool account's `reward_last_updated_timestamp` field: a real `i64`
 /// unix timestamp at byte offset 261 in the standard Whirlpool layout
 /// (immediately after `fee_growth_global_b`, which itself follows
 /// `token_vault_b` at the offsets `arb_solana::decode_whirlpool` uses).
+/// Both asserts exist so a wrong offset (e.g. landing on
+/// `fee_growth_global_b`'s huge fixed-point word at 245 instead) fails
+/// loudly here instead of silently feeding a bogus value into the Clock
+/// sysvar bump below.
 fn reward_last_updated_timestamp(root: &serde_json::Value, pool_address: &str) -> i64 {
     let data = fixture_account_data(root, pool_address);
-    i64::from_le_bytes(data[261..269].try_into().unwrap())
+    assert_eq!(
+        data.len(),
+        653,
+        "fixture whirlpool account {pool_address} must be the fixed 653-byte layout"
+    );
+    let timestamp = i64::from_le_bytes(data[261..269].try_into().unwrap());
+    assert!(
+        (FETCHED_AT - 3600..=FETCHED_AT).contains(&timestamp),
+        "reward_last_updated_timestamp for {pool_address} ({timestamp}) is outside the \
+         plausible fetch window [{}, {FETCHED_AT}]; offset 261 may be wrong",
+        FETCHED_AT - 3600
+    );
+    timestamp
 }
 
 /// Convert one research-only plan `Instruction` into a real SDK instruction
@@ -448,19 +474,55 @@ fn offline_quote(amount_in: u64) -> (u64, u64) {
     (leg1_out, leg2_out)
 }
 
+/// Build the `ProgramAllowlist` and the per-leg `(input_mint, output_mint)`
+/// pairs `SolanaPlan::validate` requires, straight from the two fixture
+/// pools' own decoded addresses and mints — nothing hand-picked or
+/// duplicated from `build_plan`.
+fn allowlist_and_leg_mints(
+    low: &PoolFixture,
+    high: &PoolFixture,
+) -> (ProgramAllowlist, [(Pubkey32, Pubkey32); 2]) {
+    let key = |b58: &str| Pubkey32::from_base58(b58).unwrap();
+    let allowlist = ProgramAllowlist {
+        programs: vec![
+            key(arb_solana::WHIRLPOOL_PROGRAM),
+            token_program_pubkey32(),
+            key(COMPUTE_BUDGET_PROGRAM),
+        ],
+        whirlpools: vec![key(&low.pool), key(&high.pool)],
+        mints: vec![key(&low.state.mint_a), key(&low.state.mint_b)],
+    };
+    // Leg 0 (low pool, a_to_b=true) sells mint_a for mint_b; leg 1 (high
+    // pool, a_to_b=false) sells mint_b for mint_a. Both pools share both
+    // mints (module docs), which is what makes the route cyclic.
+    let leg_mints = [
+        (key(&low.state.mint_a), key(&low.state.mint_b)),
+        (key(&high.state.mint_b), key(&high.state.mint_a)),
+    ];
+    (allowlist, leg_mints)
+}
+
 /// Build the real two-leg `SolanaPlan`: sell `amount_in` WSOL on the
-/// low-spacing pool, buy WSOL back on the high-spacing pool with the exact
-/// intermediate USDC amount the offline quote predicts. `other_amount_threshold`
-/// is 0 on both legs on purpose: this proves whether the executed route
-/// matches the offline quote (see `offline_quote_matches_the_executed_leg_outputs`)
-/// rather than relying on a slippage check to hide any mismatch.
+/// low-spacing pool for `leg1_out` USDC, then sell that whole `leg1_out` USDC
+/// on the high-spacing pool for `leg2_out` WSOL. Both amounts come from the
+/// offline quote, and both legs' `other_amount_threshold` are set to them
+/// exactly (zero slippage tolerance): the executed route either matches the
+/// quote or the transaction fails, so there is no slippage window to hide a
+/// mismatch behind. `guard_min_balance` is the caller's separate,
+/// independently-set final-balance floor.
+// Every argument names a distinct, independently-varied test input (two
+// signers, two accounts, three quoted amounts, one guard floor); grouping
+// them into a struct would only move the same eight values one layer away
+// for a single, three-call test helper.
+#[allow(clippy::too_many_arguments)]
 fn build_plan(
     authority: &Keypair,
     payer: &Keypair,
     wsol_account: Address,
     usdc_account: Address,
     amount_in: u64,
-    leg2_amount: u64,
+    leg1_out: u64,
+    leg2_out: u64,
     guard_min_balance: u64,
 ) -> SolanaPlan {
     let low = pool_low_spacing();
@@ -495,7 +557,7 @@ fn build_plan(
                 ],
                 oracle: key(&low.oracle),
                 amount: amount_in,
-                other_amount_threshold: 0,
+                other_amount_threshold: leg1_out,
                 sqrt_price_limit: MIN_SQRT_PRICE,
                 amount_specified_is_input: true,
                 a_to_b: true,
@@ -513,8 +575,8 @@ fn build_plan(
                     key(&high_tick_arrays[2]),
                 ],
                 oracle: key(&high.oracle),
-                amount: leg2_amount,
-                other_amount_threshold: 0,
+                amount: leg1_out,
+                other_amount_threshold: leg2_out,
                 sqrt_price_limit: MAX_SQRT_PRICE,
                 amount_specified_is_input: true,
                 a_to_b: false,
@@ -536,6 +598,7 @@ fn real_whirlpool_program_loads_and_executes_a_two_leg_cycle_with_synthetic_fund
     let wsol_account = Keypair::new().pubkey();
     let usdc_account = Keypair::new().pubkey();
     let low = pool_low_spacing();
+    let high = pool_high_spacing();
     set_token_account(
         &mut svm,
         wsol_account,
@@ -552,9 +615,11 @@ fn real_whirlpool_program_loads_and_executes_a_two_leg_cycle_with_synthetic_fund
     );
 
     let (leg1_out, leg2_out) = offline_quote(AMOUNT_IN);
-    // Any positive leg-2 output clears this: the guard only proves the
-    // transaction reaches its final instruction with the route intact.
-    let guard_min_balance = STARTING_WSOL - AMOUNT_IN + 1;
+    // The real quoted floor: the authority starts with exactly `AMOUNT_IN`
+    // WSOL (all of it spent on leg 1), so `leg2_out` is the only WSOL the
+    // account can end the cycle with. A guard set any lower would not prove
+    // anything; any higher is unreachable given this quote.
+    let guard_min_balance = leg2_out;
     let plan = build_plan(
         &authority,
         &payer,
@@ -562,8 +627,12 @@ fn real_whirlpool_program_loads_and_executes_a_two_leg_cycle_with_synthetic_fund
         usdc_account,
         AMOUNT_IN,
         leg1_out,
+        leg2_out,
         guard_min_balance,
     );
+    let (allowlist, leg_mints) = allowlist_and_leg_mints(&low, &high);
+    plan.validate(&allowlist, &leg_mints)
+        .expect("plan must pass preflight validation before it is sent");
 
     let ixs: Vec<Instruction> = plan.instructions().iter().map(to_sdk).collect();
     let result = send(&mut svm, &payer, &[&authority], &ixs);
@@ -584,10 +653,16 @@ fn real_whirlpool_program_loads_and_executes_a_two_leg_cycle_with_synthetic_fund
          compute_units_consumed={compute_units}"
     );
 
+    // An observed bound that does not depend on the offline math port at
+    // all: the route produced a strictly positive WSOL balance out of an
+    // account that started with none of the intermediate mint and spent its
+    // entire starting balance on leg 1. `offline_quote_matches_the_executed_leg_outputs`
+    // is the test that cross-checks the exact quoted number against the
+    // pools' own vault bookkeeping; this assertion is independent of it.
+    assert!(0 < final_wsol, "the round trip must return some WSOL");
     assert_eq!(
-        final_wsol,
-        STARTING_WSOL - AMOUNT_IN + leg2_out,
-        "final WSOL balance must equal starting balance minus the swap-in amount plus leg 2's output"
+        final_wsol, leg2_out,
+        "final WSOL balance must equal leg 2's real quoted output (starting balance was spent whole on leg 1)"
     );
     assert_eq!(
         final_usdc, STARTING_USDC,
@@ -618,21 +693,25 @@ fn final_balance_guard_reverts_the_whole_real_route_when_short() {
         STARTING_USDC,
     );
 
+    let low_pool_address = address_of(&low.pool);
+    let high_pool_address = address_of(&high.pool);
     let low_vault_a = address_of(&low.state.vault_a);
     let low_vault_b = address_of(&low.state.vault_b);
     let high_vault_a = address_of(&high.state.vault_a);
     let high_vault_b = address_of(&high.state.vault_b);
     let before_wsol = svm.get_account(&wsol_account).unwrap().data;
     let before_usdc = svm.get_account(&usdc_account).unwrap().data;
+    let before_low_pool = svm.get_account(&low_pool_address).unwrap().data;
+    let before_high_pool = svm.get_account(&high_pool_address).unwrap().data;
     let before_low_vault_a = svm.get_account(&low_vault_a).unwrap().data;
     let before_low_vault_b = svm.get_account(&low_vault_b).unwrap().data;
     let before_high_vault_a = svm.get_account(&high_vault_a).unwrap().data;
     let before_high_vault_b = svm.get_account(&high_vault_b).unwrap().data;
 
-    let (leg1_out, _leg2_out) = offline_quote(AMOUNT_IN);
-    // Unreachable: strictly more than the starting balance, so no swap
-    // outcome can ever satisfy it.
-    let guard_min_balance = STARTING_WSOL + 1;
+    let (leg1_out, leg2_out) = offline_quote(AMOUNT_IN);
+    // One lamport short of the real quoted floor: unreachable given this
+    // exact quote, so the route must fail.
+    let guard_min_balance = leg2_out + 1;
     let plan = build_plan(
         &authority,
         &payer,
@@ -640,7 +719,29 @@ fn final_balance_guard_reverts_the_whole_real_route_when_short() {
         usdc_account,
         AMOUNT_IN,
         leg1_out,
+        leg2_out,
         guard_min_balance,
+    );
+    let (allowlist, leg_mints) = allowlist_and_leg_mints(&low, &high);
+
+    // Deliberate deviation from a plain `plan.validate(...).unwrap()` here:
+    // leg 1's `other_amount_threshold` is set to the exact quoted `leg2_out`
+    // (zero slippage tolerance, see `build_plan`'s docs), so with
+    // `guard.min_balance = leg2_out + 1` the plan's own guaranteed output
+    // (`leg2_out`) is *always* below the guard floor by construction —
+    // `validate()` rejects this plan at the Rust level before it is ever
+    // sent, and `.unwrap()` on that `Err` would panic here, never reaching
+    // `send()`. That is in fact the first of two independent protections
+    // this test proves: `validate()` catches the shortfall statically, and
+    // (below) the on-chain guard instruction also reverts the whole route
+    // atomically if a caller ignores `validate()` and sends anyway.
+    assert_eq!(
+        plan.validate(&allowlist, &leg_mints),
+        Err(PlanRejection::InsufficientFinalBalance {
+            required: leg2_out + 1,
+            guaranteed: leg2_out,
+        }),
+        "validate() must reject this plan statically: the guard floor is one lamport above the guaranteed output"
     );
 
     let ixs: Vec<Instruction> = plan.instructions().iter().map(to_sdk).collect();
@@ -661,6 +762,16 @@ fn final_balance_guard_reverts_the_whole_real_route_when_short() {
         svm.get_account(&usdc_account).unwrap().data,
         before_usdc,
         "USDC account must be byte-for-byte unchanged after an atomic rollback"
+    );
+    assert_eq!(
+        svm.get_account(&low_pool_address).unwrap().data,
+        before_low_pool,
+        "low-spacing pool's own account must be byte-for-byte unchanged after an atomic rollback"
+    );
+    assert_eq!(
+        svm.get_account(&high_pool_address).unwrap().data,
+        before_high_pool,
+        "high-spacing pool's own account must be byte-for-byte unchanged after an atomic rollback"
     );
     assert_eq!(
         svm.get_account(&low_vault_a).unwrap().data,
@@ -691,6 +802,7 @@ fn offline_quote_matches_the_executed_leg_outputs() {
     let wsol_account = Keypair::new().pubkey();
     let usdc_account = Keypair::new().pubkey();
     let low = pool_low_spacing();
+    let high = pool_high_spacing();
     set_token_account(
         &mut svm,
         wsol_account,
@@ -706,8 +818,17 @@ fn offline_quote_matches_the_executed_leg_outputs() {
         STARTING_USDC,
     );
 
+    // Each pool's OWN vault balance, read directly off the fixture account
+    // bytes rather than the trader's account: this is what makes this test's
+    // assertion independent of `real_whirlpool_program_loads_and_executes_a_two_leg_cycle_with_synthetic_funding`'s
+    // `final_wsol == leg2_out` check, instead of restating the same number.
+    let low_vault_b = address_of(&low.state.vault_b);
+    let high_vault_a = address_of(&high.state.vault_a);
+    let before_low_vault_b = token_balance(&svm, &low_vault_b);
+    let before_high_vault_a = token_balance(&svm, &high_vault_a);
+
     let (leg1_out, leg2_out) = offline_quote(AMOUNT_IN);
-    let guard_min_balance = STARTING_WSOL - AMOUNT_IN + 1;
+    let guard_min_balance = leg2_out;
     let plan = build_plan(
         &authority,
         &payer,
@@ -715,8 +836,12 @@ fn offline_quote_matches_the_executed_leg_outputs() {
         usdc_account,
         AMOUNT_IN,
         leg1_out,
+        leg2_out,
         guard_min_balance,
     );
+    let (allowlist, leg_mints) = allowlist_and_leg_mints(&low, &high);
+    plan.validate(&allowlist, &leg_mints)
+        .expect("plan must pass preflight validation before it is sent");
 
     let ixs: Vec<Instruction> = plan.instructions().iter().map(to_sdk).collect();
     let result = send(&mut svm, &payer, &[&authority], &ixs);
@@ -725,27 +850,30 @@ fn offline_quote_matches_the_executed_leg_outputs() {
         "expected the route to execute, got {result:?}"
     );
 
-    let final_wsol = token_balance(&svm, &wsol_account);
-    let final_usdc = token_balance(&svm, &usdc_account);
-    let executed_leg2_out = final_wsol - (STARTING_WSOL - AMOUNT_IN);
+    // Leg 1 sells WSOL into the low pool for USDC: its vault B balance drops
+    // by exactly what it paid out. Leg 2 sells that USDC into the high pool
+    // for WSOL: its vault A balance drops by exactly what it paid out. Both
+    // deltas are the pools' own bookkeeping, read straight from the vault
+    // accounts' raw bytes, not derived from the trader's balances.
+    let after_low_vault_b = token_balance(&svm, &low_vault_b);
+    let after_high_vault_a = token_balance(&svm, &high_vault_a);
+    let executed_leg1_out = before_low_vault_b - after_low_vault_b;
+    let executed_leg2_out = before_high_vault_a - after_high_vault_a;
     println!(
-        "offline quote vs executed: leg1_out(quote)={leg1_out} leg2_out(quote)={leg2_out} \
-         leg2_out(executed)={executed_leg2_out} final_usdc={final_usdc}"
+        "offline quote vs executed (pool vault deltas): leg1_out(quote)={leg1_out} \
+         leg1_out(executed)={executed_leg1_out} leg2_out(quote)={leg2_out} \
+         leg2_out(executed)={executed_leg2_out}"
     );
 
-    // Leg 1's output was consumed EXACTLY as leg 2's input by construction
-    // (`build_plan` uses the quoted `leg1_out` as leg 2's `amount`), so the
-    // intermediate USDC balance returning to zero already proves leg 1
-    // executed for exactly the quoted output.
-    assert_eq!(
-        final_usdc, STARTING_USDC,
-        "leg 1's executed output must equal the quoted amount consumed whole by leg 2"
-    );
     // `orca_whirlpools_core=1.0.4` is a faithful, unmodified port of the same
     // swap math the real deployed program runs; on this pinned static-fee
     // state the two must agree exactly, not just within a rounding unit.
     assert_eq!(
+        executed_leg1_out, leg1_out,
+        "leg 1's executed output (low pool's own vault B delta) must equal the offline quote's predicted output"
+    );
+    assert_eq!(
         executed_leg2_out, leg2_out,
-        "leg 2's executed output must equal the offline quote's predicted output"
+        "leg 2's executed output (high pool's own vault A delta) must equal the offline quote's predicted output"
     );
 }
