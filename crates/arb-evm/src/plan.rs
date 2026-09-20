@@ -14,11 +14,21 @@ pub use primitive_types::{H160 as Address20, U256};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SpendingAccount {
     pub address: Address20,
+    /// The spending account's starting-asset balance the plan declares; the
+    /// guard checks the real balance is at least this before pulling
+    /// anything (`InsufficientPrincipal`) and the real final balance is at
+    /// least `min_final_balance` afterwards, so a plan that passes
+    /// `validate()` and executes exactly at its `min_out`s cannot end below
+    /// the floor.
     pub principal: U256,
 }
 
-/// A token approval a leg's pool relies on to pull `token` from the spending
-/// account (or a prior leg's proceeds).
+/// A declared ERC-20 approval. The guard pays every pool from its own
+/// balance in the swap callback; pools never pull. The only allowance a plan
+/// should ever declare is `starting_asset: spending_account → executor`,
+/// funding the guard's own one-time `transferFrom` of `legs[0].exact_in` (not
+/// the whole declared `principal`; see [`PlanRejection::MissingAllowance`] /
+/// [`PlanRejection::UnexpectedAllowance`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Allowance {
     pub token: Address20,
@@ -50,14 +60,25 @@ pub struct CallbackAuthorization {
 ///
 /// This type cannot execute or submit anything. It must never gain a private
 /// key, signature or raw signed transaction field.
+///
+/// Field order (also [`Self::canonical_bytes`]'s word order): `chain_id`,
+/// `executor`, `spending_account.address`, `spending_account.principal`,
+/// `starting_asset`, legs, allowances, `deadline_unix`, `min_final_balance`,
+/// callback pools.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BasePlan {
     pub chain_id: u64,
+    /// The guard contract address: the transaction target. The on-chain
+    /// guard rejects a plan whose `executor` is not itself, and the guard
+    /// allowance rule (see [`Allowance`]) is declared against this address.
+    pub executor: Address20,
     pub spending_account: SpendingAccount,
     pub starting_asset: Address20,
     pub legs: Vec<SwapLeg>,
     pub allowances: Vec<Allowance>,
     pub deadline_unix: u64,
+    /// An absolute floor, not a profit check; set it to `principal + margin`
+    /// to require a profit.
     pub min_final_balance: U256,
     pub callback_authorization: CallbackAuthorization,
 }
@@ -82,6 +103,10 @@ pub enum PlanRejection {
         address: Address20,
     },
     MissingAllowance {
+        token: Address20,
+        spender: Address20,
+    },
+    UnexpectedAllowance {
         token: Address20,
         spender: Address20,
     },
@@ -119,6 +144,10 @@ impl fmt::Display for PlanRejection {
             Self::MissingAllowance { token, spender } => write!(
                 f,
                 "no sufficient allowance for token {token:#x} to spender {spender:#x}"
+            ),
+            Self::UnexpectedAllowance { token, spender } => write!(
+                f,
+                "allowance for token {token:#x} to spender {spender:#x} is not used by the guard"
             ),
             Self::FeeAccountOnly => write!(f, "spending account has zero principal"),
         }
@@ -181,7 +210,11 @@ impl BasePlan {
     /// applicable [`PlanRejection`]; does not read chain state or execute
     /// anything.
     pub fn validate(&self, allowlist: &PoolAllowlist) -> Result<(), PlanRejection> {
-        if self.legs.is_empty() {
+        // A route of fewer than two legs can never be a real cycle: a single
+        // leg would need a pool that swaps a token for itself, which does
+        // not exist. Rejecting `len() < 2` here (not just `is_empty()`)
+        // keeps this in step with the guard's own `RouteTooShort` check.
+        if self.legs.len() < 2 {
             return Err(PlanRejection::RouteNotCyclic);
         }
         for leg in &self.legs {
@@ -243,28 +276,44 @@ impl BasePlan {
                 return Err(PlanRejection::UnauthorizedCallback { address: *pool });
             }
         }
-        for leg in &self.legs {
-            let has_allowance = self.allowances.iter().any(|allowance| {
-                allowance.token == leg.token_in
-                    && allowance.spender == leg.pool
-                    && allowance.amount >= leg.exact_in
-            });
-            if !has_allowance {
-                return Err(PlanRejection::MissingAllowance {
-                    token: leg.token_in,
-                    spender: leg.pool,
+        // The guard pulls `first_leg.exact_in` of `starting_asset` from the
+        // spending account to itself, then pays every pool from its own
+        // balance in the swap callback: the only real allowance a plan
+        // should declare is `starting_asset: spending_account → executor`.
+        // Exactly one entry is allowed; anything else (wrong token/spender,
+        // or a second entry) is unexpected, even if it would otherwise be
+        // valid on its own.
+        let mut found_guard_allowance = false;
+        let mut sufficient_guard_allowance = false;
+        for allowance in &self.allowances {
+            let is_guard_allowance =
+                allowance.token == self.starting_asset && allowance.spender == self.executor;
+            if !is_guard_allowance || found_guard_allowance {
+                return Err(PlanRejection::UnexpectedAllowance {
+                    token: allowance.token,
+                    spender: allowance.spender,
                 });
             }
+            found_guard_allowance = true;
+            sufficient_guard_allowance = allowance.amount >= first_leg.exact_in;
+        }
+        if !found_guard_allowance || !sufficient_guard_allowance {
+            return Err(PlanRejection::MissingAllowance {
+                token: self.starting_asset,
+                spender: self.executor,
+            });
         }
         Ok(())
     }
 
     /// Deterministic ABI-style encoding: every field as a 32-byte big-endian
     /// word (addresses left-padded), dynamic arrays as a length word followed
-    /// by their elements, in struct field order. Never serde JSON.
+    /// by their elements, in struct field order (see the field-order note on
+    /// [`BasePlan`]). Never serde JSON.
     pub fn canonical_bytes(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&word_u64(self.chain_id));
+        bytes.extend_from_slice(&word_address(self.executor));
         bytes.extend_from_slice(&word_address(self.spending_account.address));
         bytes.extend_from_slice(&word_u256(self.spending_account.principal));
         bytes.extend_from_slice(&word_address(self.starting_asset));

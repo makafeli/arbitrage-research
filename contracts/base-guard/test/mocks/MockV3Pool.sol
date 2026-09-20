@@ -10,6 +10,10 @@ import {IERC20, IUniswapV3SwapCallback} from "../../src/ArbGuard.sol";
 contract MockV3Pool {
     address public immutable token0;
     address public immutable token1;
+    /// The fee tier `ArbGuard.execute` compares against each leg's declared
+    /// `feeTier` (see `FeeTierMismatch`). Immutable, set at construction:
+    /// real Uniswap V3 pools carry a fixed fee tier too.
+    uint24 public immutable fee;
     uint256 public rateNumerator;
     uint256 public rateDenominator;
 
@@ -17,13 +21,15 @@ contract MockV3Pool {
         address token0_,
         address token1_,
         uint256 rateNumerator_,
-        uint256 rateDenominator_
+        uint256 rateDenominator_,
+        uint24 fee_
     ) {
         require(token0_ < token1_, "MockV3Pool: token order");
         token0 = token0_;
         token1 = token1_;
         rateNumerator = rateNumerator_;
         rateDenominator = rateDenominator_;
+        fee = fee_;
     }
 
     /// Lets a test make the next swap through this pool unprofitable.

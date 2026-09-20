@@ -12,26 +12,44 @@ import {PlanEncoding} from "./PlanEncoding.sol";
 /// pools. Every pool referenced by the accompanying test harness is a
 /// `MockV3Pool` test double, not a deployed Uniswap V3 pool.
 
-/// One exact-input swap leg of a [Plan]. There is no `feeTier` field: this
-/// harness's `MockV3Pool` has no fee tiers. `PlanEncoding`'s canonical digest
-/// still includes a fee tier per leg, supplied separately (see
-/// `PlanEncoding.sol`) so it can mirror `BasePlan::canonical_bytes` exactly.
+/// One exact-input swap leg of a [Plan]. `feeTier` is compared against the
+/// leg's pool's own `fee()` (`FeeTierMismatch`) and is part of the canonical
+/// digest (see `PlanEncoding.sol`), mirroring
+/// `crates/arb-evm/src/plan.rs::SwapLeg::fee_tier` exactly.
 struct Leg {
     address pool;
     address tokenIn;
     address tokenOut;
+    uint32 feeTier;
     uint256 exactIn;
     uint256 minOut;
 }
 
+/// A declared ERC-20 approval, part of the digest. The guard pays every pool
+/// from its own balance in the swap callback; pools never pull. The only
+/// allowance a plan should declare is `startingAsset: spendingAccount ->
+/// executor` (see `execute`'s `MissingAllowance`/`UnexpectedAllowance`).
+struct Allowance {
+    address token;
+    address spender;
+    uint256 amount;
+}
+
 /// A cyclic route that starts and ends in `startingAsset`, funded from
 /// `spendingAccount`'s existing allowance to the guard that executes it.
+/// Full mirror of `crates/arb-evm/src/plan.rs::BasePlan`, field for field, in
+/// the same order (see `PlanEncoding.canonicalBytes`).
 struct Plan {
+    uint256 chainId;
+    address executor;
     address spendingAccount;
+    uint256 principal;
     address startingAsset;
     Leg[] legs;
+    Allowance[] allowances;
     uint256 deadline;
     uint256 minFinalBalance;
+    address[] callbackPools;
 }
 
 interface IERC20 {
@@ -48,6 +66,7 @@ interface IUniswapV3Pool {
         uint160 sqrtPriceLimitX96,
         bytes calldata data
     ) external returns (int256 amount0, int256 amount1);
+    function fee() external view returns (uint24);
 }
 
 interface IUniswapV3SwapCallback {
@@ -79,6 +98,8 @@ contract ArbGuard is IUniswapV3SwapCallback {
 
     error ZeroOwner();
     error NotOwner();
+    error WrongChain(uint256 expected, uint256 actual);
+    error WrongExecutor(address executor);
     error DeadlinePassed();
     error RouteTooShort();
     error RouteNotCyclic();
@@ -86,7 +107,11 @@ contract ArbGuard is IUniswapV3SwapCallback {
     error ExactInMismatch(uint256 legIndex, uint256 received, uint256 exactIn);
     error ExactInTooLarge();
     error UnsupportedTarget(address target);
+    error FeeTierMismatch(uint256 legIndex, uint24 poolFee, uint32 planFee);
+    error FeeAccountOnly();
     error InsufficientPrincipal();
+    error MissingAllowance();
+    error UnexpectedAllowance(address token, address spender);
     error InsufficientOutput(uint256 legIndex, uint256 received, uint256 required);
     error InsufficientFinalBalance(uint256 required, uint256 actual);
     error SweepFailed();
@@ -108,7 +133,12 @@ contract ArbGuard is IUniswapV3SwapCallback {
     /// never pulled and no leg is ever left half-settled.
     function execute(Plan calldata plan) external {
         if (msg.sender != owner) revert NotOwner();
+        if (plan.chainId != block.chainid) revert WrongChain(block.chainid, plan.chainId);
+        if (plan.executor != address(this)) revert WrongExecutor(plan.executor);
         if (block.timestamp > plan.deadline) revert DeadlinePassed();
+        // Rust's `validate()` allows a 1-leg cycle only in theory (a pool
+        // that swaps a token for itself does not exist); the guard is
+        // stricter and always requires at least two legs.
         if (plan.legs.length < 2) revert RouteTooShort();
         if (
             plan.legs[0].tokenIn != plan.startingAsset
@@ -123,6 +153,68 @@ contract ArbGuard is IUniswapV3SwapCallback {
         }
         for (uint256 i = 0; i < plan.legs.length; i++) {
             if (!isAllowedPool[plan.legs[i].pool]) revert UnsupportedTarget(plan.legs[i].pool);
+        }
+        for (uint256 i = 0; i < plan.legs.length; i++) {
+            uint24 poolFee = IUniswapV3Pool(plan.legs[i].pool).fee();
+            if (poolFee != plan.legs[i].feeTier) {
+                revert FeeTierMismatch(i, poolFee, plan.legs[i].feeTier);
+            }
+        }
+
+        if (plan.principal == 0) revert FeeAccountOnly();
+        // Pre-accounting: the declared principal must really be there before
+        // anything is pulled, mirroring `crates/arb-evm/src/plan.rs`'s
+        // `InsufficientPrincipal` (`legs[0].exact_in > principal`), plus the
+        // guard's own check that the declared principal is not a fiction.
+        if (
+            plan.legs[0].exactIn > plan.principal
+                || IERC20(plan.startingAsset).balanceOf(plan.spendingAccount) < plan.principal
+        ) {
+            revert InsufficientPrincipal();
+        }
+
+        // Declared allowance: exactly one entry funding the guard, linking
+        // the on-chain principal pull to the digest. This validates the
+        // *declared* allowance only; the real allowance is still enforced by
+        // `transferFrom` in `_pullPrincipal` below.
+        bool foundAllowance;
+        bool sufficientAllowance;
+        for (uint256 i = 0; i < plan.allowances.length; i++) {
+            Allowance calldata allowance = plan.allowances[i];
+            bool isGuardAllowance =
+                allowance.token == plan.startingAsset && allowance.spender == address(this);
+            if (!isGuardAllowance || foundAllowance) {
+                revert UnexpectedAllowance(allowance.token, allowance.spender);
+            }
+            foundAllowance = true;
+            sufficientAllowance = allowance.amount >= plan.legs[0].exactIn;
+        }
+        if (!foundAllowance || !sufficientAllowance) revert MissingAllowance();
+
+        // callbackPools must equal the set of leg pools: every callback pool
+        // is a leg pool and every leg pool is listed.
+        // ponytail: O(n^2) over a handful of legs
+        for (uint256 i = 0; i < plan.callbackPools.length; i++) {
+            address callbackPool = plan.callbackPools[i];
+            bool isLegPool;
+            for (uint256 j = 0; j < plan.legs.length; j++) {
+                if (plan.legs[j].pool == callbackPool) {
+                    isLegPool = true;
+                    break;
+                }
+            }
+            if (!isLegPool) revert UnauthorizedCallback(callbackPool);
+        }
+        for (uint256 i = 0; i < plan.legs.length; i++) {
+            address legPool = plan.legs[i].pool;
+            bool isListed;
+            for (uint256 j = 0; j < plan.callbackPools.length; j++) {
+                if (plan.callbackPools[j] == legPool) {
+                    isListed = true;
+                    break;
+                }
+            }
+            if (!isListed) revert UnauthorizedCallback(legPool);
         }
 
         _pullPrincipal(plan.startingAsset, plan.spendingAccount, plan.legs[0].exactIn);
@@ -150,7 +242,9 @@ contract ArbGuard is IUniswapV3SwapCallback {
             revert InsufficientFinalBalance(plan.minFinalBalance, finalBalance);
         }
 
-        emit RouteExecuted(_planDigest(plan), finalBalance);
+        // The digest IS the off-chain `BasePlan` digest now, proven equal by
+        // `test_fixturePlanExecutesWithBasePlanDigest`.
+        emit RouteExecuted(PlanEncoding.digest(plan), finalBalance);
     }
 
     /// The only place this guard ever pays a pool: it trusts `msg.sender`
@@ -216,30 +310,10 @@ contract ArbGuard is IUniswapV3SwapCallback {
         if (!ok) revert InsufficientPrincipal();
     }
 
-    /// `RouteExecuted.digest` IS NOT the off-chain `BasePlan` digest. Plainly:
-    /// this is a guard-local EXECUTION digest, for observability only, built
-    /// from only the data this on-chain `Plan` actually carries: principal is
-    /// the amount actually pulled (`legs[0].exactIn`), fee tiers are zero
-    /// (this harness's `Plan`/`Leg` carry none), allowances are empty and the
-    /// callback pool set is the route's own legs. It is never compared
-    /// against, and must never be assumed equal to, an off-chain `BasePlan`
-    /// digest for the "same" economic route. The byte-for-byte encoder
-    /// parity claim with
-    /// `crates/arb-evm/src/plan.rs::BasePlan::canonical_bytes` is proven only
-    /// by the fixtures in `test/PlanEncoding.t.sol` and
-    /// `crates/arb-evm/tests/plan_parity.rs`, which call `PlanEncoding.digest`
-    /// directly with the full field set (real principal, per-leg fee tiers,
-    /// allowances and an arbitrary callback pool set) — not through this
-    /// function.
-    function _planDigest(Plan calldata plan) private view returns (bytes32) {
-        uint64[] memory feeTiers = new uint64[](plan.legs.length);
-        PlanEncoding.Allowance[] memory allowances = new PlanEncoding.Allowance[](0);
-        address[] memory callbackPools = new address[](plan.legs.length);
-        for (uint256 i = 0; i < plan.legs.length; i++) {
-            callbackPools[i] = plan.legs[i].pool;
-        }
-        return PlanEncoding.digest(
-            plan, block.chainid, plan.legs[0].exactIn, feeTiers, allowances, callbackPools
-        );
-    }
+    // `RouteExecuted.digest` is now the off-chain `BasePlan` digest: `Plan`
+    // carries every field `BasePlan` does, so `PlanEncoding.digest(plan)` in
+    // `execute` needs no guard-supplied substitutes. Proven equal by
+    // `test_fixturePlanExecutesWithBasePlanDigest`, which executes the
+    // committed fixture plan through mock pools and checks the fixture's own
+    // `expected_digest` against the event this contract actually emits.
 }
