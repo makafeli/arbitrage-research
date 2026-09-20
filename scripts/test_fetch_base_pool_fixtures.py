@@ -76,11 +76,9 @@ class FixtureTests(unittest.TestCase):
         # Ties the fixture to the reviewed pool identities: a fetch of the wrong address or an
         # upgraded proxy would still be self-consistent, but not registry-consistent.
         registry = json.loads((ROOT / "docs/registries/initial-identities.json").read_text())
-        expected = {
-            p["identity"]["address"]: p["observed_runtime_sha256"]
-            for chain in registry["chains"]
-            for p in chain.get("pools", [])
-        }
+        chain = next(c for c in registry["chains"] if c["network_id"] == "base-mainnet")
+        expected = {p["identity"]["address"]: p["observed_runtime_sha256"] for p in chain["pools"]}
+        self.assertEqual({p["address"] for p in self.fixture["pools"]}, set(expected))
         for pool in self.fixture["pools"]:
             self.assertEqual("sha256:" + pool["code_sha256"], expected[pool["address"]])
 
