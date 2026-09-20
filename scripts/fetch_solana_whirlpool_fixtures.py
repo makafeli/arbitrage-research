@@ -98,7 +98,7 @@ def elf_len(data: bytes) -> int:
     """Byte length of the ELF64 image declared by its own headers: the end of the
     program-header table, the section-header table and every file-backed segment
     and section. Trailing zero bytes inside that range belong to the file."""
-    assert data[:5] == b"\x7fELF\x02", "not an ELF64 image"
+    assert data[:5] == b"\x7fELF\x02" and data[5] == 1, "not a little-endian ELF64 image"
     e_phoff, e_shoff = struct.unpack_from("<QQ", data, 32)
     e_phentsize, e_phnum, e_shentsize, e_shnum = struct.unpack_from("<HHHH", data, 54)
     end = max(e_phoff + e_phentsize * e_phnum, e_shoff + e_shentsize * e_shnum)
@@ -160,7 +160,6 @@ def main(argv: list[str]) -> int:
     elf_padded = pd_bytes[PROGRAMDATA_HEADER:]
     elf = elf_padded[: elf_len(elf_padded)]
     assert elf_padded[len(elf) :].count(0) == len(elf_padded) - len(elf), "non-zero bytes after the ELF image"
-    (out / "whirlpool-program.so").write_bytes(elf)
 
     # Pool accounts (one pass to learn tick spacing / current tick / mints / vaults).
     pools = {}
@@ -240,6 +239,9 @@ def main(argv: list[str]) -> int:
         "pools": pools,
         "accounts": [records[a] for a in addresses],
     }
+    # Both files are written only after every self-check passed, so a failed run never
+    # leaves a fresh .so next to a stale accounts.json.
+    (out / "whirlpool-program.so").write_bytes(elf)
     (out / "accounts.json").write_text(json.dumps(fixture, indent=2) + "\n")
     missing = [a for a in addresses if not records[a]["exists"]]
     print(json.dumps({"slot": batch["context"]["slot"], "accounts": len(addresses), "missing": missing, "so_file_len": len(elf)}))

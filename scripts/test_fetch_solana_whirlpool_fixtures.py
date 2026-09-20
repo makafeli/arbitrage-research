@@ -7,6 +7,7 @@ import hashlib
 import importlib.util
 import json
 import pathlib
+import struct
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -66,6 +67,55 @@ class FixtureTests(unittest.TestCase):
         self.assertEqual(len(elf), prov["so_file_len"])
         self.assertEqual(hashlib.sha256(elf).hexdigest(), prov["so_file_sha256"])
         self.assertEqual(prov["genesis_hash"], fetch.MAINNET_GENESIS)
+
+    def test_elf_len_takes_the_farthest_file_backed_end(self):
+        # Synthetic ELF64 header: 1 program header, 3 section headers. The NOBITS section
+        # claims the largest range and must be ignored; the PROGBITS section wins.
+        e_phoff, e_shoff = 64, 120
+        hdr = bytearray(b"\x7fELF\x02\x01\x01" + b"\0" * 57)
+        struct.pack_into("<QQ", hdr, 32, e_phoff, e_shoff)
+        struct.pack_into("<HHHH", hdr, 54, 56, 1, 64, 3)
+        prog = bytearray(56)
+        struct.pack_into("<QQQQ", prog, 8, 400, 0, 0, 50)  # segment file range 400..450
+        sect = bytearray(64 * 3)
+        struct.pack_into("<I", sect, 64 + 4, 8)  # NOBITS: ignored
+        struct.pack_into("<QQ", sect, 64 + 24, 9_000, 9_000)
+        struct.pack_into("<I", sect, 128 + 4, 1)  # PROGBITS at 500..600
+        struct.pack_into("<QQ", sect, 128 + 24, 500, 100)
+        self.assertEqual(fetch.elf_len(bytes(hdr + prog + sect)), 600)
+        # Without file-backed ranges the section table's own end (120 + 3 * 64) wins.
+        struct.pack_into("<QQ", sect, 128 + 24, 0, 0)
+        struct.pack_into("<QQQQ", prog, 8, 0, 0, 0, 0)
+        self.assertEqual(fetch.elf_len(bytes(hdr + prog + sect)), 312)
+        with self.assertRaises(AssertionError):
+            fetch.elf_len(b"\x7fELF\x02\x02" + bytes(58))  # big-endian
+
+    def test_hashes_match_the_identity_registry(self):
+        registry = json.loads((ROOT / "docs/registries/initial-identities.json").read_text())
+        chain = next(c for c in registry["chains"] if c["network_id"] == "solana-mainnet")
+        venue = chain["venue"]
+        prov = self.fixture["provenance"]
+        self.assertEqual(venue["program_data"]["address"], prov["programdata"])
+        self.assertEqual("sha256:" + prov["programdata_sha256"], venue["observed_program_data_sha256"])
+        self.assertEqual("sha256:" + prov["elf_sha256"], venue["observed_elf_sha256"])
+        self.assertEqual(str(prov["programdata_last_deployed_slot"]), venue["last_upgrade_slot"])
+        self.assertEqual(set(self.fixture["pools"]), {p["identity"]["address"] for p in chain["pools"]})
+
+    def test_tick_array_records_belong_to_their_pool_and_start(self):
+        # Replays the fetch-time self-check offline: swapping two records' bytes keeps
+        # every hash consistent but breaks the start index / pool binding.
+        disc = hashlib.sha256(b"account:TickArray").digest()[:8]
+        for pool, info in self.fixture["pools"].items():
+            for start, addr in zip(info["tick_array_starts"], info["tick_arrays"]):
+                rec = self.accounts[addr]
+                if not rec["exists"]:
+                    continue
+                data = base64.b64decode(rec["data_base64"])
+                self.assertEqual(rec["owner"], fetch.WHIRLPOOL_PROGRAM)
+                self.assertEqual(len(data), fetch.TICK_ARRAY_LEN)
+                self.assertEqual(data[:8], disc)
+                self.assertEqual(int.from_bytes(data[8:12], "little", signed=True), start)
+                self.assertEqual(fetch.b58encode(data[-32:]), pool)
 
     def test_so_file_is_the_complete_elf_image(self):
         # A loader reads the section-header table by offset; a file cut short by even
