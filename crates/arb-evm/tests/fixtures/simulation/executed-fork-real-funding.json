@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "plan_digest": "sha256:b6c960588b264e299c77dcc95fb7075aa029246b5f8dcce4ba3bcf08bc705de7",
+  "state": {
+    "kind": "PINNED_FORK",
+    "chain_id": 8453,
+    "block_number": 22123456,
+    "block_hash": "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "artifact": {
+    "guard_code_hash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "toolchain": "foundry 1.8.3 / solc 0.8.28"
+  },
+  "overrides": [
+    {
+      "kind": "CODE",
+      "account": "0x7777777777777777777777777777777777777777",
+      "token": null,
+      "spender": null,
+      "amount": null
+    }
+  ],
+  "outcome": {
+    "status": "EXECUTED",
+    "emitted_digest": "sha256:b6c960588b264e299c77dcc95fb7075aa029246b5f8dcce4ba3bcf08bc705de7",
+    "final_balance": "1050",
+    "gas_used": 148213
+  },
+  "executed_at": "2026-09-18T09:00:00Z"
+}

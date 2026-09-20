@@ -23,3 +23,5 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 ```
 
 The [verified GitHub CI run](https://github.com/makafeli/arbitrage-research/actions/runs/34709107929) passed formatting, Clippy across all workspace targets and all 19 Rust tests on the pinned toolchain. The initial workspace lacked local Rust tooling; CI supplied the compiler and generated the reviewed lockfile. This verifies the foundation's source behavior, not protocol arithmetic, durable execution controls or a trading strategy.
+
+`arb-evm::simulation` (ARB-030, half 1) holds the simulation manifest contract and the exact-plan evidence gate. No simulation runner exists yet; `CapabilityReport.full_transaction_simulation` is still `false`, and no record can carry `SIMULATED` from this code alone.
