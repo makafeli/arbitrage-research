@@ -13,6 +13,8 @@ Claude Code loads it via the import below:
 - Railway: project `arbitrage-research` (`c7cea88d-24b8-45dc-9602-7c0c272f1da7`), environment `production` (`5ff4044a-b0ac-4b02-b9cd-888cd91a3fee`), region `europe-west4`. Services: `web`, `control-api`, `base-research-worker`, `postgres`. Railway builds from GitHub `main`; never upload a local tree with the Railway CLI.
 - Operational handoff (Dutch): `docs/ARBITRAGE-RESEARCH-HANDOFF-2026-09-18.md`. Read §2, §6, §7 and §9.4 before touching production or the worker. Live operations ticket: issue #58.
 - Runbooks: `docs/BASE-WORKER-LAUNCH.md`, `docs/POSTGRES-LEAF-REPAIR.md`, `deploy/RAILWAY.md`.
+- Backtesting and historical-evidence plan: `docs/ARBITRAGE-BACKTESTING-DATA-HANDOFF-2026-09-21.md` (work packages BT-01…BT-08, gates A–D). A proposal, not executed; BT-ids are not issue numbers.
+- Go/no-go evidence note for the Base 2-pool strategy (2026-09-21): `docs/GO-NO-GO-BASE-2POOL-STRATEGY-2026-09-21.md`. Recommendation only; the decision stays with the owner.
 
 ### Local checks (mirror `.github/workflows/ci.yml`)
 
