@@ -14,6 +14,7 @@ Claude Code loads it via the import below:
 - Operational handoff (Dutch): `docs/ARBITRAGE-RESEARCH-HANDOFF-2026-09-18.md`. Read §2, §6, §7 and §9.4 before touching production or the worker. Live operations ticket: issue #58.
 - Runbooks: `docs/BASE-WORKER-LAUNCH.md`, `docs/POSTGRES-LEAF-REPAIR.md`, `deploy/RAILWAY.md`.
 - Backtesting and historical-evidence plan: `docs/ARBITRAGE-BACKTESTING-DATA-HANDOFF-2026-09-21.md` (work packages BT-01…BT-08, gates A–D). A proposal, not executed; BT-ids are not issue numbers.
+- Go/no-go evidence note for the Base 2-pool strategy (2026-09-21): `docs/GO-NO-GO-BASE-2POOL-STRATEGY-2026-09-21.md`. Recommendation only; the decision stays with the owner.
 
 ### Local checks (mirror `.github/workflows/ci.yml`)
 
