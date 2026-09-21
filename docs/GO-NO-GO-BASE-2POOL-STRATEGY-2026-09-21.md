@@ -16,7 +16,7 @@ The only strategy implemented and run so far is `cyclic-exact-in-2leg-v1`: quote
 
 ### 2.2 What other searchers did on the same pools (Dune, 28 days, 2026-08-24 … 2026-09-20)
 
-Source and method: `dex.trades` + `base.transactions` on Dune, ad-hoc `dune query run-sql` (22.25 of 2,500 credits in total, no saved queries, no purchases). A "cycle" is a transaction whose first sold token equals its last bought token. Net = gross delta of the swap legs − (`gas_used × gas_price + l1_fee`) at the day's median USDC/WETH price from pool `0xd0b5…f224`. Full query text and per-day/per-route results are on issue #189 (comments of 2026-09-21); the appendix repeats the tables that matter.
+Source and method: `dex.trades` + `base.transactions` on Dune, ad-hoc `dune query run-sql` (30.2 of 2,500 credits in total, including the §2.4 check, no saved queries, no purchases). A "cycle" is a transaction whose first sold token equals its last bought token. Net = gross delta of the swap legs − (`gas_used × gas_price + l1_fee`) at the day's median USDC/WETH price from pool `0xd0b5…f224`. Full query text and per-day/per-route results are on issue #189 (comments of 2026-09-21); the appendix repeats the tables that matter.
 
 | 28 days on Base | value |
 |---|---|
@@ -36,19 +36,25 @@ On 2026-09-20 alone (our OBSERVE day): 1,387 cycles touched our pools, 689 were 
 
 ### 2.3 The wider Base cycle market
 
-Top 40 routes ranked by net-positive transactions: 35 have a **median net of USD 0.001–0.02 per transaction** at median sizes of USD 4–450, shared by 25–137 bots each (dust-level backrunning). 5 routes (`metric` / `tessera_v` pairs) show medians of USD 180–3,906 per trade; these are **unverified artifacts** until each transaction is reconciled (handoff §8): first/last-amount deltas break on branching flows and flash loans. Neither of our pools appears in any top-40 route.
+Top 40 routes ranked by net-positive transactions: 35 have a **median net of USD 0.001–0.02 per transaction** at median sizes of USD 4–450, shared by 25–137 bots each (dust-level backrunning). 5 routes (`metric` / `tessera_v` pairs) show medians of USD 180–3,906 per trade; §2.4 checks them and finds no profit. Neither of our pools appears in any top-40 route.
+
+### 2.4 Outlier check: the "rich" routes are settlement flows, not arbitrage
+
+Method (Dune, ≈ 5 credits): took the 25 most extreme `metric`/`tessera_v`/`pancakeswap → tessera_v` transactions of 2026-09-14 … 09-20 (query D, per-leg amounts), then for 8 of them summed every ERC-20 transfer (`erc20_base.evt_Transfer`, query E) and every native ETH value transfer (`base.traces`, query F) per address, and for 3 of them listed every address with a non-zero balance change (query G).
+
+Finding: the two "legs" never chain. Example `0xcd8721f2…` (2026-09-17): leg 1 sells 0.0019 WETH for 4.56 USDC on a PancakeSwap pool; leg 2 sells 2.863 WETH for 7,003.63 USDC on the `tessera_v` contract `0x5555…9e3e`. The closed-cycle heuristic reads that as "0.0019 WETH in, 2.861 WETH out" and reports thousands of dollars of profit. The real balance changes: counterparty `0x3dbe…` +7,003.63 USDC / −2.863 WETH, counterparty `0x69a9…` −6,999.78 USDC / +2.861 WETH, fee receiver `0x7c97…` +0.70 USDC (0.01 % of the order), **the searcher contract `0xa654…` and its EOA: 0 in every token, 0 native ETH**. The other checked transactions look the same (searcher net 0 to 0.0002 WETH ≈ USD 0–0.50). `tessera_v` is an order-settlement venue; the "bots" are fillers matching large orders with a tiny public-pool hedge, earning nothing on-chain beyond a sub-dollar fee. **Conclusion: the outliers are artifacts of the first/last-amount heuristic; there is no hidden large-margin route in the top 40.**
 
 ## 3. What the evidence means
 
 1. **The route, not the timing, is the limit.** The gap on our pair opens a few times a day on volatile days, lasts about one block (2 s) and is taken by searchers trading USD 1k–85k. A 50 s sampler with a 1 USDC probe cannot observe it; more OBSERVE hours will not change the result.
 2. **Even a perfect executor on this pair competes for ≈ USD 44 / day in total**, needs ≈ USD 10k of working capital per trade, block-level monitoring and same-block execution, and shares the pie with at least four established bots. Upper bound for a new entrant: a few hundred USD per month before infrastructure cost.
-3. **The rest of Base is not better for a newcomer.** Realistic routes pay cents; the routes that look rich are unverified and dominated by 3–16 bots.
-4. **Flash loans do not change this.** They lift the capital constraint, not the speed or the size of the gap; the repo excludes them until a lender is verified (#81, M7).
+3. **The rest of Base is not better for a newcomer.** Realistic routes pay cents; the routes that looked rich are settlement flows with zero searcher profit (§2.4).
+4. **Flash loans do not change this.** A flash loan is borrowed money for one block: it removes the need to hold USD 10k, it does not make the gap larger. The 46 winners already sized their trades to the pool depth (USD 1k–85k), so the pie stays ≈ USD 44 / day. A lender fee (Aave v3: 0.05 %) is larger than the median winner's return (0.023 %) and would turn most winners into losers; a zero-fee lender only keeps the same cents. The repo excludes flash loans until a lender is verified (#81, M7).
 
 ## 4. Options
 
 **Option A — No-go for the 2-pool strategy as a production target (recommended).**
-Keep the platform (worker, ingestion, dashboard, evidence chain) as research infrastructure. Stop M5/M6 build-out for this strategy. Record the decision on #189 and the M4/M5 epics. Next research step, if any: BT-04 reconciliation of the 70 unbalanced exact-route transactions and the `tessera`/`metric` outliers, to confirm the market picture before choosing a new direction.
+Keep the platform (worker, ingestion, dashboard, evidence chain) as research infrastructure. Stop M5/M6 build-out for this strategy. Record the decision on #189 and the M4/M5 epics. Next research step, if any: BT-04 reconciliation of the 70 unbalanced exact-route transactions (the outlier routes are already settled, §2.4) before choosing a new direction.
 
 **Option B — Go, but as a different product.**
 Change the strategy to what the winners do: multi-DEX 3-leg routes, block-level (2 s) state tracking, same-block execution, USD 10k+ capital. That is M3–M6 work over months, competing for cents against bots that already own the fast lane. Only defensible if the owner accepts that ceiling in writing first.
