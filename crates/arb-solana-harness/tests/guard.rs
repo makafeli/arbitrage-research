@@ -333,8 +333,9 @@ fn guard_fails_when_the_token_account_is_owned_by_another_program() {
 /// would also have to pass — it fails for exactly one reason (the Whirlpool
 /// program is not loaded into this offline harness): no instruction
 /// executed, so the swap-leg encoding and account layout remain unproven in
-/// this harness. This is NOT a full-route success fixture — see ARB-029's
-/// remaining acceptance note.
+/// this harness. This is NOT a full-route success fixture — see
+/// `tests/mainnet_route.rs` (ARB-029) for a real two-leg cycle executed
+/// against the real Whirlpool program and real pinned mainnet state.
 #[test]
 fn compute_budget_prefix_alone_is_accepted_by_a_real_runtime() {
     let (mut svm, payer) = new_svm_with_payer();

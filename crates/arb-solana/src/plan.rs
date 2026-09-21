@@ -9,9 +9,10 @@
 //! signature and no serialized signed transaction; nothing here executes,
 //! simulates or broadcasts anything. Signing and live execution are a later,
 //! separately reviewed increment. The `arb-solana-harness` crate proves
-//! offline (litesvm) that the guard fails atomically and that the plan
-//! assembles into one transaction; the swap legs are not executed there yet,
-//! and nothing runs on a live cluster.
+//! offline (litesvm) that the guard fails atomically, that the plan
+//! assembles into one transaction, and (`tests/mainnet_route.rs`, ARB-029)
+//! that a real two-leg cycle executes against the real Whirlpool program and
+//! real pinned mainnet state; nothing runs on a live cluster.
 
 use crate::WHIRLPOOL_PROGRAM;
 use arb_adapter_api::{AdapterError, Result};
