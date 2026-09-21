@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "goal": "Implement a reproducible Rust research and paper platform on Base and Solana, using the approved dashboard, with evidence-backed ticket delivery.",
-  "updated_on": "2026-09-19",
+  "updated_on": "2026-09-20",
   "branch": "main",
   "autonomous_background_runner": false,
   "completion_rule": "A source implementation is not completion. Original ticket acceptance and dependency gates must have reviewable evidence before closing its GitHub issue.",
@@ -871,9 +871,10 @@
       ],
       "evidence": [
         "2026-09-18 wave 3 bounded implementation (Sonnet worker + Opus captain, AI-assisted, no independent human review): PR #167 (merged 77a3af70d637b4d9f36522fe14e96946761050d7): crates/arb-evm/src/plan.rs (BasePlan, PoolAllowlist, PlanRejection, canonical ABI-style bytes + sha256 digest), crates/arb-evm/tests/plan.rs (10 tests: valid cycle + digest stability/sensitivity, unsupported pool/token, non-cyclic route, leg discontinuity, insufficient final balance with amounts, unauthorized callback, missing allowance, fee-account-only, canonical length); validated on main 30a433780be7f17e5cbd19357f0bfeb7b91abd7f (https://github.com/makafeli/arbitrage-research/actions/runs/35345614485, all CI jobs passed). Evidence only: issue stays open. Bounded plan half only; the on-chain guard artifact and the fork/validator harness half are parked until fork tooling is added to the workspace (captain decision), and real captures are still required for acceptance.",
-        "2026-09-18 wave 4 harness half (Sonnet worker + Opus captain, AI-assisted, no independent human review): PR #170 (merged 5297abb0fa9aebe90eae3448605e9c42dd02b006) adds the offline foundry/litesvm tooling; PR #171 (merged d384d768d65ff953b31d1aa56bc1fff37f3c7af7): contracts/base-guard/src/ArbGuard.sol (owner-only execute(Plan) over an immutable pool allowlist, atomic revert on insufficient principal/final balance, unauthorized or repeated callback, unsupported target), PlanEncoding.sol with the same canonical bytes + sha256 as arb_evm::plan::BasePlan::canonical_bytes, mocks and 18 forge tests plus two committed digest-parity fixtures checked from both languages. Offline in-process forge harness against test doubles only: no fork run, no real pool state, no deployed guard, no RPC/fork URL, no key material. Validated on main 14542286d9e7c2682017ea929a6c506897f6e1e4 (#175; Validate project https://github.com/makafeli/arbitrage-research/actions/runs/35420430884, all main workflows passed). Evidence only: issue #42 stays open."
+        "2026-09-18 wave 4 harness half (Sonnet worker + Opus captain, AI-assisted, no independent human review): PR #170 (merged 5297abb0fa9aebe90eae3448605e9c42dd02b006) adds the offline foundry/litesvm tooling; PR #171 (merged d384d768d65ff953b31d1aa56bc1fff37f3c7af7): contracts/base-guard/src/ArbGuard.sol (owner-only execute(Plan) over an immutable pool allowlist, atomic revert on insufficient principal/final balance, unauthorized or repeated callback, unsupported target), PlanEncoding.sol with the same canonical bytes + sha256 as arb_evm::plan::BasePlan::canonical_bytes, mocks and 18 forge tests plus two committed digest-parity fixtures checked from both languages. Offline in-process forge harness against test doubles only: no fork run, no real pool state, no deployed guard, no RPC/fork URL, no key material. Validated on main 14542286d9e7c2682017ea929a6c506897f6e1e4 (#175; Validate project https://github.com/makafeli/arbitrage-research/actions/runs/35420430884, all main workflows passed). Evidence only: issue #42 stays open.",
+        "2026-09-20 wave 5 linkage half (Sonnet worker + Opus captain, AI-assisted, no independent human review): PR #212 (merged 86cd5e10e866eb8be1d731305f027bfcfd8f115c): full Rust BasePlan/PlanDigest mirror of the guard's Plan (chain, executor, fee tier, callback set), single guard-allowance model on both sides, principal as a guard-checked balance floor, shared parity fixture proving RouteExecuted.digest == BasePlan::digest() from both languages (forge 35 tests, cargo test -p arb-evm 121). Review gate: standards-reviewer APPROVE, spec-reviewer PASS WITH NOTES (Opus 5, fresh context, read-only). Validated on main 86cd5e10e866eb8be1d731305f027bfcfd8f115c (https://github.com/makafeli/arbitrage-research/actions/runs/35521908661, all CI jobs passed). Still offline: test doubles only, no fork run, no real pool state, no RPC/fork URL, no key material. Evidence only: issue #42 stays open."
       ],
-      "remaining_acceptance": "Local-fork fixtures with real Base pool state (captain-owned, one network fetch); guard digest vs plan digest linkage; reconcile the cross-half divergences recorded on #42 (Rust per-leg allowances vs the guard's allowlist checks). Then evaluate all original criteria with real Base captures."
+      "remaining_acceptance": "Local-fork fixtures with real Base pool state (captain-owned, one read-only public-RPC fetch, committed with provenance). Then evaluate all original criteria with real Base captures."
     },
     {
       "id": "ARB-029",
@@ -894,15 +895,17 @@
     {
       "id": "ARB-030",
       "issue_url": "https://github.com/makafeli/arbitrage-research/issues/44",
-      "state": "planned",
+      "state": "in_progress",
       "owner_role": "EVM engineer",
       "dependencies": [
         "ARB-018",
         "ARB-027",
         "ARB-028"
       ],
-      "evidence": [],
-      "remaining_acceptance": "Evaluate all original ticket acceptance criteria before closure."
+      "evidence": [
+        "2026-09-20 wave 6 half 1, offline (Sonnet worker + Opus captain, AI-assisted, no independent human review): PR #214 (merged 5c3e17ff618c2c2ae1264eafacb698d5bb7dcc31): crates/arb-evm/src/simulation.rs (SimulationManifest schema v1: plan digest, pinned fork block number/hash or synthetic fixture state, guard artifact hash, explicit state overrides, executed/reverted outcome) and bind(manifest, plan) -> ExactPlanEvidence | EvidenceGap (only an executed run on identified fork state can pass; any plan change invalidates the digest; missing block hash, fixture state or wrong chain is a capability gap; funding overrides set synthetic_funding and forbid a realized-market claim; final balance below the plan floor fails). 22 tests + 6 manifest fixtures (cargo test -p arb-evm 143). Review gate: standards-reviewer APPROVE WITH FIXES (applied), spec-reviewer PASS WITH NOTES (Opus 5, fresh context, read-only). Validated on main 5c3e17ff618c2c2ae1264eafacb698d5bb7dcc31 (https://github.com/makafeli/arbitrage-research/actions/runs/35522446110, all CI jobs passed). No simulation run, no fork runner, no RPC/fork URL, no engine/worker/API wiring; CapabilityReport.full_transaction_simulation stays false. Evidence only: issue #44 stays open."
+      ],
+      "remaining_acceptance": "Half 2 (captain-owned, after the OBSERVE run, needs a Base RPC URL = owner decision): anvil fork pinned at a Base block with explicit overrides, guard deploy and execute, manifest emission, reproduce one complete simulation from the stored manifest, guard artifact hash checked against guard_code_hash, engine/worker wiring and the capability flip. Then evaluate all original criteria."
     },
     {
       "id": "ARB-031",
