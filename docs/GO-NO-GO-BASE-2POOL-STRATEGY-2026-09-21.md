@@ -1,6 +1,6 @@
 # Go/no-go note: the Base 2-pool USDC/WETH cyclic strategy
 
-Date: 2026-09-21. Author: Claude (orchestrator session), at the owner's request. Status: **evidence note, decision pending with the owner.** Nothing in this note changes scope, tickets, deployments or the OBSERVE run.
+Date: 2026-09-21. Author: Claude (orchestrator session), at the owner's request. Status: **decided — the owner chose Option A (no-go) on 2026-09-21**, recorded on #189, EPIC-05 (#8), EPIC-06 (#10) and ARB-050 (#64). Nothing in this note changes scope, tickets, deployments or the OBSERVE run.
 
 ## 1. The question
 
