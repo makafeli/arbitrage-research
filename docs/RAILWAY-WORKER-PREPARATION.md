@@ -21,12 +21,22 @@ runs cannot pass. Latest runs govern retries. Any additional failed main/push
 workflow also blocks. Unknown response types, truncated results, redirects,
 network errors and exhausted waiting are failures, not permission to deploy.
 
-It makes at most 12 API requests, waits 20 seconds between pending results and
-has a 360-second wall limit. It needs no GitHub/Railway token or RPC credential.
+It makes at most 30 API requests, waits 20 seconds between pending results and
+has a 660-second wall limit. It needs no GitHub/Railway token or RPC credential.
 An API quota failure can legitimately prevent a deployment; rerun only after
 checking the recorded reason. This does not promise that the UI checkbox is true,
 that builds themselves wait, or that administrators cannot override deployment
 configuration. It enforces runtime admission through the explicit pre-deploy step.
+
+The gate also reads an optional `ARB_CI_GATE_GITHUB_TOKEN` environment variable
+(#181). Unset, it behaves exactly as above with an unauthenticated request; set,
+it sends the value as an `Authorization: Bearer` header to reduce Railway's shared
+egress hitting GitHub's per-IP rate limit. The owner creates this token themselves
+as a fine-grained personal access token scoped to `makafeli/arbitrage-research`
+only, with read-only `Actions` permission and a short expiry, then sets it on the
+`base-research-worker` service; the orchestrator does not create tokens or
+secrets. A malformed value fails closed with `CI_TOKEN_REJECTED` before any
+request is sent, and the token is never logged or included in gate output.
 
 The subsequent finite start command is:
 
