@@ -30,6 +30,7 @@ jobs:
       - run: python scripts/test_postgres_leaf_repair.py -v
       - run: python scripts/test_backlog_summary.py -v
       - run: python scripts/test_history_gap_study.py -v
+      - run: python scripts/test_fetch_base_pool_fixtures.py -v
       - run: python scripts/test_pipeline_workflow.py
       - run: python .claude/hooks/test_guard_prod.py
       - run: python scripts/test_github_bootstrap.py
