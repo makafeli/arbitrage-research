@@ -1,5 +1,7 @@
 # Delivery goal
 
+**Status 2026-09-21: stopped.** The owner decided to stop the build-out after the no-go decision in [docs/GO-NO-GO-BASE-2POOL-STRATEGY-2026-09-21.md](docs/GO-NO-GO-BASE-2POOL-STRATEGY-2026-09-21.md). The goal below is kept as the historical record; it no longer authorizes new work.
+
 Build the Rust research platform described by the [PRD](docs/01-PRD.md), beginning with Base and Solana observation, reproducible replay and paper experiments, and connect the approved dashboard to authenticated services. Deliver the [68 specified implementation tickets](planning/TICKETS.md) with verifiable acceptance evidence.
 
 The user authorized parallel implementation and GitHub delivery on 12 September 2026. This document persists the goal and the work state. It does not activate an unattended `/goal` service or imply that work continues after a tool session ends.
