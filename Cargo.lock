@@ -260,7 +260,7 @@ dependencies = [
  "serde_json",
  "sha2 0.11.0",
  "sqlx",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "uuid",
 ]
@@ -2322,7 +2322,7 @@ dependencies = [
  "solana-transaction",
  "solana-transaction-context",
  "solana-transaction-error",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "wincode 0.5.5",
 ]
 
@@ -2797,7 +2797,7 @@ dependencies = [
  "rustc-hash",
  "rustls",
  "socket2",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "tracing",
  "web-time",
@@ -2819,7 +2819,7 @@ dependencies = [
  "rustls",
  "rustls-pki-types",
  "slab",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tinyvec",
  "tracing",
  "web-time",
@@ -3556,7 +3556,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_with",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "wincode 0.6.1",
  "zeroize",
 ]
@@ -3586,7 +3586,7 @@ dependencies = [
  "ark-serialize 0.5.0",
  "bytemuck",
  "solana-define-syscall 5.2.0",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -3745,7 +3745,7 @@ dependencies = [
  "curve25519-dalek",
  "solana-define-syscall 5.2.0",
  "subtle",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -4109,7 +4109,7 @@ dependencies = [
  "light-poseidon 0.2.0",
  "light-poseidon 0.4.0",
  "solana-define-syscall 4.0.1",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -4191,7 +4191,7 @@ dependencies = [
  "solana-sysvar",
  "solana-sysvar-id",
  "solana-transaction-context",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -4246,7 +4246,7 @@ dependencies = [
  "log",
  "rand 0.8.8",
  "rustc-demangle",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "winapi",
 ]
 
@@ -4279,7 +4279,7 @@ checksum = "ce0d2e8d53946f04e789476d6c407e4997b7fb412483df5fc10c075c65cb2edf"
 dependencies = [
  "k256",
  "solana-define-syscall 5.2.0",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -4558,7 +4558,7 @@ dependencies = [
  "solana-sysvar",
  "solana-sysvar-id",
  "solana-transaction-context",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -4802,7 +4802,7 @@ dependencies = [
  "solana-signature",
  "solana-signer",
  "subtle",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "zeroize",
 ]
 
@@ -4876,7 +4876,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "smallvec",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "tokio-stream",
  "tracing",
@@ -4960,7 +4960,7 @@ dependencies = [
  "smallvec",
  "sqlx-core",
  "stringprep",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tracing",
  "whoami",
 ]
@@ -4998,7 +4998,7 @@ dependencies = [
  "smallvec",
  "sqlx-core",
  "stringprep",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tracing",
  "whoami",
 ]
@@ -5023,7 +5023,7 @@ dependencies = [
  "serde",
  "serde_urlencoded",
  "sqlx-core",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tracing",
  "url",
 ]
@@ -5133,11 +5133,11 @@ dependencies = [
 
 [[package]]
 name = "thiserror"
-version = "2.0.20"
+version = "2.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ec86235f5fcc2a73650310756d2ac5b138a5780bbbdfae3eeccec992c435ba4f"
+checksum = "09e52cb86a36cede5cb101bf8908837b3e4c6e5e59fe7fd85c23fb56200d189e"
 dependencies = [
- "thiserror-impl 2.0.20",
+ "thiserror-impl 2.0.21",
 ]
 
 [[package]]
@@ -5153,9 +5153,9 @@ dependencies = [
 
 [[package]]
 name = "thiserror-impl"
-version = "2.0.20"
+version = "2.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc04cd3e1236dd4a98afca4569f2deb3f120e5422a4023be2cb683f8486292af"
+checksum = "fe5197923287db20a58125f0bc85c062f7f2c892de97b18c356f9efb14b28524"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5676,7 +5676,7 @@ dependencies = [
  "pastey",
  "proc-macro2",
  "quote",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "wincode-derive 0.4.6",
 ]
 
@@ -5689,7 +5689,7 @@ dependencies = [
  "pastey",
  "proc-macro2",
  "quote",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "wincode-derive 0.5.1",
 ]
 
