@@ -41,7 +41,7 @@ arb-paper = { path = "crates/arb-paper" }
 arb-engine = { path = "crates/arb-engine" }
 arb-registry = { path = "crates/arb-registry" }
 axum = { version = "=0.8.9", default-features = false, features = ["http1", "tokio"] }
-tokio = { version = "=1.53.1", default-features = false, features = ["macros", "rt", "net", "signal"] }
+tokio = { version = "=1.53.2", default-features = false, features = ["macros", "rt", "net", "signal"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
