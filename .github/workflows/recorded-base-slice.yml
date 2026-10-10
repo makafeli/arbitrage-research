@@ -28,7 +28,7 @@ jobs:
       - run: python3 scripts/test_recorded_base_slice.py -v
       - run: python3 scripts/test_operator_base_evidence.py -v
       - run: python3 scripts/test_inspect_pool_candidates.py -v
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: '24'
       - run: node --check apps/web/scripts/recorded-slice-browser.mjs
@@ -60,7 +60,7 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: '24'
       - name: Build the unchanged research binaries and real dashboard without provider secrets
