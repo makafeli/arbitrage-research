@@ -38,7 +38,7 @@ jobs:
           cargo run --locked -p arb-scheduler --example timing_profile > timing-evidence/profile.json
           cd timing-evidence
           sha256sum profile.json host.json SOURCE_COMMIT rust-toolchain.txt > SHA256SUMS
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: scheduler-timing-evidence
           path: timing-evidence/
