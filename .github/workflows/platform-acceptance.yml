@@ -79,7 +79,7 @@ jobs:
                   entries.append(hashlib.sha256(file.read_bytes()).hexdigest() + '  ' + name + '\n')
           (root / 'SHA256SUMS').write_text(''.join(entries))
           PYCODE
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
           name: platform-contract-evidence

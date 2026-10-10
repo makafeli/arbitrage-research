@@ -54,7 +54,7 @@ jobs:
           git rev-parse HEAD > "$RUNNER_TEMP/registry-observation/SOURCE_COMMIT"
           cd "$RUNNER_TEMP/registry-observation"
           sha256sum ./*.json > SHA256SUMS
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: registry-observation
           path: ${{ runner.temp }}/registry-observation/
